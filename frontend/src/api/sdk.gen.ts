@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreatePlanData, CreatePlanErrors, CreatePlanResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
+import type { AddItemData, AddItemErrors, AddItemResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -99,6 +99,8 @@ export const deletePlan = <ThrowOnError extends boolean = false>(options: Option
 
 /**
  * Get Plan
+ *
+ * The plan with its itinerary items (sorted by start).
  */
 export const getPlan = <ThrowOnError extends boolean = false>(options: Options<GetPlanData, ThrowOnError>): RequestResult<GetPlanResponses, GetPlanErrors, ThrowOnError> => (options.client ?? client).get<GetPlanResponses, GetPlanErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -119,4 +121,67 @@ export const updatePlan = <ThrowOnError extends boolean = false>(options: Option
         'Content-Type': 'application/json',
         ...options.headers
     }
+});
+
+/**
+ * List Items
+ *
+ * The plan's itinerary items, sorted by start time.
+ */
+export const listItems = <ThrowOnError extends boolean = false>(options: Options<ListItemsData, ThrowOnError>): RequestResult<ListItemsResponses, ListItemsErrors, ThrowOnError> => (options.client ?? client).get<ListItemsResponses, ListItemsErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/items',
+    ...options
+});
+
+/**
+ * Add Item
+ *
+ * Add an item; bumps the plan `version`.
+ */
+export const addItem = <ThrowOnError extends boolean = false>(options: Options<AddItemData, ThrowOnError>): RequestResult<AddItemResponses, AddItemErrors, ThrowOnError> => (options.client ?? client).post<AddItemResponses, AddItemErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/items',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Remove Item
+ *
+ * Delete an item; bumps the plan `version`.
+ */
+export const removeItem = <ThrowOnError extends boolean = false>(options: Options<RemoveItemData, ThrowOnError>): RequestResult<RemoveItemResponses, RemoveItemErrors, ThrowOnError> => (options.client ?? client).delete<RemoveItemResponses, RemoveItemErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/items/{item_id}',
+    ...options
+});
+
+/**
+ * Update Item
+ *
+ * Apply a partial update (`type` must match the item); bumps the plan `version`.
+ */
+export const updateItem = <ThrowOnError extends boolean = false>(options: Options<UpdateItemData, ThrowOnError>): RequestResult<UpdateItemResponses, UpdateItemErrors, ThrowOnError> => (options.client ?? client).patch<UpdateItemResponses, UpdateItemErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/items/{item_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get Timeline
+ *
+ * Day columns, lodging bars and warnings derived from the plan's items.
+ */
+export const getTimeline = <ThrowOnError extends boolean = false>(options: Options<GetTimelineData, ThrowOnError>): RequestResult<GetTimelineResponses, GetTimelineErrors, ThrowOnError> => (options.client ?? client).get<GetTimelineResponses, GetTimelineErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/timeline',
+    ...options
 });

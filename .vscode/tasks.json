@@ -1,0 +1,40 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            // Background task used as the preLaunchTask of "UI: Debug" in launch.json.
+            "label": "ui: vite dev server",
+            "type": "npm",
+            "script": "dev",
+            "path": "frontend",
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "vite",
+                // Vite reports no file diagnostics here; the pattern only satisfies the schema.
+                "pattern": { "regexp": "^__never_matches__$" },
+                "background": {
+                    "activeBegins": true,
+                    "beginsPattern": "VITE v\\d",
+                    "endsPattern": "Local:\\s+http"
+                }
+            }
+        },
+        {
+            // postDebugTask of "UI: Debug". Resolving the input below runs the terminate command
+            // against the Vite task; the echo itself is just a no-op carrier for it.
+            "label": "ui: stop vite dev server",
+            "type": "shell",
+            "command": "echo ${input:terminateVite}",
+            "presentation": { "reveal": "never" },
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "terminateVite",
+            "type": "command",
+            "command": "workbench.action.tasks.terminate",
+            "args": "ui: vite dev server"
+        }
+    ]
+}

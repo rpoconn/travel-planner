@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from features.itinerary.schemas import ItineraryItem
 from shared.domain import Money, Place, Travelers
 
 # ---------------------------------------------------------------------------
@@ -92,8 +93,8 @@ class PlanSummary(BaseModel):
     updated_at: datetime
 
 
-class TravelPlan(BaseModel):
-    """Full plan. Itinerary `items` are added in Phase 2."""
+class PlanDetails(BaseModel):
+    """Plan-level fields, read straight off the ORM row."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -111,3 +112,10 @@ class TravelPlan(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+
+
+class TravelPlan(PlanDetails):
+    """Full plan snapshot including its itinerary; built by `itinerary.service.snapshot`,
+    which owns the items."""
+
+    items: list[ItineraryItem]  # sorted by start

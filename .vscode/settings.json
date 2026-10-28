@@ -1,0 +1,4 @@
+{
+    // The project's scripts and docs assume bash; on Windows that's Git Bash.
+    "terminal.integrated.defaultProfile.windows": "Git Bash"
+}

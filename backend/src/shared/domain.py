@@ -1,4 +1,4 @@
-"""Value objects used by more than one feature (plans now, itinerary items in Phase 2).
+"""Value objects shared across features (plans and itinerary items).
 
 These are embedded values (stored as JSON columns), not request/response schemas.
 """

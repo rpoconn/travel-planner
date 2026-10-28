@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 
 from features.auth.dependencies import CurrentUser
+from features.itinerary import service as itinerary_service
 from features.plans import service
 from features.plans.schemas import PlanCreate, PlanSummary, PlanUpdate, TravelPlan
 from shared.db import SessionDep
@@ -31,16 +32,16 @@ async def list_plans(user: CurrentUser, session: SessionDep) -> list[PlanSummary
 @router.post("", operation_id="createPlan", status_code=status.HTTP_201_CREATED)
 async def create_plan(body: PlanCreate, user: CurrentUser, session: SessionDep) -> TravelPlan:
     plan = await service.create_plan(session, user.id, body)
-    return TravelPlan.model_validate(plan)
+    return await itinerary_service.snapshot(session, plan)
 
 
 @router.get("/{plan_id}", operation_id="getPlan", responses=_NOT_FOUND)
 async def get_plan(plan_id: UUID, user: CurrentUser, session: SessionDep) -> TravelPlan:
+    """The plan with its itinerary items (sorted by start)."""
     try:
-        plan = await service.get_plan(session, user.id, plan_id)
+        return await itinerary_service.get_plan_snapshot(session, user.id, plan_id)
     except service.PlanNotFoundError as exc:
         raise _not_found() from exc
-    return TravelPlan.model_validate(plan)
 
 
 @router.patch(
@@ -60,7 +61,7 @@ async def update_plan(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
-    return TravelPlan.model_validate(plan)
+    return await itinerary_service.snapshot(session, plan)
 
 
 @router.delete(

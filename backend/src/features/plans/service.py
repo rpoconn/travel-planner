@@ -52,6 +52,13 @@ async def get_plan(session: AsyncSession, user_id: UUID, plan_id: UUID) -> Plan:
 # ---------------------------------------------------------------------------
 
 
+def mark_changed(plan: Plan) -> None:
+    """Bump `version` and `updated_at`; called for plan edits and every itinerary item
+    mutation (the caller commits)."""
+    plan.version += 1
+    plan.updated_at = utc_now()
+
+
 async def create_plan(session: AsyncSession, user_id: UUID, data: PlanCreate) -> Plan:
     plan = Plan(
         user_id=user_id,
@@ -77,8 +84,7 @@ async def update_plan(
 
     for name in patch.model_fields_set:
         setattr(plan, name, _column_value(getattr(patch, name)))
-    plan.version += 1
-    plan.updated_at = utc_now()
+    mark_changed(plan)
     await session.commit()
     return plan
 

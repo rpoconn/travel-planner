@@ -28,7 +28,7 @@ class Plan(Base):
     travelers: Mapped[dict[str, Any]] = mapped_column(JSON)
     budget: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     notes: Mapped[str] = mapped_column(Text, default="")
-    # Bumped on every mutation (plan details now, itinerary items from Phase 2) so the UI
+    # Bumped on every mutation (plan details and itinerary items) so the UI
     # can tell when its cached copy is stale.
     version: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)

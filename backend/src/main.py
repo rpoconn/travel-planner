@@ -14,6 +14,7 @@ from fastapi.routing import APIRoute
 from features.auth.router import router as auth_router
 from features.health.router import API_VERSION
 from features.health.router import router as health_router
+from features.itinerary.router import router as itinerary_router
 from features.plans.router import router as plans_router
 from shared.config import Settings, get_settings
 from shared.db import create_engine, create_sessionmaker, init_db
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(plans_router)
+    app.include_router(itinerary_router)
 
     logger.info(
         "App created (environment=%s, model=%s)", settings.environment, settings.ollama_model

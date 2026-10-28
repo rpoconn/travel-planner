@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 import pytest
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from main import create_app
@@ -23,8 +24,12 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
-    app = create_app(settings)
+def app(settings: Settings) -> FastAPI:
+    return create_app(settings)
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     # httpx's ASGITransport doesn't send lifespan events, so run startup/shutdown ourselves.
     async with (
         app.router.lifespan_context(app),

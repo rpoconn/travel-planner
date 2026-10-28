@@ -269,6 +269,7 @@
           "plans"
         ],
         "summary": "Get Plan",
+        "description": "The plan with its itinerary items (sorted by start).",
         "operationId": "getPlan",
         "security": [
           {
@@ -466,10 +467,962 @@
           }
         }
       }
+    },
+    "/plans/{plan_id}/items": {
+      "get": {
+        "tags": [
+          "itinerary"
+        ],
+        "summary": "List Items",
+        "description": "The plan's itinerary items, sorted by start time.",
+        "operationId": "listItems",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/FlightItem"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LodgingItem"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ActivityItem"
+                      },
+                      {
+                        "$ref": "#/components/schemas/TransferItem"
+                      }
+                    ],
+                    "discriminator": {
+                      "propertyName": "type",
+                      "mapping": {
+                        "flight": "#/components/schemas/FlightItem",
+                        "lodging": "#/components/schemas/LodgingItem",
+                        "activity": "#/components/schemas/ActivityItem",
+                        "transfer": "#/components/schemas/TransferItem"
+                      }
+                    }
+                  },
+                  "title": "Response Listitems"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "itinerary"
+        ],
+        "summary": "Add Item",
+        "description": "Add an item; bumps the plan `version`.",
+        "operationId": "addItem",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/FlightItemCreate"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LodgingItemCreate"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ActivityItemCreate"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TransferItemCreate"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "type",
+                  "mapping": {
+                    "flight": "#/components/schemas/FlightItemCreate",
+                    "lodging": "#/components/schemas/LodgingItemCreate",
+                    "activity": "#/components/schemas/ActivityItemCreate",
+                    "transfer": "#/components/schemas/TransferItemCreate"
+                  }
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FlightItem"
+                    },
+                    {
+                      "$ref": "#/components/schemas/LodgingItem"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ActivityItem"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TransferItem"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "type",
+                    "mapping": {
+                      "flight": "#/components/schemas/FlightItem",
+                      "lodging": "#/components/schemas/LodgingItem",
+                      "activity": "#/components/schemas/ActivityItem",
+                      "transfer": "#/components/schemas/TransferItem"
+                    }
+                  },
+                  "title": "Response Additem"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/items/{item_id}": {
+      "patch": {
+        "tags": [
+          "itinerary"
+        ],
+        "summary": "Update Item",
+        "description": "Apply a partial update (`type` must match the item); bumps the plan `version`.",
+        "operationId": "updateItem",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/FlightItemPatch"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LodgingItemPatch"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ActivityItemPatch"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TransferItemPatch"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "type",
+                  "mapping": {
+                    "flight": "#/components/schemas/FlightItemPatch",
+                    "lodging": "#/components/schemas/LodgingItemPatch",
+                    "activity": "#/components/schemas/ActivityItemPatch",
+                    "transfer": "#/components/schemas/TransferItemPatch"
+                  }
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FlightItem"
+                    },
+                    {
+                      "$ref": "#/components/schemas/LodgingItem"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ActivityItem"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TransferItem"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "type",
+                    "mapping": {
+                      "flight": "#/components/schemas/FlightItem",
+                      "lodging": "#/components/schemas/LodgingItem",
+                      "activity": "#/components/schemas/ActivityItem",
+                      "transfer": "#/components/schemas/TransferItem"
+                    }
+                  },
+                  "title": "Response Updateitem"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "itinerary"
+        ],
+        "summary": "Remove Item",
+        "description": "Delete an item; bumps the plan `version`.",
+        "operationId": "removeItem",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/timeline": {
+      "get": {
+        "tags": [
+          "itinerary"
+        ],
+        "summary": "Get Timeline",
+        "description": "Day columns, lodging bars and warnings derived from the plan's items.",
+        "operationId": "getTimeline",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Timeline"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActivityItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Plan Id"
+          },
+          "created_by": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Created By"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "confirmed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "proposed"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "const": "activity",
+            "title": "Type"
+          },
+          "place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "sightseeing",
+              "food",
+              "tour",
+              "museum",
+              "outdoors",
+              "nightlife",
+              "shopping",
+              "relax",
+              "other"
+            ],
+            "title": "Category"
+          },
+          "booking_required": {
+            "type": "boolean",
+            "title": "Booking Required",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "created_by",
+          "title",
+          "start",
+          "end",
+          "timezone",
+          "end_timezone",
+          "status",
+          "cost",
+          "booking_ref",
+          "source_url",
+          "notes",
+          "type",
+          "place",
+          "category",
+          "booking_required"
+        ],
+        "title": "ActivityItem"
+      },
+      "ActivityItemCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "confirmed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "proposed"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "const": "activity",
+            "title": "Type"
+          },
+          "place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "sightseeing",
+              "food",
+              "tour",
+              "museum",
+              "outdoors",
+              "nightlife",
+              "shopping",
+              "relax",
+              "other"
+            ],
+            "title": "Category"
+          },
+          "booking_required": {
+            "type": "boolean",
+            "title": "Booking Required",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "start",
+          "end",
+          "timezone",
+          "type",
+          "place",
+          "category"
+        ],
+        "title": "ActivityItemCreate"
+      },
+      "ActivityItemPatch": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "proposed",
+                  "confirmed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "type": {
+            "type": "string",
+            "const": "activity",
+            "title": "Type"
+          },
+          "place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "sightseeing",
+                  "food",
+                  "tour",
+                  "museum",
+                  "outdoors",
+                  "nightlife",
+                  "shopping",
+                  "relax",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "booking_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Required"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "ActivityItemPatch"
+      },
       "ErrorResponse": {
         "properties": {
           "detail": {
@@ -483,6 +1436,577 @@
         ],
         "title": "ErrorResponse",
         "description": "Body of every `HTTPException` raised by the API."
+      },
+      "FlightItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Plan Id"
+          },
+          "created_by": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Created By"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "confirmed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "proposed"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "const": "flight",
+            "title": "Type"
+          },
+          "carrier": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Carrier"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "from_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "to_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "cabin": {
+            "type": "string",
+            "enum": [
+              "economy",
+              "premium",
+              "business",
+              "first"
+            ],
+            "title": "Cabin",
+            "default": "economy"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "outbound",
+              "return",
+              "internal"
+            ],
+            "title": "Direction"
+          },
+          "layovers": {
+            "items": {
+              "$ref": "#/components/schemas/Place"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "title": "Layovers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "created_by",
+          "title",
+          "start",
+          "end",
+          "timezone",
+          "end_timezone",
+          "status",
+          "cost",
+          "booking_ref",
+          "source_url",
+          "notes",
+          "type",
+          "carrier",
+          "flight_number",
+          "from_place",
+          "to_place",
+          "cabin",
+          "direction",
+          "layovers"
+        ],
+        "title": "FlightItem"
+      },
+      "FlightItemCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "confirmed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "proposed"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "const": "flight",
+            "title": "Type"
+          },
+          "carrier": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Carrier"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "from_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "to_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "cabin": {
+            "type": "string",
+            "enum": [
+              "economy",
+              "premium",
+              "business",
+              "first"
+            ],
+            "title": "Cabin",
+            "default": "economy"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "outbound",
+              "return",
+              "internal"
+            ],
+            "title": "Direction"
+          },
+          "layovers": {
+            "items": {
+              "$ref": "#/components/schemas/Place"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "title": "Layovers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "start",
+          "end",
+          "timezone",
+          "type",
+          "carrier",
+          "from_place",
+          "to_place",
+          "direction"
+        ],
+        "title": "FlightItemCreate"
+      },
+      "FlightItemPatch": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "proposed",
+                  "confirmed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "type": {
+            "type": "string",
+            "const": "flight",
+            "title": "Type"
+          },
+          "carrier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carrier"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          },
+          "from_place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to_place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cabin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "economy",
+                  "premium",
+                  "business",
+                  "first"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cabin"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "outbound",
+                  "return",
+                  "internal"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "layovers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Place"
+                },
+                "type": "array",
+                "maxItems": 5
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layovers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "FlightItemPatch"
       },
       "HTTPValidationError": {
         "properties": {
@@ -515,6 +2039,525 @@
           "version"
         ],
         "title": "HealthResponse"
+      },
+      "LodgingItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Plan Id"
+          },
+          "created_by": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Created By"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "confirmed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "proposed"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "const": "lodging",
+            "title": "Type"
+          },
+          "place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "room_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Type"
+          },
+          "nightly_rate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hotel",
+              "hostel",
+              "rental",
+              "resort",
+              "other"
+            ],
+            "title": "Kind",
+            "default": "hotel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "created_by",
+          "title",
+          "start",
+          "end",
+          "timezone",
+          "end_timezone",
+          "status",
+          "cost",
+          "booking_ref",
+          "source_url",
+          "notes",
+          "type",
+          "place",
+          "room_type",
+          "nightly_rate",
+          "kind"
+        ],
+        "title": "LodgingItem"
+      },
+      "LodgingItemCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "confirmed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "proposed"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "const": "lodging",
+            "title": "Type"
+          },
+          "place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "room_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Type"
+          },
+          "nightly_rate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hotel",
+              "hostel",
+              "rental",
+              "resort",
+              "other"
+            ],
+            "title": "Kind",
+            "default": "hotel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "start",
+          "end",
+          "timezone",
+          "type",
+          "place"
+        ],
+        "title": "LodgingItemCreate",
+        "description": "`start` is check-in, `end` is check-out."
+      },
+      "LodgingItemPatch": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "proposed",
+                  "confirmed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "type": {
+            "type": "string",
+            "const": "lodging",
+            "title": "Type"
+          },
+          "place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "room_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Type"
+          },
+          "nightly_rate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "hotel",
+                  "hostel",
+                  "rental",
+                  "resort",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "LodgingItemPatch"
+      },
+      "LodgingSpan": {
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/LodgingItem"
+          },
+          "start_day_index": {
+            "type": "integer",
+            "title": "Start Day Index"
+          },
+          "end_day_index": {
+            "type": "integer",
+            "title": "End Day Index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item",
+          "start_day_index",
+          "end_day_index"
+        ],
+        "title": "LodgingSpan",
+        "description": "One continuous bar from the check-in day to the check-out day (inclusive indices)."
       },
       "LoginRequest": {
         "properties": {
@@ -972,6 +3015,164 @@
         ],
         "title": "RegisterRequest"
       },
+      "Timeline": {
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Plan Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineDay"
+            },
+            "type": "array",
+            "title": "Days"
+          },
+          "lodging": {
+            "items": {
+              "$ref": "#/components/schemas/LodgingSpan"
+            },
+            "type": "array",
+            "title": "Lodging"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan_id",
+          "version",
+          "days",
+          "lodging",
+          "warnings"
+        ],
+        "title": "Timeline"
+      },
+      "TimelineDay": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntry"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "date",
+          "entries"
+        ],
+        "title": "TimelineDay"
+      },
+      "TimelineEntry": {
+        "properties": {
+          "item": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FlightItem"
+              },
+              {
+                "$ref": "#/components/schemas/ActivityItem"
+              },
+              {
+                "$ref": "#/components/schemas/TransferItem"
+              }
+            ],
+            "title": "Item",
+            "discriminator": {
+              "propertyName": "type",
+              "mapping": {
+                "activity": "#/components/schemas/ActivityItem",
+                "flight": "#/components/schemas/FlightItem",
+                "transfer": "#/components/schemas/TransferItem"
+              }
+            }
+          },
+          "continues_from_previous_day": {
+            "type": "boolean",
+            "title": "Continues From Previous Day"
+          },
+          "continues_to_next_day": {
+            "type": "boolean",
+            "title": "Continues To Next Day"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item",
+          "continues_from_previous_day",
+          "continues_to_next_day"
+        ],
+        "title": "TimelineEntry",
+        "description": "A card on one day. Items spanning midnight appear on every day they touch."
+      },
+      "TimelineWarning": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "no_lodging",
+              "overlap",
+              "missing_transfer",
+              "outside_trip"
+            ],
+            "title": "Kind"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "item_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Item Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "message",
+          "date",
+          "item_ids"
+        ],
+        "title": "TimelineWarning"
+      },
       "TokenResponse": {
         "properties": {
           "access_token": {
@@ -999,6 +3200,561 @@
           "user"
         ],
         "title": "TokenResponse"
+      },
+      "TransferItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Plan Id"
+          },
+          "created_by": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Created By"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "confirmed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "proposed"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "const": "transfer",
+            "title": "Type"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "car_rental",
+              "taxi",
+              "rideshare",
+              "train",
+              "bus",
+              "ferry",
+              "shuttle",
+              "walk",
+              "metro"
+            ],
+            "title": "Mode"
+          },
+          "from_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "to_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "pickup_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dropoff_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "created_by",
+          "title",
+          "start",
+          "end",
+          "timezone",
+          "end_timezone",
+          "status",
+          "cost",
+          "booking_ref",
+          "source_url",
+          "notes",
+          "type",
+          "mode",
+          "from_place",
+          "to_place",
+          "provider",
+          "pickup_location",
+          "dropoff_location"
+        ],
+        "title": "TransferItem"
+      },
+      "TransferItemCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "confirmed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "proposed"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Notes",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "const": "transfer",
+            "title": "Type"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "car_rental",
+              "taxi",
+              "rideshare",
+              "train",
+              "bus",
+              "ferry",
+              "shuttle",
+              "walk",
+              "metro"
+            ],
+            "title": "Mode"
+          },
+          "from_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "to_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "pickup_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dropoff_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "start",
+          "end",
+          "timezone",
+          "type",
+          "mode",
+          "from_place",
+          "to_place"
+        ],
+        "title": "TransferItemCreate"
+      },
+      "TransferItemPatch": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "end_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Timezone"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "proposed",
+                  "confirmed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "type": {
+            "type": "string",
+            "const": "transfer",
+            "title": "Type"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "car_rental",
+                  "taxi",
+                  "rideshare",
+                  "train",
+                  "bus",
+                  "ferry",
+                  "shuttle",
+                  "walk",
+                  "metro"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "from_place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to_place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "pickup_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dropoff_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "TransferItemPatch"
       },
       "TravelPlan": {
         "properties": {
@@ -1099,6 +3855,35 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "items": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FlightItem"
+                },
+                {
+                  "$ref": "#/components/schemas/LodgingItem"
+                },
+                {
+                  "$ref": "#/components/schemas/ActivityItem"
+                },
+                {
+                  "$ref": "#/components/schemas/TransferItem"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "activity": "#/components/schemas/ActivityItem",
+                  "flight": "#/components/schemas/FlightItem",
+                  "lodging": "#/components/schemas/LodgingItem",
+                  "transfer": "#/components/schemas/TransferItem"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Items"
           }
         },
         "type": "object",
@@ -1116,10 +3901,11 @@
           "notes",
           "version",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "items"
         ],
         "title": "TravelPlan",
-        "description": "Full plan. Itinerary `items` are added in Phase 2."
+        "description": "Full plan snapshot including its itinerary; built by `itinerary.service.snapshot`,\nwhich owns the items."
       },
       "Travelers": {
         "properties": {

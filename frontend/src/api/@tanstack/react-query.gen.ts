@@ -3,8 +3,8 @@
 import { type DefaultError, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { createPlan, deletePlan, getHealth, getMe, getPlan, listPlans, login, type Options, register, updatePlan } from '../sdk.gen';
-import type { CreatePlanData, CreatePlanError, CreatePlanResponse, DeletePlanData, DeletePlanError, DeletePlanResponse, GetHealthData, GetHealthResponse, GetMeData, GetMeError, GetMeResponse, GetPlanData, GetPlanError, GetPlanResponse, ListPlansData, ListPlansError, ListPlansResponse, LoginData, LoginError, LoginResponse, RegisterData, RegisterError, RegisterResponse, UpdatePlanData, UpdatePlanError, UpdatePlanResponse } from '../types.gen';
+import { addItem, createPlan, deletePlan, getHealth, getMe, getPlan, getTimeline, listItems, listPlans, login, type Options, register, removeItem, updateItem, updatePlan } from '../sdk.gen';
+import type { AddItemData, AddItemError, AddItemResponse, CreatePlanData, CreatePlanError, CreatePlanResponse, DeletePlanData, DeletePlanError, DeletePlanResponse, GetHealthData, GetHealthResponse, GetMeData, GetMeError, GetMeResponse, GetPlanData, GetPlanError, GetPlanResponse, GetTimelineData, GetTimelineError, GetTimelineResponse, ListItemsData, ListItemsError, ListItemsResponse, ListPlansData, ListPlansError, ListPlansResponse, LoginData, LoginError, LoginResponse, RegisterData, RegisterError, RegisterResponse, RemoveItemData, RemoveItemError, RemoveItemResponse, UpdateItemData, UpdateItemError, UpdateItemResponse, UpdatePlanData, UpdatePlanError, UpdatePlanResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -175,6 +175,8 @@ export const getPlanQueryKey = (options: Options<GetPlanData>) => createQueryKey
 
 /**
  * Get Plan
+ *
+ * The plan with its itinerary items (sorted by start).
  */
 export const getPlanOptions = (options: Options<GetPlanData>) => queryOptions<GetPlanResponse, GetPlanError, GetPlanResponse, ReturnType<typeof getPlanQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -207,3 +209,100 @@ export const updatePlanMutation = (options?: Partial<Options<UpdatePlanData>>): 
     };
     return mutationOptions;
 };
+
+export const listItemsQueryKey = (options: Options<ListItemsData>) => createQueryKey('listItems', options);
+
+/**
+ * List Items
+ *
+ * The plan's itinerary items, sorted by start time.
+ */
+export const listItemsOptions = (options: Options<ListItemsData>) => queryOptions<ListItemsResponse, ListItemsError, ListItemsResponse, ReturnType<typeof listItemsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listItems({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listItemsQueryKey(options)
+});
+
+/**
+ * Add Item
+ *
+ * Add an item; bumps the plan `version`.
+ */
+export const addItemMutation = (options?: Partial<Options<AddItemData>>): UseMutationOptions<AddItemResponse, AddItemError, Options<AddItemData>> => {
+    const mutationOptions: UseMutationOptions<AddItemResponse, AddItemError, Options<AddItemData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await addItem({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Remove Item
+ *
+ * Delete an item; bumps the plan `version`.
+ */
+export const removeItemMutation = (options?: Partial<Options<RemoveItemData>>): UseMutationOptions<RemoveItemResponse, RemoveItemError, Options<RemoveItemData>> => {
+    const mutationOptions: UseMutationOptions<RemoveItemResponse, RemoveItemError, Options<RemoveItemData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await removeItem({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Update Item
+ *
+ * Apply a partial update (`type` must match the item); bumps the plan `version`.
+ */
+export const updateItemMutation = (options?: Partial<Options<UpdateItemData>>): UseMutationOptions<UpdateItemResponse, UpdateItemError, Options<UpdateItemData>> => {
+    const mutationOptions: UseMutationOptions<UpdateItemResponse, UpdateItemError, Options<UpdateItemData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await updateItem({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const getTimelineQueryKey = (options: Options<GetTimelineData>) => createQueryKey('getTimeline', options);
+
+/**
+ * Get Timeline
+ *
+ * Day columns, lodging bars and warnings derived from the plan's items.
+ */
+export const getTimelineOptions = (options: Options<GetTimelineData>) => queryOptions<GetTimelineResponse, GetTimelineError, GetTimelineResponse, ReturnType<typeof getTimelineQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getTimeline({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getTimelineQueryKey(options)
+});

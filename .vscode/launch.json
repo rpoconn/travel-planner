@@ -1,0 +1,71 @@
+{
+    // "Start" configs run without the debugger attached (noDebug); "Debug" configs attach it.
+    // Pick one from the Run and Debug view, or use the "Full Stack" compounds to run both.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Backend: Start",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": ["main:app", "--app-dir", "src", "--reload", "--port", "8000"],
+            "cwd": "${workspaceFolder}/backend",
+            "python": "${workspaceFolder}/backend/.venv/bin/python",
+            "windows": {
+                "python": "${workspaceFolder}/backend/.venv/Scripts/python.exe"
+            },
+            "envFile": "${workspaceFolder}/.env",
+            "console": "integratedTerminal",
+            "noDebug": true
+        },
+        {
+            "name": "Backend: Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            // No --reload: the reloader runs the app in a child process that it restarts on
+            // every save, which detaches breakpoints. Restart the session (Ctrl+Shift+F5) instead.
+            "args": ["main:app", "--app-dir", "src", "--port", "8000"],
+            "cwd": "${workspaceFolder}/backend",
+            "python": "${workspaceFolder}/backend/.venv/bin/python",
+            "windows": {
+                "python": "${workspaceFolder}/backend/.venv/Scripts/python.exe"
+            },
+            "envFile": "${workspaceFolder}/.env",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "UI: Start",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "dev"],
+            "cwd": "${workspaceFolder}/frontend",
+            "console": "integratedTerminal",
+            "noDebug": true
+        },
+        {
+            "name": "UI: Debug",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://localhost:5173",
+            "webRoot": "${workspaceFolder}/frontend",
+            // Starts Vite in the background and waits until it reports ready.
+            "preLaunchTask": "ui: vite dev server",
+            "postDebugTask": "ui: stop vite dev server"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Full Stack: Start",
+            "configurations": ["Backend: Start", "UI: Start"],
+            "stopAll": true
+        },
+        {
+            "name": "Full Stack: Debug",
+            "configurations": ["Backend: Debug", "UI: Debug"],
+            "stopAll": true
+        }
+    ]
+}

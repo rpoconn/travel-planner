@@ -5,6 +5,186 @@ export type ClientOptions = {
 };
 
 /**
+ * ActivityItem
+ */
+export type ActivityItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Plan Id
+     */
+    plan_id: string;
+    /**
+     * Created By
+     */
+    created_by: 'user' | 'assistant';
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+    /**
+     * End Timezone
+     */
+    end_timezone: string | null;
+    /**
+     * Status
+     */
+    status: 'proposed' | 'confirmed' | 'cancelled';
+    cost: MoneyOutput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref: string | null;
+    /**
+     * Source Url
+     */
+    source_url: string | null;
+    /**
+     * Notes
+     */
+    notes: string;
+    /**
+     * Type
+     */
+    type: 'activity';
+    place: Place;
+    /**
+     * Category
+     */
+    category: 'sightseeing' | 'food' | 'tour' | 'museum' | 'outdoors' | 'nightlife' | 'shopping' | 'relax' | 'other';
+    /**
+     * Booking Required
+     */
+    booking_required: boolean;
+};
+
+/**
+ * ActivityItemCreate
+ */
+export type ActivityItemCreate = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+    /**
+     * End Timezone
+     */
+    end_timezone?: string | null;
+    /**
+     * Status
+     */
+    status?: 'proposed' | 'confirmed' | 'cancelled';
+    cost?: MoneyInput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref?: string | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string;
+    /**
+     * Type
+     */
+    type: 'activity';
+    place: Place;
+    /**
+     * Category
+     */
+    category: 'sightseeing' | 'food' | 'tour' | 'museum' | 'outdoors' | 'nightlife' | 'shopping' | 'relax' | 'other';
+    /**
+     * Booking Required
+     */
+    booking_required?: boolean;
+};
+
+/**
+ * ActivityItemPatch
+ */
+export type ActivityItemPatch = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Start
+     */
+    start?: string | null;
+    /**
+     * End
+     */
+    end?: string | null;
+    /**
+     * Timezone
+     */
+    timezone?: string | null;
+    /**
+     * End Timezone
+     */
+    end_timezone?: string | null;
+    /**
+     * Status
+     */
+    status?: 'proposed' | 'confirmed' | 'cancelled' | null;
+    cost?: MoneyInput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref?: string | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Type
+     */
+    type: 'activity';
+    place?: Place | null;
+    /**
+     * Category
+     */
+    category?: 'sightseeing' | 'food' | 'tour' | 'museum' | 'outdoors' | 'nightlife' | 'shopping' | 'relax' | 'other' | null;
+    /**
+     * Booking Required
+     */
+    booking_required?: boolean | null;
+};
+
+/**
  * ErrorResponse
  *
  * Body of every `HTTPException` raised by the API.
@@ -14,6 +194,225 @@ export type ErrorResponse = {
      * Detail
      */
     detail: string;
+};
+
+/**
+ * FlightItem
+ */
+export type FlightItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Plan Id
+     */
+    plan_id: string;
+    /**
+     * Created By
+     */
+    created_by: 'user' | 'assistant';
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+    /**
+     * End Timezone
+     */
+    end_timezone: string | null;
+    /**
+     * Status
+     */
+    status: 'proposed' | 'confirmed' | 'cancelled';
+    cost: MoneyOutput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref: string | null;
+    /**
+     * Source Url
+     */
+    source_url: string | null;
+    /**
+     * Notes
+     */
+    notes: string;
+    /**
+     * Type
+     */
+    type: 'flight';
+    /**
+     * Carrier
+     */
+    carrier: string;
+    /**
+     * Flight Number
+     */
+    flight_number: string | null;
+    from_place: Place;
+    to_place: Place;
+    /**
+     * Cabin
+     */
+    cabin: 'economy' | 'premium' | 'business' | 'first';
+    /**
+     * Direction
+     */
+    direction: 'outbound' | 'return' | 'internal';
+    /**
+     * Layovers
+     */
+    layovers: Array<Place>;
+};
+
+/**
+ * FlightItemCreate
+ */
+export type FlightItemCreate = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+    /**
+     * End Timezone
+     */
+    end_timezone?: string | null;
+    /**
+     * Status
+     */
+    status?: 'proposed' | 'confirmed' | 'cancelled';
+    cost?: MoneyInput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref?: string | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string;
+    /**
+     * Type
+     */
+    type: 'flight';
+    /**
+     * Carrier
+     */
+    carrier: string;
+    /**
+     * Flight Number
+     */
+    flight_number?: string | null;
+    from_place: Place;
+    to_place: Place;
+    /**
+     * Cabin
+     */
+    cabin?: 'economy' | 'premium' | 'business' | 'first';
+    /**
+     * Direction
+     */
+    direction: 'outbound' | 'return' | 'internal';
+    /**
+     * Layovers
+     */
+    layovers?: Array<Place>;
+};
+
+/**
+ * FlightItemPatch
+ */
+export type FlightItemPatch = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Start
+     */
+    start?: string | null;
+    /**
+     * End
+     */
+    end?: string | null;
+    /**
+     * Timezone
+     */
+    timezone?: string | null;
+    /**
+     * End Timezone
+     */
+    end_timezone?: string | null;
+    /**
+     * Status
+     */
+    status?: 'proposed' | 'confirmed' | 'cancelled' | null;
+    cost?: MoneyInput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref?: string | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Type
+     */
+    type: 'flight';
+    /**
+     * Carrier
+     */
+    carrier?: string | null;
+    /**
+     * Flight Number
+     */
+    flight_number?: string | null;
+    from_place?: Place | null;
+    to_place?: Place | null;
+    /**
+     * Cabin
+     */
+    cabin?: 'economy' | 'premium' | 'business' | 'first' | null;
+    /**
+     * Direction
+     */
+    direction?: 'outbound' | 'return' | 'internal' | null;
+    /**
+     * Layovers
+     */
+    layovers?: Array<Place> | null;
 };
 
 /**
@@ -38,6 +437,208 @@ export type HealthResponse = {
      * Version
      */
     version: string;
+};
+
+/**
+ * LodgingItem
+ */
+export type LodgingItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Plan Id
+     */
+    plan_id: string;
+    /**
+     * Created By
+     */
+    created_by: 'user' | 'assistant';
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+    /**
+     * End Timezone
+     */
+    end_timezone: string | null;
+    /**
+     * Status
+     */
+    status: 'proposed' | 'confirmed' | 'cancelled';
+    cost: MoneyOutput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref: string | null;
+    /**
+     * Source Url
+     */
+    source_url: string | null;
+    /**
+     * Notes
+     */
+    notes: string;
+    /**
+     * Type
+     */
+    type: 'lodging';
+    place: Place;
+    /**
+     * Room Type
+     */
+    room_type: string | null;
+    nightly_rate: MoneyOutput | null;
+    /**
+     * Kind
+     */
+    kind: 'hotel' | 'hostel' | 'rental' | 'resort' | 'other';
+};
+
+/**
+ * LodgingItemCreate
+ *
+ * `start` is check-in, `end` is check-out.
+ */
+export type LodgingItemCreate = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+    /**
+     * End Timezone
+     */
+    end_timezone?: string | null;
+    /**
+     * Status
+     */
+    status?: 'proposed' | 'confirmed' | 'cancelled';
+    cost?: MoneyInput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref?: string | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string;
+    /**
+     * Type
+     */
+    type: 'lodging';
+    place: Place;
+    /**
+     * Room Type
+     */
+    room_type?: string | null;
+    nightly_rate?: MoneyInput | null;
+    /**
+     * Kind
+     */
+    kind?: 'hotel' | 'hostel' | 'rental' | 'resort' | 'other';
+};
+
+/**
+ * LodgingItemPatch
+ */
+export type LodgingItemPatch = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Start
+     */
+    start?: string | null;
+    /**
+     * End
+     */
+    end?: string | null;
+    /**
+     * Timezone
+     */
+    timezone?: string | null;
+    /**
+     * End Timezone
+     */
+    end_timezone?: string | null;
+    /**
+     * Status
+     */
+    status?: 'proposed' | 'confirmed' | 'cancelled' | null;
+    cost?: MoneyInput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref?: string | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Type
+     */
+    type: 'lodging';
+    place?: Place | null;
+    /**
+     * Room Type
+     */
+    room_type?: string | null;
+    nightly_rate?: MoneyInput | null;
+    /**
+     * Kind
+     */
+    kind?: 'hotel' | 'hostel' | 'rental' | 'resort' | 'other' | null;
+};
+
+/**
+ * LodgingSpan
+ *
+ * One continuous bar from the check-in day to the check-out day (inclusive indices).
+ */
+export type LodgingSpan = {
+    item: LodgingItem;
+    /**
+     * Start Day Index
+     */
+    start_day_index: number;
+    /**
+     * End Day Index
+     */
+    end_day_index: number;
 };
 
 /**
@@ -237,6 +838,98 @@ export type RegisterRequest = {
 };
 
 /**
+ * Timeline
+ */
+export type Timeline = {
+    /**
+     * Plan Id
+     */
+    plan_id: string;
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Days
+     */
+    days: Array<TimelineDay>;
+    /**
+     * Lodging
+     */
+    lodging: Array<LodgingSpan>;
+    /**
+     * Warnings
+     */
+    warnings: Array<TimelineWarning>;
+};
+
+/**
+ * TimelineDay
+ */
+export type TimelineDay = {
+    /**
+     * Index
+     */
+    index: number;
+    /**
+     * Date
+     */
+    date: string;
+    /**
+     * Entries
+     */
+    entries: Array<TimelineEntry>;
+};
+
+/**
+ * TimelineEntry
+ *
+ * A card on one day. Items spanning midnight appear on every day they touch.
+ */
+export type TimelineEntry = {
+    /**
+     * Item
+     */
+    item: ({
+        type: 'flight';
+    } & FlightItem) | ({
+        type: 'activity';
+    } & ActivityItem) | ({
+        type: 'transfer';
+    } & TransferItem);
+    /**
+     * Continues From Previous Day
+     */
+    continues_from_previous_day: boolean;
+    /**
+     * Continues To Next Day
+     */
+    continues_to_next_day: boolean;
+};
+
+/**
+ * TimelineWarning
+ */
+export type TimelineWarning = {
+    /**
+     * Kind
+     */
+    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip';
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Date
+     */
+    date: string | null;
+    /**
+     * Item Ids
+     */
+    item_ids: Array<string>;
+};
+
+/**
  * TokenResponse
  */
 export type TokenResponse = {
@@ -256,9 +949,199 @@ export type TokenResponse = {
 };
 
 /**
+ * TransferItem
+ */
+export type TransferItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Plan Id
+     */
+    plan_id: string;
+    /**
+     * Created By
+     */
+    created_by: 'user' | 'assistant';
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+    /**
+     * End Timezone
+     */
+    end_timezone: string | null;
+    /**
+     * Status
+     */
+    status: 'proposed' | 'confirmed' | 'cancelled';
+    cost: MoneyOutput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref: string | null;
+    /**
+     * Source Url
+     */
+    source_url: string | null;
+    /**
+     * Notes
+     */
+    notes: string;
+    /**
+     * Type
+     */
+    type: 'transfer';
+    /**
+     * Mode
+     */
+    mode: 'car_rental' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
+    from_place: Place;
+    to_place: Place;
+    /**
+     * Provider
+     */
+    provider: string | null;
+    pickup_location: Place | null;
+    dropoff_location: Place | null;
+};
+
+/**
+ * TransferItemCreate
+ */
+export type TransferItemCreate = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Start
+     */
+    start: string;
+    /**
+     * End
+     */
+    end: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+    /**
+     * End Timezone
+     */
+    end_timezone?: string | null;
+    /**
+     * Status
+     */
+    status?: 'proposed' | 'confirmed' | 'cancelled';
+    cost?: MoneyInput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref?: string | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string;
+    /**
+     * Type
+     */
+    type: 'transfer';
+    /**
+     * Mode
+     */
+    mode: 'car_rental' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
+    from_place: Place;
+    to_place: Place;
+    /**
+     * Provider
+     */
+    provider?: string | null;
+    pickup_location?: Place | null;
+    dropoff_location?: Place | null;
+};
+
+/**
+ * TransferItemPatch
+ */
+export type TransferItemPatch = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Start
+     */
+    start?: string | null;
+    /**
+     * End
+     */
+    end?: string | null;
+    /**
+     * Timezone
+     */
+    timezone?: string | null;
+    /**
+     * End Timezone
+     */
+    end_timezone?: string | null;
+    /**
+     * Status
+     */
+    status?: 'proposed' | 'confirmed' | 'cancelled' | null;
+    cost?: MoneyInput | null;
+    /**
+     * Booking Ref
+     */
+    booking_ref?: string | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Type
+     */
+    type: 'transfer';
+    /**
+     * Mode
+     */
+    mode?: 'car_rental' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro' | null;
+    from_place?: Place | null;
+    to_place?: Place | null;
+    /**
+     * Provider
+     */
+    provider?: string | null;
+    pickup_location?: Place | null;
+    dropoff_location?: Place | null;
+};
+
+/**
  * TravelPlan
  *
- * Full plan. Itinerary `items` are added in Phase 2.
+ * Full plan snapshot including its itinerary; built by `itinerary.service.snapshot`,
+ * which owns the items.
  */
 export type TravelPlan = {
     /**
@@ -305,6 +1188,10 @@ export type TravelPlan = {
      * Updated At
      */
     updated_at: string;
+    /**
+     * Items
+     */
+    items: Array<FlightItem | LodgingItem | ActivityItem | TransferItem>;
 };
 
 /**
@@ -639,3 +1526,245 @@ export type UpdatePlanResponses = {
 };
 
 export type UpdatePlanResponse = UpdatePlanResponses[keyof UpdatePlanResponses];
+
+export type ListItemsData = {
+    body?: never;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/items';
+};
+
+export type ListItemsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListItemsError = ListItemsErrors[keyof ListItemsErrors];
+
+export type ListItemsResponses = {
+    /**
+     * Response Listitems
+     *
+     * Successful Response
+     */
+    200: Array<FlightItem | LodgingItem | ActivityItem | TransferItem>;
+};
+
+export type ListItemsResponse = ListItemsResponses[keyof ListItemsResponses];
+
+export type AddItemData = {
+    /**
+     * Body
+     */
+    body: ({
+        type: 'flight';
+    } & FlightItemCreate) | ({
+        type: 'lodging';
+    } & LodgingItemCreate) | ({
+        type: 'activity';
+    } & ActivityItemCreate) | ({
+        type: 'transfer';
+    } & TransferItemCreate);
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/items';
+};
+
+export type AddItemErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AddItemError = AddItemErrors[keyof AddItemErrors];
+
+export type AddItemResponses = {
+    /**
+     * Response Additem
+     *
+     * Successful Response
+     */
+    201: ({
+        type: 'flight';
+    } & FlightItem) | ({
+        type: 'lodging';
+    } & LodgingItem) | ({
+        type: 'activity';
+    } & ActivityItem) | ({
+        type: 'transfer';
+    } & TransferItem);
+};
+
+export type AddItemResponse = AddItemResponses[keyof AddItemResponses];
+
+export type RemoveItemData = {
+    body?: never;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+        /**
+         * Item Id
+         */
+        item_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/items/{item_id}';
+};
+
+export type RemoveItemErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RemoveItemError = RemoveItemErrors[keyof RemoveItemErrors];
+
+export type RemoveItemResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type RemoveItemResponse = RemoveItemResponses[keyof RemoveItemResponses];
+
+export type UpdateItemData = {
+    /**
+     * Body
+     */
+    body: ({
+        type: 'flight';
+    } & FlightItemPatch) | ({
+        type: 'lodging';
+    } & LodgingItemPatch) | ({
+        type: 'activity';
+    } & ActivityItemPatch) | ({
+        type: 'transfer';
+    } & TransferItemPatch);
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+        /**
+         * Item Id
+         */
+        item_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/items/{item_id}';
+};
+
+export type UpdateItemErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Unprocessable Content
+     */
+    422: ErrorResponse;
+};
+
+export type UpdateItemError = UpdateItemErrors[keyof UpdateItemErrors];
+
+export type UpdateItemResponses = {
+    /**
+     * Response Updateitem
+     *
+     * Successful Response
+     */
+    200: ({
+        type: 'flight';
+    } & FlightItem) | ({
+        type: 'lodging';
+    } & LodgingItem) | ({
+        type: 'activity';
+    } & ActivityItem) | ({
+        type: 'transfer';
+    } & TransferItem);
+};
+
+export type UpdateItemResponse = UpdateItemResponses[keyof UpdateItemResponses];
+
+export type GetTimelineData = {
+    body?: never;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/timeline';
+};
+
+export type GetTimelineErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetTimelineError = GetTimelineErrors[keyof GetTimelineErrors];
+
+export type GetTimelineResponses = {
+    /**
+     * Successful Response
+     */
+    200: Timeline;
+};
+
+export type GetTimelineResponse = GetTimelineResponses[keyof GetTimelineResponses];
