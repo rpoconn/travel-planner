@@ -5,5 +5,11 @@ import { defineConfig } from '@hey-api/openapi-ts'
 export default defineConfig({
     input: '../backend/openapi.json',
     output: 'src/api',
-    plugins: ['@hey-api/client-fetch', '@hey-api/typescript', '@hey-api/sdk'],
+    plugins: [
+        '@hey-api/client-fetch',
+        '@hey-api/typescript',
+        '@hey-api/sdk',
+        // queryOptions / mutation helpers (e.g. listPlansOptions, createPlanMutation).
+        '@tanstack/react-query',
+    ],
 })

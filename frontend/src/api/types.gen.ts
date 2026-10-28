@@ -5,6 +5,28 @@ export type ClientOptions = {
 };
 
 /**
+ * ErrorResponse
+ *
+ * Body of every `HTTPException` raised by the API.
+ */
+export type ErrorResponse = {
+    /**
+     * Detail
+     */
+    detail: string;
+};
+
+/**
+ * HTTPValidationError
+ */
+export type HttpValidationError = {
+    /**
+     * Detail
+     */
+    detail?: Array<ValidationError>;
+};
+
+/**
  * HealthResponse
  */
 export type HealthResponse = {
@@ -16,6 +38,337 @@ export type HealthResponse = {
      * Version
      */
     version: string;
+};
+
+/**
+ * LoginRequest
+ */
+export type LoginRequest = {
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Password
+     */
+    password: string;
+};
+
+/**
+ * Money
+ */
+export type MoneyInput = {
+    /**
+     * Amount
+     */
+    amount: number | string;
+    /**
+     * Currency
+     */
+    currency?: string;
+};
+
+/**
+ * Money
+ */
+export type MoneyOutput = {
+    /**
+     * Amount
+     */
+    amount: string;
+    /**
+     * Currency
+     */
+    currency?: string;
+};
+
+/**
+ * Place
+ */
+export type Place = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * City
+     */
+    city?: string | null;
+    /**
+     * Country
+     */
+    country?: string | null;
+    /**
+     * Iata
+     */
+    iata?: string | null;
+    /**
+     * Address
+     */
+    address?: string | null;
+    /**
+     * Lat
+     */
+    lat?: number | null;
+    /**
+     * Lng
+     */
+    lng?: number | null;
+};
+
+/**
+ * PlanCreate
+ */
+export type PlanCreate = {
+    /**
+     * Title
+     */
+    title?: string;
+    /**
+     * Status
+     */
+    status?: 'draft' | 'planned' | 'booked';
+    origin?: Place | null;
+    destination?: Place | null;
+    /**
+     * Start Date
+     */
+    start_date?: string | null;
+    /**
+     * End Date
+     */
+    end_date?: string | null;
+    travelers?: Travelers;
+    budget?: MoneyInput | null;
+    /**
+     * Notes
+     */
+    notes?: string;
+};
+
+/**
+ * PlanSummary
+ *
+ * Lightweight row for the plans sidebar.
+ */
+export type PlanSummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Status
+     */
+    status: 'draft' | 'planned' | 'booked';
+    destination: Place | null;
+    /**
+     * Start Date
+     */
+    start_date: string | null;
+    /**
+     * End Date
+     */
+    end_date: string | null;
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * PlanUpdate
+ *
+ * Partial update: only fields present in the request body are applied.
+ *
+ * The date range is re-checked by the service against the merged plan, since a patch may
+ * carry only one of the two dates.
+ */
+export type PlanUpdate = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Status
+     */
+    status?: 'draft' | 'planned' | 'booked' | null;
+    origin?: Place | null;
+    destination?: Place | null;
+    /**
+     * Start Date
+     */
+    start_date?: string | null;
+    /**
+     * End Date
+     */
+    end_date?: string | null;
+    travelers?: Travelers | null;
+    budget?: MoneyInput | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+};
+
+/**
+ * RegisterRequest
+ */
+export type RegisterRequest = {
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Password
+     */
+    password: string;
+    /**
+     * Display Name
+     */
+    display_name?: string;
+};
+
+/**
+ * TokenResponse
+ */
+export type TokenResponse = {
+    /**
+     * Access Token
+     */
+    access_token: string;
+    /**
+     * Token Type
+     */
+    token_type: 'bearer';
+    /**
+     * Expires In
+     */
+    expires_in: number;
+    user: UserRead;
+};
+
+/**
+ * TravelPlan
+ *
+ * Full plan. Itinerary `items` are added in Phase 2.
+ */
+export type TravelPlan = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * User Id
+     */
+    user_id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Status
+     */
+    status: 'draft' | 'planned' | 'booked';
+    origin: Place | null;
+    destination: Place | null;
+    /**
+     * Start Date
+     */
+    start_date: string | null;
+    /**
+     * End Date
+     */
+    end_date: string | null;
+    travelers: Travelers;
+    budget: MoneyOutput | null;
+    /**
+     * Notes
+     */
+    notes: string;
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * Travelers
+ */
+export type Travelers = {
+    /**
+     * Adults
+     */
+    adults?: number;
+    /**
+     * Children
+     */
+    children?: number;
+};
+
+/**
+ * UserRead
+ */
+export type UserRead = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ValidationError
+ */
+export type ValidationError = {
+    /**
+     * Location
+     */
+    loc: Array<string | number>;
+    /**
+     * Message
+     */
+    msg: string;
+    /**
+     * Error Type
+     */
+    type: string;
+    /**
+     * Input
+     */
+    input?: unknown;
+    /**
+     * Context
+     */
+    ctx?: {
+        [key: string]: unknown;
+    };
 };
 
 export type GetHealthData = {
@@ -33,3 +386,256 @@ export type GetHealthResponses = {
 };
 
 export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
+
+export type RegisterData = {
+    body: RegisterRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/register';
+};
+
+export type RegisterErrors = {
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RegisterError = RegisterErrors[keyof RegisterErrors];
+
+export type RegisterResponses = {
+    /**
+     * Successful Response
+     */
+    201: TokenResponse;
+};
+
+export type RegisterResponse = RegisterResponses[keyof RegisterResponses];
+
+export type LoginData = {
+    body: LoginRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/login';
+};
+
+export type LoginErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LoginError = LoginErrors[keyof LoginErrors];
+
+export type LoginResponses = {
+    /**
+     * Successful Response
+     */
+    200: TokenResponse;
+};
+
+export type LoginResponse = LoginResponses[keyof LoginResponses];
+
+export type GetMeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/auth/me';
+};
+
+export type GetMeErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+};
+
+export type GetMeError = GetMeErrors[keyof GetMeErrors];
+
+export type GetMeResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserRead;
+};
+
+export type GetMeResponse = GetMeResponses[keyof GetMeResponses];
+
+export type ListPlansData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/plans';
+};
+
+export type ListPlansErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+};
+
+export type ListPlansError = ListPlansErrors[keyof ListPlansErrors];
+
+export type ListPlansResponses = {
+    /**
+     * Response Listplans
+     *
+     * Successful Response
+     */
+    200: Array<PlanSummary>;
+};
+
+export type ListPlansResponse = ListPlansResponses[keyof ListPlansResponses];
+
+export type CreatePlanData = {
+    body: PlanCreate;
+    path?: never;
+    query?: never;
+    url: '/plans';
+};
+
+export type CreatePlanErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreatePlanError = CreatePlanErrors[keyof CreatePlanErrors];
+
+export type CreatePlanResponses = {
+    /**
+     * Successful Response
+     */
+    201: TravelPlan;
+};
+
+export type CreatePlanResponse = CreatePlanResponses[keyof CreatePlanResponses];
+
+export type DeletePlanData = {
+    body?: never;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}';
+};
+
+export type DeletePlanErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeletePlanError = DeletePlanErrors[keyof DeletePlanErrors];
+
+export type DeletePlanResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeletePlanResponse = DeletePlanResponses[keyof DeletePlanResponses];
+
+export type GetPlanData = {
+    body?: never;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}';
+};
+
+export type GetPlanErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPlanError = GetPlanErrors[keyof GetPlanErrors];
+
+export type GetPlanResponses = {
+    /**
+     * Successful Response
+     */
+    200: TravelPlan;
+};
+
+export type GetPlanResponse = GetPlanResponses[keyof GetPlanResponses];
+
+export type UpdatePlanData = {
+    body: PlanUpdate;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}';
+};
+
+export type UpdatePlanErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Unprocessable Content
+     */
+    422: ErrorResponse;
+};
+
+export type UpdatePlanError = UpdatePlanErrors[keyof UpdatePlanErrors];
+
+export type UpdatePlanResponses = {
+    /**
+     * Successful Response
+     */
+    200: TravelPlan;
+};
+
+export type UpdatePlanResponse = UpdatePlanResponses[keyof UpdatePlanResponses];

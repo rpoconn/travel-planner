@@ -4,7 +4,8 @@ A travel-itinerary chat app. Every message goes to a small local model (Ollama),
 message is about trip planning, gently redirects if not, and otherwise acts as an agent that can
 search the web and edit a structured itinerary shown as a timeline beside the chat.
 
-> Status: **Phase 0 — scaffold & tooling.** Only `/health` exists so far.
+> Status: **Phase 1 — auth + plans.** Register/login (JWT), per-user trip CRUD, and the three-pane
+> workspace shell with the trips sidebar. Chat and the itinerary timeline come in later phases.
 
 ## Layout
 
@@ -57,6 +58,15 @@ cd frontend; npm run dev
 | Unit tests | `uv run pytest` | `npm test` |
 | E2E | — | `npm run e2e` |
 | Real-model tests | `uv run pytest -m ollama` | — |
+
+## Data & auth
+
+- SQLite via SQLAlchemy (async). Tables are created on startup (`DATABASE_URL`, default
+  `backend/travel_planner.db`); Alembic migrations arrive in Phase 6, so for now delete the DB file
+  after schema changes.
+- `POST /auth/register` / `POST /auth/login` return a bearer JWT; set a long random `JWT_SECRET`
+  outside local dev. The frontend keeps the token in memory + `localStorage` (`src/lib/auth.ts`) and
+  the generated SDK attaches it to every secured call.
 
 ## API client generation
 

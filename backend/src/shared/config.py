@@ -1,8 +1,9 @@
 """Application settings loaded from environment variables / `.env`."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
+from fastapi import Depends, Request
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -30,6 +31,8 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="change-me-in-dev-only", min_length=16)
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24
+    # Cost factor for password hashing; tests drop this to the minimum (4) for speed.
+    bcrypt_rounds: int = Field(default=12, ge=4, le=16)
 
     # Local LLM (Ollama)
     llm_provider: Literal["ollama", "fake"] = "ollama"
@@ -50,5 +53,14 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return the process-wide settings (cached; override via FastAPI dependency_overrides)."""
+    """Return the process-wide settings (cached). Used only when building the app."""
     return Settings()
+
+
+def get_app_settings(request: Request) -> Settings:
+    """FastAPI dependency: the settings the running app was created with (see `create_app`)."""
+    settings: Settings = request.app.state.settings
+    return settings
+
+
+SettingsDep = Annotated[Settings, Depends(get_app_settings)]

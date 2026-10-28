@@ -1,38 +1,31 @@
+import { QueryClientProvider } from '@tanstack/react-query'
+import { RouterProvider } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
-import { getHealth } from '@/api/sdk.gen'
-
-// Placeholder shell for Phase 0: proves the generated SDK can reach the backend.
-// Replaced by the router + WorkspacePage in Phase 1.
-
-type ApiStatus = 'checking' | 'online' | 'offline'
+import { createAppRouter } from '@/app/router'
+import { getSession, subscribe } from '@/lib/auth'
+import { createQueryClient } from '@/lib/queryClient'
 
 export function App() {
-    // ----- state -----
-    const [status, setStatus] = useState<ApiStatus>('checking')
+    // ----- setup -----
+    // Lazy state so StrictMode's double render doesn't create two clients/routers.
+    const [queryClient] = useState(createQueryClient)
+    const [router] = useState(() => createAppRouter(queryClient))
 
     // ----- effects -----
-    useEffect(() => {
-        let cancelled = false
-        getHealth()
-            .then(({ data }) => {
-                if (!cancelled) setStatus(data?.status === 'ok' ? 'online' : 'offline')
-            })
-            .catch(() => {
-                if (!cancelled) setStatus('offline')
-            })
-        return () => {
-            cancelled = true
-        }
-    }, [])
+    // Cached data belongs to whoever was signed in; drop it the moment the session ends.
+    useEffect(
+        () =>
+            subscribe(() => {
+                if (!getSession()) queryClient.clear()
+            }),
+        [queryClient],
+    )
 
     // ----- markup -----
     return (
-        <main className="bg-background text-foreground flex min-h-screen flex-col items-center justify-center gap-4">
-            <h1 className="text-4xl font-semibold tracking-tight">Travel Planner</h1>
-            <p className="text-muted-foreground text-sm">
-                API status: <span data-testid="api-status">{status}</span>
-            </p>
-        </main>
+        <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+        </QueryClientProvider>
     )
 }
