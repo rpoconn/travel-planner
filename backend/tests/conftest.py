@@ -20,6 +20,7 @@ def settings() -> Settings:
         database_url="sqlite+aiosqlite:///:memory:",
         jwt_secret="test-secret-at-least-32-bytes-long!",
         bcrypt_rounds=4,
+        llm_provider="fake",
     )
 
 

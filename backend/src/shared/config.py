@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     llm_provider: Literal["ollama", "fake"] = "ollama"
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:8b"
+    # Reasoning ("thinking") mode for models that support it. Off by default: it adds
+    # long pauses before the first token on a small local model.
+    llm_think: bool = False
+    llm_timeout_seconds: float = Field(default=120.0, gt=0)
+    llm_max_attempts: int = Field(default=3, ge=1, le=10)
 
     # Web search
     tavily_api_key: str | None = None

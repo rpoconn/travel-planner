@@ -18,7 +18,6 @@ dependencies = [
     "pydantic-settings>=2.16.2",
     "pyjwt>=2.15.1",
     "sqlalchemy[asyncio]>=2.1.6",
-    "sse-starlette>=3.6.0",
     "tenacity>=9.2.1",
     "tzdata>=2026.6",
     "uvicorn[standard]>=0.54.0",

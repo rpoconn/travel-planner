@@ -3,8 +3,8 @@
 import { type DefaultError, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { addItem, createPlan, deletePlan, getHealth, getMe, getPlan, getTimeline, listItems, listPlans, login, type Options, register, removeItem, updateItem, updatePlan } from '../sdk.gen';
-import type { AddItemData, AddItemError, AddItemResponse, CreatePlanData, CreatePlanError, CreatePlanResponse, DeletePlanData, DeletePlanError, DeletePlanResponse, GetHealthData, GetHealthResponse, GetMeData, GetMeError, GetMeResponse, GetPlanData, GetPlanError, GetPlanResponse, GetTimelineData, GetTimelineError, GetTimelineResponse, ListItemsData, ListItemsError, ListItemsResponse, ListPlansData, ListPlansError, ListPlansResponse, LoginData, LoginError, LoginResponse, RegisterData, RegisterError, RegisterResponse, RemoveItemData, RemoveItemError, RemoveItemResponse, UpdateItemData, UpdateItemError, UpdateItemResponse, UpdatePlanData, UpdatePlanError, UpdatePlanResponse } from '../types.gen';
+import { addItem, createPlan, deletePlan, getHealth, getMe, getPlan, getTimeline, listItems, listMessages, listPlans, login, type Options, register, removeItem, updateItem, updatePlan } from '../sdk.gen';
+import type { AddItemData, AddItemError, AddItemResponse, CreatePlanData, CreatePlanError, CreatePlanResponse, DeletePlanData, DeletePlanError, DeletePlanResponse, GetHealthData, GetHealthResponse, GetMeData, GetMeError, GetMeResponse, GetPlanData, GetPlanError, GetPlanResponse, GetTimelineData, GetTimelineError, GetTimelineResponse, ListItemsData, ListItemsError, ListItemsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPlansData, ListPlansError, ListPlansResponse, LoginData, LoginError, LoginResponse, RegisterData, RegisterError, RegisterResponse, RemoveItemData, RemoveItemError, RemoveItemResponse, UpdateItemData, UpdateItemError, UpdateItemResponse, UpdatePlanData, UpdatePlanError, UpdatePlanResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -305,4 +305,24 @@ export const getTimelineOptions = (options: Options<GetTimelineData>) => queryOp
         return data;
     },
     queryKey: getTimelineQueryKey(options)
+});
+
+export const listMessagesQueryKey = (options: Options<ListMessagesData>) => createQueryKey('listMessages', options);
+
+/**
+ * List Messages
+ *
+ * The plan's conversation, oldest first.
+ */
+export const listMessagesOptions = (options: Options<ListMessagesData>) => queryOptions<ListMessagesResponse, ListMessagesError, ListMessagesResponse, ReturnType<typeof listMessagesQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listMessages({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listMessagesQueryKey(options)
 });

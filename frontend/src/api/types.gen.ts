@@ -185,6 +185,70 @@ export type ActivityItemPatch = {
 };
 
 /**
+ * ChatMessage
+ */
+export type ChatMessage = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Plan Id
+     */
+    plan_id: string;
+    /**
+     * Role
+     */
+    role: 'user' | 'assistant' | 'system';
+    /**
+     * Kind
+     */
+    kind: 'message' | 'redirect' | 'error';
+    /**
+     * Content
+     */
+    content: string;
+    /**
+     * Tool Calls
+     */
+    tool_calls: Array<ToolTrace>;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * DoneEvent
+ *
+ * The stored assistant reply; always the last event of a successful turn.
+ */
+export type DoneEvent = {
+    /**
+     * Type
+     */
+    type: 'done';
+    message: ChatMessage;
+};
+
+/**
+ * ErrorEvent
+ *
+ * Answering failed; `message` is the stored system notice (when it could be saved).
+ */
+export type ErrorEvent = {
+    /**
+     * Type
+     */
+    type: 'error';
+    /**
+     * Detail
+     */
+    detail: string;
+    message: ChatMessage | null;
+};
+
+/**
  * ErrorResponse
  *
  * Body of every `HTTPException` raised by the API.
@@ -413,6 +477,24 @@ export type FlightItemPatch = {
      * Layovers
      */
     layovers?: Array<Place> | null;
+};
+
+/**
+ * GuardrailEvent
+ */
+export type GuardrailEvent = {
+    /**
+     * Type
+     */
+    type: 'guardrail';
+    /**
+     * On Topic
+     */
+    on_topic: boolean;
+    /**
+     * Topic
+     */
+    topic: string;
 };
 
 /**
@@ -820,6 +902,17 @@ export type PlanUpdate = {
 };
 
 /**
+ * PlanUpdatedEvent
+ */
+export type PlanUpdatedEvent = {
+    /**
+     * Type
+     */
+    type: 'plan_updated';
+    plan: TravelPlan;
+};
+
+/**
  * RegisterRequest
  */
 export type RegisterRequest = {
@@ -835,6 +928,16 @@ export type RegisterRequest = {
      * Display Name
      */
     display_name?: string;
+};
+
+/**
+ * SendMessage
+ */
+export type SendMessage = {
+    /**
+     * Content
+     */
+    content: string;
 };
 
 /**
@@ -930,6 +1033,20 @@ export type TimelineWarning = {
 };
 
 /**
+ * TokenEvent
+ */
+export type TokenEvent = {
+    /**
+     * Type
+     */
+    type: 'token';
+    /**
+     * Text
+     */
+    text: string;
+};
+
+/**
  * TokenResponse
  */
 export type TokenResponse = {
@@ -946,6 +1063,86 @@ export type TokenResponse = {
      */
     expires_in: number;
     user: UserRead;
+};
+
+/**
+ * ToolCallEvent
+ */
+export type ToolCallEvent = {
+    /**
+     * Type
+     */
+    type: 'tool_call';
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Arguments
+     */
+    arguments: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ToolResultEvent
+ */
+export type ToolResultEvent = {
+    /**
+     * Type
+     */
+    type: 'tool_result';
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Summary
+     */
+    summary: string;
+};
+
+/**
+ * ToolTrace
+ *
+ * One tool the assistant ran: what it asked for and how it went.
+ */
+export type ToolTrace = {
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Arguments
+     */
+    arguments: {
+        [key: string]: unknown;
+    };
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Summary
+     */
+    summary: string;
 };
 
 /**
@@ -1768,3 +1965,79 @@ export type GetTimelineResponses = {
 };
 
 export type GetTimelineResponse = GetTimelineResponses[keyof GetTimelineResponses];
+
+export type ListMessagesData = {
+    body?: never;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/messages';
+};
+
+export type ListMessagesErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListMessagesError = ListMessagesErrors[keyof ListMessagesErrors];
+
+export type ListMessagesResponses = {
+    /**
+     * Response Listmessages
+     *
+     * Successful Response
+     */
+    200: Array<ChatMessage>;
+};
+
+export type ListMessagesResponse = ListMessagesResponses[keyof ListMessagesResponses];
+
+export type SendMessageData = {
+    body: SendMessage;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/chat';
+};
+
+export type SendMessageErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SendMessageError = SendMessageErrors[keyof SendMessageErrors];
+
+export type SendMessageResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};

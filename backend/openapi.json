@@ -959,6 +959,215 @@
           }
         }
       }
+    },
+    "/plans/{plan_id}/messages": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "List Messages",
+        "description": "The plan's conversation, oldest first.",
+        "operationId": "listMessages",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatMessage"
+                  },
+                  "title": "Response Listmessages"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/chat": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Send Message",
+        "description": "Send a message and stream the assistant's answer as server-sent events.\n\nEach event's `data` is a JSON `ChatEvent` discriminated by `type`: `guardrail` first,\nthen `token` / `tool_call` / `tool_result` / `plan_updated` as the answer is produced,\nand finally `done` (with the stored reply) or `error`.",
+        "operationId": "sendMessage",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessage"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/GuardrailEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/TokenEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/ToolCallEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/ToolResultEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanUpdatedEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/DoneEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/ErrorEvent"
+                          }
+                        ],
+                        "discriminator": {
+                          "propertyName": "type",
+                          "mapping": {
+                            "guardrail": "#/components/schemas/GuardrailEvent",
+                            "token": "#/components/schemas/TokenEvent",
+                            "tool_call": "#/components/schemas/ToolCallEvent",
+                            "tool_result": "#/components/schemas/ToolResultEvent",
+                            "plan_updated": "#/components/schemas/PlanUpdatedEvent",
+                            "done": "#/components/schemas/DoneEvent",
+                            "error": "#/components/schemas/ErrorEvent"
+                          }
+                        },
+                        "title": "Streamitem Sendmessage"
+                      }
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1422,6 +1631,117 @@
           "type"
         ],
         "title": "ActivityItemPatch"
+      },
+      "ChatMessage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Plan Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant",
+              "system"
+            ],
+            "title": "Role"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "message",
+              "redirect",
+              "error"
+            ],
+            "title": "Kind"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/ToolTrace"
+            },
+            "type": "array",
+            "title": "Tool Calls"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "role",
+          "kind",
+          "content",
+          "tool_calls",
+          "created_at"
+        ],
+        "title": "ChatMessage"
+      },
+      "DoneEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "done",
+            "title": "Type",
+            "default": "done"
+          },
+          "message": {
+            "$ref": "#/components/schemas/ChatMessage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "message"
+        ],
+        "title": "DoneEvent",
+        "description": "The stored assistant reply; always the last event of a successful turn."
+      },
+      "ErrorEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "error",
+            "title": "Type",
+            "default": "error"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatMessage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "detail",
+          "message"
+        ],
+        "title": "ErrorEvent",
+        "description": "Answering failed; `message` is the stored system notice (when it could be saved)."
       },
       "ErrorResponse": {
         "properties": {
@@ -2007,6 +2327,31 @@
           "type"
         ],
         "title": "FlightItemPatch"
+      },
+      "GuardrailEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "guardrail",
+            "title": "Type",
+            "default": "guardrail"
+          },
+          "on_topic": {
+            "type": "boolean",
+            "title": "On Topic"
+          },
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "on_topic",
+          "topic"
+        ],
+        "title": "GuardrailEvent"
       },
       "HTTPValidationError": {
         "properties": {
@@ -2988,6 +3333,25 @@
         "title": "PlanUpdate",
         "description": "Partial update: only fields present in the request body are applied.\n\nThe date range is re-checked by the service against the merged plan, since a patch may\ncarry only one of the two dates."
       },
+      "PlanUpdatedEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "plan_updated",
+            "title": "Type",
+            "default": "plan_updated"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/TravelPlan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "plan"
+        ],
+        "title": "PlanUpdatedEvent"
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -3014,6 +3378,21 @@
           "password"
         ],
         "title": "RegisterRequest"
+      },
+      "SendMessage": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "SendMessage"
       },
       "Timeline": {
         "properties": {
@@ -3173,6 +3552,26 @@
         ],
         "title": "TimelineWarning"
       },
+      "TokenEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "token",
+            "title": "Type",
+            "default": "token"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text"
+        ],
+        "title": "TokenEvent"
+      },
       "TokenResponse": {
         "properties": {
           "access_token": {
@@ -3200,6 +3599,107 @@
           "user"
         ],
         "title": "TokenResponse"
+      },
+      "ToolCallEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "tool_call",
+            "title": "Type",
+            "default": "tool_call"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "call_id",
+          "name",
+          "arguments"
+        ],
+        "title": "ToolCallEvent"
+      },
+      "ToolResultEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "tool_result",
+            "title": "Type",
+            "default": "tool_result"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "call_id",
+          "name",
+          "ok",
+          "summary"
+        ],
+        "title": "ToolResultEvent"
+      },
+      "ToolTrace": {
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "call_id",
+          "name",
+          "arguments",
+          "ok",
+          "summary"
+        ],
+        "title": "ToolTrace",
+        "description": "One tool the assistant ran: what it asked for and how it went."
       },
       "TransferItem": {
         "properties": {

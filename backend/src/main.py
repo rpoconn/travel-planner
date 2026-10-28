@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 
 from features.auth.router import router as auth_router
+from features.chat.dependencies import create_llm
+from features.chat.router import router as chat_router
 from features.health.router import API_VERSION
 from features.health.router import router as health_router
 from features.itinerary.router import router as itinerary_router
@@ -45,11 +47,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Creating the engine doesn't connect; the first connection happens in the lifespan.
     engine = create_engine(settings.database_url)
+    llm = create_llm(settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await init_db(engine)
         yield
+        await _app.state.llm.aclose()
         await engine.dispose()
 
     app = FastAPI(
@@ -62,6 +66,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
+    # Read by the `LLMDep` dependency; tests replace it with a scripted FakeLLM.
+    app.state.llm = llm
 
     app.add_middleware(
         CORSMiddleware,
@@ -75,9 +81,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(plans_router)
     app.include_router(itinerary_router)
+    app.include_router(chat_router)
 
     logger.info(
-        "App created (environment=%s, model=%s)", settings.environment, settings.ollama_model
+        "App created (environment=%s, llm=%s, model=%s)",
+        settings.environment,
+        settings.llm_provider,
+        settings.ollama_model,
     )
     return app
 

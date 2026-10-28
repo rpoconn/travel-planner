@@ -28,6 +28,7 @@ from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import PlanDetails, TravelPlan
 from shared.db import utc_now
+from shared.validation import summarize_validation_error
 
 logger = logging.getLogger(__name__)
 
@@ -73,15 +74,6 @@ def _write(row: Item, data: ItineraryItemCreate) -> None:
     row.details = data.model_dump(mode="json", exclude=set(_COLUMN_FIELDS | {"type"}))
 
 
-def _summarize(exc: ValidationError) -> str:
-    return "; ".join(
-        f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-        if error["loc"]
-        else error["msg"]
-        for error in exc.errors()
-    )
-
-
 # ---------------------------------------------------------------------------
 # Queries
 # ---------------------------------------------------------------------------
@@ -104,6 +96,13 @@ async def _get_row(session: AsyncSession, plan_id: UUID, item_id: UUID) -> Item:
 async def list_items(session: AsyncSession, user_id: UUID, plan_id: UUID) -> list[ItineraryItem]:
     plan = await plans_service.get_plan(session, user_id, plan_id)
     return await _items_for(session, plan.id)
+
+
+async def get_item(
+    session: AsyncSession, user_id: UUID, plan_id: UUID, item_id: UUID
+) -> ItineraryItem:
+    plan = await plans_service.get_plan(session, user_id, plan_id)
+    return _to_schema(await _get_row(session, plan.id, item_id))
 
 
 async def snapshot(session: AsyncSession, plan: Plan) -> TravelPlan:
@@ -171,7 +170,7 @@ async def update_item(
     try:
         validated = _ITEM_CREATE.validate_python(merged)
     except ValidationError as exc:
-        raise InvalidItemError(_summarize(exc)) from exc
+        raise InvalidItemError(summarize_validation_error(exc)) from exc
 
     _write(row, validated)
     row.updated_at = utc_now()

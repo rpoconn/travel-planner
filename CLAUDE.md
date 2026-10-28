@@ -44,3 +44,5 @@
    - Make sure to orgnaize files into separate functional code sections. Example: state / setup / markup / event listeners, etc...
 10. **Self-Contained UI Folders**
    - Each component and page gets its own folder (`components/Composer/`, `pages/ChatPage/`) holding its component, styles, and tests.
+11. **Routing / Query / UI Toolkit**
+   - Use the tanstack ecosystem for all UI needs.
