@@ -1,0 +1,23 @@
+# Env / secrets
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+backend/*.db
+backend/*.db-*
+
+# Node
+node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+
+# Editors / OS
+.idea/
+.DS_Store
