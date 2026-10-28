@@ -7,6 +7,9 @@ model so it can correct itself; they never raise.
 
 Item creation is split into one tool per item type (rather than one `add_item` taking a
 discriminated union): a flat schema per type is much easier for a small local model.
+
+`web_search` is the only tool that reads instead of writing: it shapes the query with the
+plan's destination/dates and returns the top results as text for the model to cite.
 """
 
 import logging
@@ -32,10 +35,19 @@ from features.itinerary.schemas import (
     TransferItemPatch,
 )
 from features.plans import service as plans_service
+from features.plans.models import Plan
 from features.plans.schemas import PlanUpdate
 from shared.domain import Money, Place, Travelers
 from shared.llm.schema import inline_schema
 from shared.llm.types import LLMToolCall, ToolSpec
+from shared.search.query import shape_query
+from shared.search.types import (
+    SearchContext,
+    SearchError,
+    SearchKind,
+    SearchProvider,
+    SearchResult,
+)
 from shared.validation import summarize_validation_error
 
 logger = logging.getLogger(__name__)
@@ -77,6 +89,7 @@ class ToolContext:
     session: AsyncSession
     user_id: UUID
     plan_id: UUID
+    search: SearchProvider
 
 
 @dataclass(frozen=True)
@@ -127,6 +140,18 @@ class UpdateItemArgs(BaseModel):
 
 class RemoveItemArgs(BaseModel):
     item_id: UUID
+
+
+class WebSearchArgs(BaseModel):
+    query: str = Field(
+        min_length=2,
+        max_length=300,
+        description='What to look for, e.g. "ryokan with private onsen in Hakone"',
+    )
+    kind: SearchKind = Field(
+        default="general",
+        description="flights, hotels, activities, transport (getting around), or general",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +236,57 @@ async def _remove_item(ctx: ToolContext, arguments: dict[str, Any]) -> ToolOutco
     )
 
 
+def _search_context(plan: Plan) -> SearchContext:
+    return SearchContext(
+        origin=Place.model_validate(plan.origin) if plan.origin else None,
+        destination=Place.model_validate(plan.destination) if plan.destination else None,
+        travel_date=plan.start_date,
+    )
+
+
+def _format_results(query: str, results: list[SearchResult]) -> str:
+    lines = [f'Web results for "{query}":']
+    for number, result in enumerate(results, start=1):
+        lines.append(f"{number}. {result.title}\n   URL: {result.url}")
+        if result.snippet:
+            lines.append(f"   {result.snippet}")
+    lines.append(
+        "Prices and schedules in results can be out of date. When you add an item based on "
+        "a result, set its source_url to that result's URL."
+    )
+    return "\n".join(lines)
+
+
+async def _web_search(ctx: ToolContext, arguments: dict[str, Any]) -> ToolOutcome:
+    args = WebSearchArgs.model_validate(_drop_nulls(arguments))
+    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+    query = shape_query(args.query, args.kind, _search_context(plan))
+    try:
+        results = await ctx.search.search(query, args.kind)
+    except SearchError as exc:
+        # Built here rather than via ToolError: the model gets extra guidance the user
+        # doesn't need to see.
+        return ToolOutcome(
+            ok=False,
+            content=(
+                f"Error: {exc} Don't repeat this search. If web search is unavailable, "
+                "answer from general knowledge and say that details need checking."
+            ),
+            summary=str(exc),
+        )
+    if not results:
+        return ToolOutcome(
+            ok=True,
+            content=f'No web results for "{query}". Try fewer or different words.',
+            summary=f"No web results for “{query}”",
+        )
+    return ToolOutcome(
+        ok=True,
+        content=_format_results(query, results),
+        summary=f"Searched the web for “{query}”",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -286,6 +362,19 @@ TOOLS: dict[str, Tool] = {
                 parameters=inline_schema(RemoveItemArgs),
             ),
             run=_remove_item,
+        ),
+        Tool(
+            spec=ToolSpec(
+                name="web_search",
+                description=(
+                    "Search the web for current options and facts: flights, hotels, "
+                    "activities, local transport, opening hours, prices. Use it before "
+                    "suggesting specific places or prices. Trip destination and dates are "
+                    "added to the query automatically."
+                ),
+                parameters=inline_schema(WebSearchArgs),
+            ),
+            run=_web_search,
         ),
     ]
 }

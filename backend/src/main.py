@@ -21,6 +21,7 @@ from features.plans.router import router as plans_router
 from shared.config import Settings, get_settings
 from shared.db import create_engine, create_sessionmaker, init_db
 from shared.logging import configure_logging
+from shared.search.provider import create_search_provider
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Creating the engine doesn't connect; the first connection happens in the lifespan.
     engine = create_engine(settings.database_url)
     llm = create_llm(settings)
+    search = create_search_provider(settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await init_db(engine)
         yield
         await _app.state.llm.aclose()
+        await _app.state.search.aclose()
         await engine.dispose()
 
     app = FastAPI(
@@ -68,6 +71,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessionmaker = create_sessionmaker(engine)
     # Read by the `LLMDep` dependency; tests replace it with a scripted FakeLLM.
     app.state.llm = llm
+    # Read by the `SearchDep` dependency; tests replace it with a `FakeSearchProvider`.
+    app.state.search = search
 
     app.add_middleware(
         CORSMiddleware,
@@ -84,10 +89,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(chat_router)
 
     logger.info(
-        "App created (environment=%s, llm=%s, model=%s)",
+        "App created (environment=%s, llm=%s, model=%s, search=%s)",
         settings.environment,
         settings.llm_provider,
         settings.ollama_model,
+        type(search).__name__,
     )
     return app
 

@@ -4,9 +4,11 @@ A travel-itinerary chat app. Every message goes to a small local model (Ollama),
 message is about trip planning, gently redirects if not, and otherwise acts as an agent that can
 search the web and edit a structured itinerary shown as a timeline beside the chat.
 
-> Status: **Phase 2 — itinerary domain.** Register/login (JWT), per-user trip CRUD, the three-pane
-> workspace shell, and the itinerary API (flights / lodging / activities / transfers plus a derived
-> day-by-day timeline with warnings). Chat and the timeline UI come in later phases.
+> Status: **Phase 4 — web search.** Register/login (JWT), per-user trip CRUD, the three-pane
+> workspace shell, the itinerary API (flights / lodging / activities / transfers plus a derived
+> day-by-day timeline with warnings), and the chat backend: topic guardrail, planning agent with
+> itinerary tools and cached web search, streamed over SSE. The chat and timeline UI come in
+> Phase 5.
 
 ## Layout
 
@@ -93,6 +95,22 @@ In VS Code, the Run and Debug view has (`.vscode/launch.json`, needs `uv sync` f
 - `GET /plans/{id}/timeline` derives local-day columns, one lodging bar per stay, and warnings
   (nights without lodging, overlaps, missing transfers between places, items outside the trip
   dates). The logic is pure and lives in `features/itinerary/timeline.py`.
+
+## Chat & web search
+
+- `POST /plans/{id}/chat` streams server-sent events. Each message goes through a topic guardrail
+  (off-topic messages get a friendly redirect), then the planning agent, which edits the itinerary
+  with tools (`set_plan_details`, `add_flight` / `add_lodging` / `add_activity` / `add_transfer`,
+  `update_item`, `remove_item`) and looks things up with `web_search`.
+- `LLM_PROVIDER=fake` runs without Ollama (keyword guardrail, canned replies).
+- `web_search` uses [Tavily](https://tavily.com): set `TAVILY_API_KEY`. Without a key the tool
+  reports that search is unavailable and the agent answers from general knowledge.
+  `SEARCH_PROVIDER=fake` returns placeholder results with no network access.
+- Short queries are filled in from the plan (`backend/src/shared/search/query.py`), e.g. "cheap"
+  with kind `flights` becomes "cheap flights from San Francisco to Tokyo May 2027". Results are
+  cached in the `search_cache` table for `SEARCH_CACHE_TTL_HOURS` (default 24).
+- To add another provider (Brave, SearXNG, …), implement the `SearchProvider` protocol in
+  `backend/src/shared/search/types.py` and select it in `shared/search/provider.py`.
 
 ## API client generation
 

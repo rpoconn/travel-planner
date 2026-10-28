@@ -44,8 +44,11 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=120.0, gt=0)
     llm_max_attempts: int = Field(default=3, ge=1, le=10)
 
-    # Web search
+    # Web search: "tavily" needs TAVILY_API_KEY; "fake" returns placeholder results offline.
+    search_provider: Literal["tavily", "fake"] = "tavily"
     tavily_api_key: str | None = None
+    search_timeout_seconds: float = Field(default=15.0, gt=0)
+    search_cache_ttl_hours: float = Field(default=24.0, ge=0)
 
     # HTTP
     cors_origins: list[str] = ["http://localhost:5173"]

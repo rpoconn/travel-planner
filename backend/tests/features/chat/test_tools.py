@@ -5,6 +5,8 @@ from features.chat.tools import TOOL_SPECS, TOOLS, ToolContext, execute
 from features.itinerary import service as itinerary_service
 from features.plans import service as plans_service
 from shared.llm.types import LLMToolCall
+from shared.search.fake import FakeSearchProvider
+from shared.search.types import SearchError, SearchResult
 from tests.features.chat.conftest import HOTEL_ARGS
 
 
@@ -33,6 +35,7 @@ def test_tool_names() -> None:
         "add_transfer",
         "update_item",
         "remove_item",
+        "web_search",
     }
 
 
@@ -168,3 +171,72 @@ async def test_set_plan_details_rejects_bad_date_range(ctx: ToolContext) -> None
 
     assert not outcome.ok
     assert not outcome.plan_changed
+
+
+# ---------------------------------------------------------------------------
+# web_search
+# ---------------------------------------------------------------------------
+
+
+async def test_web_search_shapes_query_with_plan_and_lists_results(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    fake_search.queue(
+        [
+            SearchResult(title="Hotel Okura", url="https://example.com/okura", snippet="$400"),
+            SearchResult(title="Park Hyatt", url="https://example.com/ph"),
+        ]
+    )
+
+    outcome = await _run(ctx, "web_search", {"query": "quiet hotels", "kind": "hotels"})
+
+    assert outcome.ok and not outcome.plan_changed
+    # The fixture plan is "Tokyo in May" 2027.
+    (search,) = fake_search.searches
+    assert (search.query, search.kind) == ("quiet hotels in Tokyo May 2027", "hotels")
+    assert outcome.summary == "Searched the web for “quiet hotels in Tokyo May 2027”"
+    assert "1. Hotel Okura\n   URL: https://example.com/okura\n   $400" in outcome.content
+    assert "2. Park Hyatt\n   URL: https://example.com/ph" in outcome.content
+    assert "source_url" in outcome.content
+
+
+async def test_web_search_kind_defaults_to_general(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    outcome = await _run(ctx, "web_search", {"query": "Japan visa rules", "kind": None})
+
+    assert outcome.ok
+    assert [(s.query, s.kind) for s in fake_search.searches] == [("Japan visa rules", "general")]
+
+
+async def test_web_search_with_no_results(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    fake_search.queue([])
+
+    outcome = await _run(ctx, "web_search", {"query": "zzzz", "kind": "general"})
+
+    assert outcome.ok
+    assert outcome.content.startswith('No web results for "zzzz"')
+
+
+async def test_web_search_failure_is_reported_with_guidance(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    fake_search.queue(SearchError("Web search timed out."))
+
+    outcome = await _run(ctx, "web_search", {"query": "ramen", "kind": "activities"})
+
+    assert not outcome.ok and not outcome.plan_changed
+    assert outcome.summary == "Web search timed out."
+    assert outcome.content.startswith("Error: Web search timed out. Don't repeat this search.")
+
+
+async def test_web_search_rejects_an_unknown_kind(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    outcome = await _run(ctx, "web_search", {"query": "ramen", "kind": "restaurants"})
+
+    assert not outcome.ok
+    assert outcome.content.startswith("Error: Invalid arguments for web_search:")
+    assert fake_search.searches == []

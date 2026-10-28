@@ -16,6 +16,7 @@ from features.chat.guardrail import check_topic
 from features.chat.schemas import DoneEvent, ToolResultEvent
 from shared.config import Settings, get_settings
 from shared.llm.ollama_client import OllamaClient
+from shared.search.fake import FakeSearchProvider
 from tests.features.chat.conftest import send
 
 pytestmark = pytest.mark.ollama
@@ -86,3 +87,20 @@ async def test_agent_adds_a_hotel(
     assert any(e.name == "add_lodging" and e.ok for e in results), results
     assert isinstance(events[-1], DoneEvent)
     assert events[-1].message.content.strip()
+
+
+async def test_agent_searches_the_web_for_options(
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan: dict[str, Any],
+    fake_search: FakeSearchProvider,
+) -> None:
+    # Placeholder results keep this independent of a Tavily key / network access.
+    events = await send(
+        client, headers, plan["id"], "What are some good ryokan near Tokyo? Look a few up."
+    )
+
+    results = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert any(e.name == "web_search" and e.ok for e in results), results
+    assert fake_search.searches
+    assert isinstance(events[-1], DoneEvent)

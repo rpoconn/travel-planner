@@ -16,6 +16,7 @@ from features.chat.schemas import (
 )
 from shared.llm.fake import FakeLLM, json_reply, text, tool_calls
 from shared.llm.types import LLMError
+from shared.search.fake import FakeSearchProvider
 from tests.conftest import RegisterUser
 from tests.features.chat.conftest import HOTEL_ARGS, send
 
@@ -229,3 +230,49 @@ async def test_offline_mode_answers_without_ollama(
     assert isinstance(first, DoneEvent) and first.message.content == OFFLINE_AGENT_REPLY
     assert isinstance(second, DoneEvent) and second.message.content == OFFLINE_REDIRECT_REPLY
     assert second.message.kind == "redirect"
+
+
+# ---------------------------------------------------------------------------
+# Web search
+# ---------------------------------------------------------------------------
+
+
+async def test_web_search_turn_streams_results_without_changing_the_plan(
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan: dict[str, Any],
+    fake_llm: FakeLLM,
+    fake_search: FakeSearchProvider,
+) -> None:
+    search = ("web_search", {"query": "ryokan", "kind": "hotels"})
+    fake_llm.queue(ON_TOPIC, tool_calls(search), text("Here are some ryokan."))
+
+    events = await send(client, headers, plan["id"], "Find me a ryokan")
+
+    assert [type(e) for e in events if not isinstance(e, TokenEvent)] == [
+        GuardrailEvent,
+        ToolCallEvent,
+        ToolResultEvent,
+        DoneEvent,
+    ]
+    result = next(e for e in events if isinstance(e, ToolResultEvent))
+    assert result.ok and result.name == "web_search"
+    # The model saw the (fake) results as the tool message.
+    tool_message = fake_llm.requests[-1].messages[-1]
+    assert tool_message.role == "tool" and "https://example.com/hotels/1" in tool_message.content
+
+
+async def test_repeated_searches_across_turns_hit_the_cache(
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan: dict[str, Any],
+    fake_llm: FakeLLM,
+    fake_search: FakeSearchProvider,
+) -> None:
+    search = ("web_search", {"query": "ryokan", "kind": "hotels"})
+    for _ in range(2):
+        fake_llm.queue(ON_TOPIC, tool_calls(search), text("Here are some ryokan."))
+        events = await send(client, headers, plan["id"], "Find me a ryokan")
+        assert isinstance(events[-1], DoneEvent)
+
+    assert [s.query for s in fake_search.searches] == ["ryokan in Tokyo May 2027"]

@@ -31,6 +31,7 @@ from features.itinerary import service as itinerary_service
 from features.plans.models import Plan
 from features.plans.schemas import TravelPlan
 from shared.llm.types import LLMClient, LLMError, LLMMessage
+from shared.search.types import SearchProvider
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ async def answer_message(
     *,
     session: AsyncSession,
     llm: LLMClient,
+    search: SearchProvider,
     user_id: UUID,
     plan: Plan,
     content: str,
@@ -134,7 +136,7 @@ async def answer_message(
             kind = "message"
             events = agent.run_agent(
                 llm=llm,
-                ctx=ToolContext(session=session, user_id=user_id, plan_id=plan_id),
+                ctx=ToolContext(session=session, user_id=user_id, plan_id=plan_id, search=search),
                 plan=snapshot,
                 history=history,
                 latest=content,

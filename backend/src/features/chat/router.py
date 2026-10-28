@@ -14,6 +14,7 @@ from features.plans import service as plans_service
 from features.plans.models import Plan
 from shared.db import SessionDep
 from shared.errors import error_responses
+from shared.search.provider import SearchDep
 
 router = APIRouter(
     prefix="/plans/{plan_id}",
@@ -60,6 +61,7 @@ async def send_message(
     user: CurrentUser,
     session: SessionDep,
     llm: LLMDep,
+    search: SearchDep,
 ) -> AsyncIterator[ChatEvent]:
     """Send a message and stream the assistant's answer as server-sent events.
 
@@ -70,6 +72,7 @@ async def send_message(
     async for event in pipeline.answer_message(
         session=session,
         llm=llm,
+        search=search,
         user_id=user.id,
         plan=plan,
         content=body.content,

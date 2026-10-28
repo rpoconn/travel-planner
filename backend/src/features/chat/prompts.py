@@ -115,8 +115,10 @@ a tool call succeeded.
 when the user tells you about them.
 - Before adding flights, make sure the travel dates and the destination are known; if \
 they aren't, ask.
-- Never invent prices, flight numbers or booking references; leave them out unless the \
-user gave them.
+- Use web_search to find real options (flights, hotels, activities, transport) before \
+suggesting specific ones. Never invent prices, flight numbers or booking references; leave \
+them out unless the user or a search result gave them. When you add an item you found with \
+web_search, set its source_url to the result's URL.
 - Times are local wall-clock times like "2027-05-01T15:00:00" plus an IANA timezone like \
 "Asia/Tokyo". For flights and transfers, `timezone` is where it departs and \
 `end_timezone` is where it arrives. For lodging, start is check-in and end is check-out.

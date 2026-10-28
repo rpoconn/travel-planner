@@ -1,5 +1,5 @@
-"""Fixtures for chat tests: a scripted `FakeLLM` installed on the app, a user with a plan,
-and a DB session for calling the agent / tools directly."""
+"""Fixtures for chat tests: a scripted `FakeLLM` and `FakeSearchProvider` installed on the
+app, a user with a plan, and a DB session for calling the agent / tools directly."""
 
 import json
 from collections.abc import AsyncIterator
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from features.chat.schemas import ChatEvent
 from features.chat.tools import ToolContext
 from shared.llm.fake import FakeLLM
+from shared.search.fake import FakeSearchProvider
 from tests.conftest import RegisterUser
 
 PLAN: dict[str, Any] = {
@@ -50,6 +51,14 @@ def fake_llm(app: FastAPI) -> FakeLLM:
 
 
 @pytest.fixture
+def fake_search(app: FastAPI) -> FakeSearchProvider:
+    """Canned results unless `queue`d otherwise; records every search it receives."""
+    search = FakeSearchProvider()
+    app.state.search = search
+    return search
+
+
+@pytest.fixture
 async def headers(register_user: RegisterUser) -> dict[str, str]:
     return await register_user("ada@example.com")
 
@@ -71,8 +80,15 @@ async def session(app: FastAPI, client: AsyncClient) -> AsyncIterator[AsyncSessi
 
 
 @pytest.fixture
-def ctx(session: AsyncSession, plan: dict[str, Any]) -> ToolContext:
-    return ToolContext(session=session, user_id=UUID(plan["user_id"]), plan_id=UUID(plan["id"]))
+def ctx(
+    session: AsyncSession, plan: dict[str, Any], fake_search: FakeSearchProvider
+) -> ToolContext:
+    return ToolContext(
+        session=session,
+        user_id=UUID(plan["user_id"]),
+        plan_id=UUID(plan["id"]),
+        search=fake_search,
+    )
 
 
 # ---------------------------------------------------------------------------
