@@ -103,11 +103,40 @@ export function dayOffsetSuffix(startIso: string, endIso: string): string {
 }
 
 /**
+ * Which part of a multi-day item one day's card shows. A flight that lands on a later local
+ * day (long-haul, or crossing time zones eastward) is drawn on each day it touches; only the
+ * departure card is "the flight", the others are continuations of it.
+ */
+export type FlightLeg = 'whole' | 'departure' | 'in_flight' | 'arrival'
+
+export function flightLeg(entry: TimelineEntry): FlightLeg {
+    const { continues_from_previous_day: fromPrevious, continues_to_next_day: toNext } = entry
+    if (fromPrevious && toNext) return 'in_flight'
+    if (fromPrevious) return 'arrival'
+    if (toNext) return 'departure'
+    return 'whole'
+}
+
+/**
  * Time label for a card on one day. Items that cross midnight show on every day they touch,
  * so each day only shows the part that's relevant to it.
  */
 export function entryTimeLabel(entry: TimelineEntry): string {
     const { start, end } = entry.item
+    if (entry.item.type === 'flight') {
+        // Both ends are local times, so a flight shows its local arrival time on the departure
+        // day too, flagged "(+1)" when that's on another calendar day.
+        switch (flightLeg(entry)) {
+            case 'departure':
+                return `${formatWallTime(start)} → ${formatWallTime(end)}${dayOffsetSuffix(start, end)}`
+            case 'in_flight':
+                return 'In flight'
+            case 'arrival':
+                return `Arrives ${formatWallTime(end)}`
+            case 'whole':
+                break
+        }
+    }
     if (entry.continues_from_previous_day && entry.continues_to_next_day) return 'All day'
     if (entry.continues_from_previous_day) return `Until ${formatWallTime(end)}`
     if (entry.continues_to_next_day) return `${formatWallTime(start)} →`

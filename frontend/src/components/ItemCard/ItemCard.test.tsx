@@ -22,6 +22,41 @@ describe('ItemCard', () => {
         expect(card).toHaveTextContent('SFO → NRT · United UA 837 · 11h 30m')
     })
 
+    it("shows a flight's arrival day as a continuation, not a second flight", () => {
+        render(
+            <ItemCard
+                entry={timelineEntry(flightItem({ cost: { amount: '900', currency: 'USD' } }), {
+                    continues_from_previous_day: true,
+                })}
+                onSelect={vi.fn()}
+            />,
+        )
+
+        const card = screen.getByRole('button', { name: /SFO → NRT/ })
+        expect(card).toHaveAttribute('data-continuation', 'arrival')
+        expect(card).toHaveTextContent('Arrives')
+        expect(card).toHaveTextContent('Lands at NRT · from SFO, departed')
+        // Direction and cost belong to the departure card only.
+        expect(card).not.toHaveTextContent('Outbound')
+        expect(card).not.toHaveTextContent('900')
+    })
+
+    it('shows a middle day of a multi-day flight as in flight', () => {
+        render(
+            <ItemCard
+                entry={timelineEntry(flightItem(), {
+                    continues_from_previous_day: true,
+                    continues_to_next_day: true,
+                })}
+                onSelect={vi.fn()}
+            />,
+        )
+
+        const card = screen.getByRole('button', { name: /SFO → NRT/ })
+        expect(card).toHaveAttribute('data-continuation', 'in_flight')
+        expect(card).toHaveTextContent('In flight')
+    })
+
     it('shows category, place, status and cost for an activity', () => {
         render(
             <ItemCard

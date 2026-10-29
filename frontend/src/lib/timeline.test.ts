@@ -111,11 +111,33 @@ describe('entryTimeLabel', () => {
     })
 
     it('shows only the relevant end of an item crossing midnight', () => {
+        const overnight = activityItem({
+            start: '2027-05-03T20:00:00+09:00',
+            end: '2027-05-05T02:00:00+09:00',
+        })
+        expect(entryTimeLabel(timelineEntry(overnight, { continues_to_next_day: true }))).toBe(
+            `${time(20, 0)} →`,
+        )
+        expect(
+            entryTimeLabel(timelineEntry(overnight, { continues_from_previous_day: true })),
+        ).toBe(`Until ${time(2, 0)}`)
+        expect(
+            entryTimeLabel(
+                timelineEntry(overnight, {
+                    continues_from_previous_day: true,
+                    continues_to_next_day: true,
+                }),
+            ),
+        ).toBe('All day')
+    })
+
+    it('labels each day of a flight that lands on a later local day', () => {
+        // Departure card: both local times, with the arrival's day offset.
         expect(entryTimeLabel(timelineEntry(flight, { continues_to_next_day: true }))).toBe(
-            `${time(11, 0)} →`,
+            `${time(11, 0)} → ${time(14, 30)} (+1)`,
         )
         expect(entryTimeLabel(timelineEntry(flight, { continues_from_previous_day: true }))).toBe(
-            `Until ${time(14, 30)}`,
+            `Arrives ${time(14, 30)}`,
         )
         expect(
             entryTimeLabel(
@@ -124,7 +146,7 @@ describe('entryTimeLabel', () => {
                     continues_to_next_day: true,
                 }),
             ),
-        ).toBe('All day')
+        ).toBe('In flight')
     })
 
     it('shows a single time for an instant', () => {
