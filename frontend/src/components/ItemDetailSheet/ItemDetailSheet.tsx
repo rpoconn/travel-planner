@@ -10,7 +10,7 @@ import {
     SheetHeader,
     SheetTitle,
 } from '@/components/ui/sheet'
-import { formatMoney, placeLabel, placeLocality } from '@/lib/format'
+import { formatCost, formatMoney, placeLabel, placeLocality } from '@/lib/format'
 import { humanize, ITEM_TYPE_META, TRANSFER_MODE_META, type ItineraryItem } from '@/lib/itemMeta'
 import { dayOffset, formatDuration, formatWallDate, formatWallTime } from '@/lib/timeline'
 import { cn } from '@/lib/utils'
@@ -119,7 +119,7 @@ function typeFields(item: ItineraryItem): Field[] {
 
 function commonFields(item: ItineraryItem): Field[] {
     return [
-        { label: 'Cost', value: item.cost && formatMoney(item.cost) },
+        { label: 'Cost', value: item.cost && formatCost(item.cost, { verbose: true }) },
         { label: 'Booking ref', value: item.booking_ref },
         {
             label: 'Source',

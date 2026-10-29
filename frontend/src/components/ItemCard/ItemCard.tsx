@@ -2,7 +2,7 @@ import { PlaneLanding, PlaneTakeoff, TriangleAlert } from 'lucide-react'
 
 import type { TimelineEntry, TimelineWarning } from '@/api/types.gen'
 import { Badge } from '@/components/ui/badge'
-import { formatMoney } from '@/lib/format'
+import { formatCost } from '@/lib/format'
 import { humanize, ITEM_TYPE_META, type ItineraryItem } from '@/lib/itemMeta'
 import { entryTimeLabel, formatDuration } from '@/lib/timeline'
 import { cn } from '@/lib/utils'
@@ -89,7 +89,7 @@ export function ItemCard({ entry, warnings = [], onSelect }: ItemCardProps) {
                     </Badge>
                 )}
                 {item.cost && (
-                    <span className="text-muted-foreground text-xs">{formatMoney(item.cost)}</span>
+                    <span className="text-muted-foreground text-xs">{formatCost(item.cost)}</span>
                 )}
                 {warnings.length > 0 && (
                     <span

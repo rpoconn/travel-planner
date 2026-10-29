@@ -1,4 +1,4 @@
-import type { MoneyOutput, Place } from '@/api/types.gen'
+import type { CostOutput, MoneyOutput, Place } from '@/api/types.gen'
 
 // Display formatting shared by the sidebar, workspace and itinerary.
 
@@ -13,6 +13,17 @@ export function formatMoney({ amount, currency = 'USD' }: MoneyOutput): string {
         // Unknown currency code from the model: show it verbatim rather than failing.
         return `${amount} ${currency}`
     }
+}
+
+/**
+ * An item's cost: "$250.00" when quoted, "~$250.00" when estimated. `verbose` spells the
+ * estimate out instead ("$250.00 (estimate)"), for the detail sheet. A cost with no basis
+ * is read as an estimate, the cautious default the API also uses.
+ */
+export function formatCost(cost: CostOutput, { verbose = false } = {}): string {
+    const money = formatMoney(cost)
+    if (cost.basis === 'exact') return money
+    return verbose ? `${money} (estimate)` : `~${money}`
 }
 
 /** Parse an ISO `YYYY-MM-DD` as a *local* calendar date (`new Date(iso)` would use UTC). */

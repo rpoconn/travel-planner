@@ -85,11 +85,36 @@ function travelersText(value: unknown): string | null {
     return parts.join(', ')
 }
 
-function budgetText(value: unknown): string | null {
+function moneyText(value: unknown): string | null {
     if (typeof value !== 'object' || value === null) return null
     const { amount, currency } = value as { amount?: unknown; currency?: unknown }
     if (typeof amount !== 'string' && typeof amount !== 'number') return null
     return formatMoney({ amount: String(amount), currency: text(currency) ?? undefined })
+}
+
+/** An item's cost, "~" when estimated. Staged arguments leave out the default basis, which
+ * is "estimate", so only an explicit "exact" drops the "~". */
+function costText(value: unknown): string | null {
+    const money = moneyText(value)
+    if (money === null) return null
+    return (value as { basis?: unknown }).basis === 'exact' ? money : `~${money}`
+}
+
+/** "Food ≤ $200.00 a person" per spending limit; an empty list clears them. */
+function limitsText(value: unknown): string | null {
+    if (!Array.isArray(value)) return null
+    if (value.length === 0) return 'No spending limits'
+    const parts = value.flatMap((limit: unknown) => {
+        if (typeof limit !== 'object' || limit === null) return []
+        const { category, max_per_person } = limit as {
+            category?: unknown
+            max_per_person?: unknown
+        }
+        const name = text(category)
+        const cap = moneyText(max_per_person)
+        return name && cap ? [`${humanize(name)} ≤ ${cap} a person`] : []
+    })
+    return parts.length > 0 ? parts.join(', ') : null
 }
 
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
@@ -115,7 +140,8 @@ function changeDetails(change: ProposedChange): string | null {
                 origin && `from ${origin}`,
                 formatDateRange(text(args.start_date), text(args.end_date)),
                 travelersText(args.travelers),
-                budgetText(args.budget),
+                moneyText(args.budget),
+                limitsText(args.limits),
             )
             break
         }
@@ -138,7 +164,7 @@ function changeDetails(change: ProposedChange): string | null {
             parts.push(
                 from && to ? `${from} → ${to}` : placeText(args.place),
                 end && `until ${end}`,
-                budgetText(args.cost),
+                costText(args.cost),
             )
         }
     }

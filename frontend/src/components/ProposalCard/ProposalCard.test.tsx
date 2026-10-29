@@ -18,14 +18,25 @@ function renderCard(proposal: ChatProposal = chatProposal(), disabled = false) {
 
 const card = () => screen.getByRole('region', { name: 'Proposed changes' })
 
+const usd = (value: number) =>
+    new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value)
+
 // ----- tests -----
 
 describe('ProposalCard', () => {
     it('lists each change with its key details', () => {
+        const [hotel] = chatProposal().changes
+        if (!hotel) throw new Error('fixture has a change')
         renderCard(
             chatProposal({
                 changes: [
-                    ...chatProposal().changes,
+                    {
+                        ...hotel,
+                        arguments: {
+                            ...hotel.arguments,
+                            cost: { amount: '800', currency: 'USD' },
+                        },
+                    },
                     {
                         call_id: 'c2',
                         name: 'set_plan_details',
@@ -34,6 +45,12 @@ describe('ProposalCard', () => {
                             end_date: '2027-05-08',
                             travelers: { adults: 2, children: 1 },
                             origin: { name: 'San Francisco', iata: 'SFO' },
+                            limits: [
+                                {
+                                    category: 'food',
+                                    max_per_person: { amount: '200', currency: 'USD' },
+                                },
+                            ],
                         },
                         summary: 'Set trip origin, start date, end date, travelers',
                     },
@@ -47,6 +64,9 @@ describe('ProposalCard', () => {
         expect(rows[0]).toHaveTextContent('Hotel Okura · until 2027-05-06 11:00')
         expect(rows[1]).toHaveTextContent('from SFO')
         expect(rows[1]).toHaveTextContent('2 adults, 1 child')
+        // Staged arguments leave out the default basis, so the cost reads as an estimate.
+        expect(rows[0]).toHaveTextContent(`~${usd(800)}`)
+        expect(rows[1]).toHaveTextContent(`Food ≤ ${usd(200)} a person`)
     })
 
     it('approves or denies the whole proposal', async () => {

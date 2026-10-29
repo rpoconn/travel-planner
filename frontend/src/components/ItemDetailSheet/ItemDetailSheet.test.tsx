@@ -52,6 +52,7 @@ describe('ItemDetailSheet', () => {
         expect(field('Duration')).toHaveTextContent('11h 30m')
         expect(field('Layovers')).toHaveTextContent('Nonstop')
         expect(field('Time zone')).toHaveTextContent('America/Los_Angeles → Asia/Tokyo')
+        expect(field('Cost')).toHaveTextContent('(estimate)')
         expect(field('Booking ref')).toHaveTextContent('ABC123')
         expect(field('Notes')).toHaveTextContent('Window seats')
         expect(field('Added by')).toHaveTextContent('Assistant')

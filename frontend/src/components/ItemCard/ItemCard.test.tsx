@@ -35,7 +35,23 @@ describe('ItemCard', () => {
         const card = screen.getByRole('button', { name: /Senso-ji Temple/ })
         expect(card).toHaveTextContent('Sightseeing · Senso-ji')
         expect(card).toHaveTextContent('Confirmed')
+        // No basis means an estimate.
+        expect(card).toHaveTextContent(`~${formatMoney({ amount: '20', currency: 'USD' })}`)
+    })
+
+    it('shows a quoted price without the estimate mark', () => {
+        render(
+            <ItemCard
+                entry={timelineEntry(
+                    activityItem({ cost: { amount: '20', currency: 'USD', basis: 'exact' } }),
+                )}
+                onSelect={vi.fn()}
+            />,
+        )
+
+        const card = screen.getByRole('button', { name: /Senso-ji Temple/ })
         expect(card).toHaveTextContent(formatMoney({ amount: '20', currency: 'USD' }))
+        expect(card).not.toHaveTextContent('~')
     })
 
     it('flags items that have warnings', () => {

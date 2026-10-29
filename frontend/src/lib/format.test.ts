@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDateRange, formatMoney, placeLabel, placeLocality } from './format'
+import { formatCost, formatDateRange, formatMoney, placeLabel, placeLocality } from './format'
 
 const monthDay = (year: number, month: number, day: number) =>
     new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
@@ -37,6 +37,26 @@ describe('formatMoney', () => {
     it('defaults to USD and survives unknown currency codes', () => {
         expect(formatMoney({ amount: '10' })).toBe(currency(10, 'USD'))
         expect(formatMoney({ amount: '10', currency: 'NOT-A-CODE' })).toBe('10 NOT-A-CODE')
+    })
+})
+
+describe('formatCost', () => {
+    const usd = (value: number) =>
+        new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value)
+
+    it('marks estimates, and reads a missing basis as one', () => {
+        expect(formatCost({ amount: '250', currency: 'USD', basis: 'estimate' })).toBe(
+            `~${usd(250)}`,
+        )
+        expect(formatCost({ amount: '250', currency: 'USD' })).toBe(`~${usd(250)}`)
+        expect(formatCost({ amount: '250', currency: 'USD', basis: 'exact' })).toBe(usd(250))
+    })
+
+    it('spells the estimate out when verbose', () => {
+        expect(formatCost({ amount: '250', basis: 'estimate' }, { verbose: true })).toBe(
+            `${usd(250)} (estimate)`,
+        )
+        expect(formatCost({ amount: '250', basis: 'exact' }, { verbose: true })).toBe(usd(250))
     })
 })
 
