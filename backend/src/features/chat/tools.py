@@ -14,6 +14,10 @@ prepared change. The agent only prepares: each prepared change is staged into a 
 the user approves or denies, and approving runs `apply_change`, which prepares again (the
 plan may have changed since) before writing.
 
+`add_round_trip` is a shortcut, not a change of its own: it prepares the flight out and
+the flight home as two `add_flight` changes, so a trip gets both legs on one card by
+default. `add_flight` stays for the legs of a multi-city trip, connections and one-ways.
+
 `web_search` is the only tool that reads instead of writing: it shapes the query with the
 plan's destination/dates and returns the top results as text for the model to cite.
 """
@@ -21,12 +25,12 @@ plan's destination/dates and returns the top results as text for the model to ci
 import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.chat.prompts import RETURN_FLIGHT_NUDGE
@@ -141,7 +145,8 @@ class ToolOutcome:
     content: str  # fed back to the model
     summary: str  # shown to the user
     plan_changed: bool = False
-    prepared: Prepared | None = None  # set when a write tool's call validated
+    # Set when a write tool's call validated: one change, or two for add_round_trip.
+    prepared: tuple[Prepared, ...] = ()
 
 
 class ToolError(Exception):
@@ -150,6 +155,7 @@ class ToolError(Exception):
 
 RunHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[ToolOutcome]]
 PrepareHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[Prepared]]
+BundleHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[tuple[Prepared, ...]]]
 ApplyHandler = Callable[[ToolContext, Prepared], Awaitable[ToolOutcome]]
 
 
@@ -219,6 +225,15 @@ class SetPlanDetailsArgs(BaseModel):
             "current one"
         ),
     )
+
+
+class RoundTripArgs(BaseModel):
+    # Each leg is an add_flight call's arguments, validated when that leg is prepared.
+    # `return` is a keyword in Python, hence the alias.
+    model_config = ConfigDict(populate_by_name=True)
+
+    outbound: dict[str, Any]
+    return_flight: dict[str, Any] = Field(alias="return")
 
 
 class UpdateItemArgs(BaseModel):
@@ -459,6 +474,36 @@ async def _apply_add(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
         summary=f"Added {item.type} “{item.title}”",
         plan_changed=True,
     )
+
+
+_prepare_flight = _prepare_add("flight")
+
+
+async def _prepare_round_trip(ctx: ToolContext, arguments: dict[str, Any]) -> tuple[Prepared, ...]:
+    args = RoundTripArgs.model_validate(_drop_nulls(arguments))
+    outbound = await _prepare_flight(ctx, {**args.outbound, "direction": "outbound"})
+    # The flight home is checked with the flight out already on the card, so the pair has
+    # to fit the budget together. The call id is a placeholder: this change isn't kept.
+    with_outbound = replace(
+        ctx,
+        staged=[
+            *ctx.staged,
+            ProposedChange(
+                call_id="round-trip",
+                name=outbound.name,
+                arguments=outbound.arguments,
+                summary=outbound.summary,
+            ),
+        ],
+    )
+    home = await _prepare_flight(with_outbound, {**args.return_flight, "direction": "return"})
+    # Aware datetimes (each in its own zone), so they compare as instants.
+    if home.payload.start <= outbound.payload.end:
+        raise ToolError(
+            "The return flight must leave after the outbound flight lands; usually it "
+            "leaves on the trip's last day"
+        )
+    return outbound, home
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +829,16 @@ class WriteTool:
     apply: ApplyHandler
 
 
-Tool = ReadTool | WriteTool
+@dataclass(frozen=True)
+class BundleTool:
+    """A tool that stages several changes of other write tools (add_round_trip: two
+    add_flight). Proposals only ever hold those changes, so it has no `apply`."""
+
+    spec: ToolSpec
+    prepare: BundleHandler
+
+
+Tool = ReadTool | WriteTool | BundleTool
 
 
 # Fields the model shouldn't fill, so they're left out of the prompt: it can't know
@@ -828,6 +882,19 @@ def _item_parameters(item_type: ItemType) -> dict[str, Any]:
     return _hide_fields(inline_schema(_CREATE_MODELS[item_type]), hidden)
 
 
+def _round_trip_parameters() -> dict[str, Any]:
+    # Both legs are add_flight's parameters; the direction comes from the leg's key.
+    leg = _hide_fields(_item_parameters("flight"), frozenset({"direction"}))
+    return {
+        "type": "object",
+        "properties": {
+            "outbound": {**leg, "description": "The flight from home to the destination"},
+            "return": {**leg, "description": "The flight home, usually on the trip's last day"},
+        },
+        "required": ["outbound", "return"],
+    }
+
+
 def _add_tool(item_type: ItemType, description: str) -> WriteTool:
     return WriteTool(
         spec=ToolSpec(
@@ -853,12 +920,28 @@ _ALL_TOOLS: list[Tool] = [
         prepare=_prepare_plan_details,
         apply=_apply_plan_details,
     ),
+    BundleTool(
+        spec=ToolSpec(
+            name="add_round_trip",
+            description=(
+                "Add the flight out and the flight home together. Use this for a trip's "
+                "flights unless the user asked for a one-way or multi-city trip. Each leg: "
+                "from_place/to_place need IATA codes; timezone = departure airport's IANA "
+                "zone, end_timezone = arrival airport's; end is the local arrival time "
+                "there, often the next day; cost is that leg's total for everyone. With "
+                "only a round-trip price, put it on the outbound leg and cost the return 0."
+            ),
+            parameters=_round_trip_parameters(),
+        ),
+        prepare=_prepare_round_trip,
+    ),
     _add_tool(
         "flight",
-        "Add a flight. from_place/to_place need IATA codes. timezone = departure "
-        "airport's IANA zone, end_timezone = arrival airport's; end is the local "
-        "arrival time there, often the next day. direction = outbound (leaving home), "
-        "return (going home) or internal.",
+        "Add one flight leg: for a multi-city trip, a connection, or a one-way trip the "
+        "user asked for (otherwise use add_round_trip). from_place/to_place need IATA "
+        "codes. timezone = departure airport's IANA zone, end_timezone = arrival "
+        "airport's; end is the local arrival time there, often the next day. direction = "
+        "outbound (leaving home), return (going home) or internal.",
     ),
     _add_tool(
         "lodging",
@@ -939,11 +1022,12 @@ async def _attempt(name: str, action: Callable[[], Awaitable[ToolOutcome]]) -> T
         return _failure("This plan no longer exists")
 
 
-def _staged(prepared: Prepared) -> ToolOutcome:
+def _staged(*prepared: Prepared) -> ToolOutcome:
+    summary = "; ".join(change.summary for change in prepared)
     return ToolOutcome(
         ok=True,
-        content=STAGED_CONTENT.format(summary=prepared.summary),
-        summary=f"Proposed: {prepared.summary}",
+        content=STAGED_CONTENT.format(summary=summary),
+        summary=f"Proposed: {summary}",
         prepared=prepared,
     )
 
@@ -971,6 +1055,8 @@ async def execute(ctx: ToolContext, call: LLMToolCall) -> ToolOutcome:
     async def action() -> ToolOutcome:
         if isinstance(tool, ReadTool):
             return await tool.run(ctx, call.arguments)
+        if isinstance(tool, BundleTool):
+            return _staged(*await tool.prepare(ctx, call.arguments))
         return _staged(await tool.prepare(ctx, call.arguments))
 
     return _logged(call.name, ctx, await _attempt(call.name, action))

@@ -184,8 +184,11 @@ appears on the timeline (and opens in the detail sheet), and the off-topic redir
 
 - `POST /plans/{id}/chat` streams server-sent events. Each message goes through a topic guardrail
   (off-topic messages get a friendly redirect), then the planning agent, which proposes itinerary
-  changes with tools (`set_plan_details`, `add_flight` / `add_lodging` / `add_activity` /
-  `add_transfer`, `update_item`, `remove_item`) and looks things up with `web_search`.
+  changes with tools (`set_plan_details`, `add_round_trip` / `add_flight` / `add_lodging` /
+  `add_activity` / `add_transfer`, `update_item`, `remove_item`) and looks things up with
+  `web_search`. Flights default to round trips: `add_round_trip` stages the flight out and the
+  flight home as two `add_flight` changes on one card; `add_flight` alone is for multi-city
+  legs, connections and one-ways.
 - Plan changes are human-in-the-loop: write tools validate with the same schemas as the REST API
   but write nothing. A turn's staged changes are stored as one proposal (`chat_proposals`, shown
   as `ChatMessage.proposal`), and only the newest pending one per plan stays open (older ones are

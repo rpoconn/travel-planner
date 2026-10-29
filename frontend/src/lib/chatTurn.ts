@@ -38,6 +38,7 @@ export interface ChatTurn {
 // Write tools only stage a change while the assistant replies (and apply it once the user
 // approves), so the labels stay neutral about which is happening.
 const RUNNING_LABELS: Record<string, string> = {
+    add_round_trip: 'Preparing flights out and home…',
     add_flight: 'Preparing a flight…',
     add_lodging: 'Preparing a place to stay…',
     add_activity: 'Preparing an activity…',

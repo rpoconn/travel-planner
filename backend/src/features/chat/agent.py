@@ -56,23 +56,29 @@ def new_call_id() -> str:
 def _stage(
     outcome: tools.ToolOutcome, staged: list[ProposedChange], call_id: str
 ) -> tools.ToolOutcome:
-    """Add a prepared change to `staged`, or tell the model it's already there. (Small
-    models often re-send a change; arguments are normalised, so a repeat compares equal.)"""
-    prepared = outcome.prepared
-    if prepared is None:
-        return outcome
-    if any(c.name == prepared.name and c.arguments == prepared.arguments for c in staged):
+    """Add the prepared changes to `staged`, or tell the model they're already there.
+    (Small models often re-send a change; arguments are normalised, so a repeat compares
+    equal.) A round trip re-sent after its outbound leg was staged adds only the return."""
+    fresh = [
+        prepared
+        for prepared in outcome.prepared
+        if not any(c.name == prepared.name and c.arguments == prepared.arguments for c in staged)
+    ]
+    if outcome.prepared and not fresh:
+        summary = "; ".join(prepared.summary for prepared in outcome.prepared)
         return tools.ToolOutcome(
-            ok=True, content=ALREADY_STAGED, summary=f"Already proposed: {prepared.summary}"
+            ok=True, content=ALREADY_STAGED, summary=f"Already proposed: {summary}"
         )
-    staged.append(
-        ProposedChange(
-            call_id=call_id,
-            name=prepared.name,
-            arguments=prepared.arguments,
-            summary=prepared.summary,
+    for index, prepared in enumerate(fresh):
+        staged.append(
+            ProposedChange(
+                # One call can stage two changes; the card needs a distinct id for each.
+                call_id=call_id if index == 0 else f"{call_id}-{index + 1}",
+                name=prepared.name,
+                arguments=prepared.arguments,
+                summary=prepared.summary,
+            )
         )
-    )
     return outcome
 
 
@@ -146,7 +152,7 @@ async def run_agent(
                 name=call.name,
                 ok=outcome.ok,
                 summary=outcome.summary,
-                proposed=outcome.prepared is not None,
+                proposed=bool(outcome.prepared),
             )
             messages.append(LLMMessage(role="tool", tool_name=call.name, content=outcome.content))
 

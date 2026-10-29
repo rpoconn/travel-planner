@@ -31,8 +31,8 @@ async def _stage(ctx: ToolContext, name: str, arguments: dict[str, Any]) -> Tool
 
 
 def _change(outcome: ToolOutcome) -> ProposedChange:
-    assert outcome.prepared is not None, outcome.content
-    prepared = outcome.prepared
+    assert outcome.prepared, outcome.content
+    (prepared,) = outcome.prepared
     return ProposedChange(
         call_id="call_1",
         name=prepared.name,
@@ -45,7 +45,7 @@ async def _run(ctx: ToolContext, name: str, arguments: dict[str, Any]) -> ToolOu
     """Stage the call and, if it validated, apply it as approving its proposal would (from
     the stored, normalised arguments)."""
     staged = await _stage(ctx, name, arguments)
-    if not staged.ok or staged.prepared is None:
+    if not staged.ok or not staged.prepared:
         return staged
     return await apply_change(ctx, _change(staged))
 
@@ -65,6 +65,7 @@ async def _add_hotel(ctx: ToolContext) -> str:
 def test_tool_names() -> None:
     assert set(TOOLS) == {
         "set_plan_details",
+        "add_round_trip",
         "add_flight",
         "add_lodging",
         "add_activity",
@@ -184,7 +185,7 @@ async def test_check_change_validates_without_writing(ctx: ToolContext) -> None:
 
     outcome = await check_change(ctx, change)
 
-    assert outcome.ok and outcome.prepared is not None
+    assert outcome.ok and outcome.prepared
     assert await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id) == []
 
 
@@ -278,7 +279,7 @@ async def test_with_a_budget_every_item_needs_a_cost(ctx: ToolContext) -> None:
 
     outcome = await _stage(ctx, "add_lodging", HOTEL_ARGS)
 
-    assert not outcome.ok and outcome.prepared is None
+    assert not outcome.ok and not outcome.prepared
     assert "Hotel Okura has no cost" in outcome.content
     assert 'best estimate (basis "estimate")' in outcome.content
 
@@ -305,8 +306,8 @@ async def test_an_item_that_breaks_the_budget_is_rejected(ctx: ToolContext) -> N
     within = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 200}})
     over = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 300}})
 
-    assert within.ok and within.prepared is not None
-    assert not over.ok and over.prepared is None
+    assert within.ok and within.prepared
+    assert not over.ok and not over.prepared
     assert "costs total 1,100.00 USD, 100.00 USD over the 1,000.00 USD budget" in over.content
     assert "ask the user whether to raise the budget" in over.content
 
@@ -649,7 +650,7 @@ async def test_add_transfer_rejects_an_airport_code_that_names_another_airport(
 
     outcome = await _stage(ctx, "add_transfer", transfer)
 
-    assert not outcome.ok and outcome.prepared is None
+    assert not outcome.ok and not outcome.prepared
     assert "'Tokyo Haneda Airport' is HND, not NRT" in outcome.content
 
 
@@ -834,3 +835,83 @@ async def test_web_search_rejects_an_unknown_kind(
     assert not outcome.ok
     assert outcome.content.startswith("Error: Invalid arguments for web_search:")
     assert fake_search.searches == []
+
+
+# ---------------------------------------------------------------------------
+# Round trip (two add_flight changes from one call)
+# ---------------------------------------------------------------------------
+
+_ROUND_TRIP: dict[str, Any] = {
+    "outbound": _flight("PHL", "HND", "2027-05-01"),
+    "return": _flight("HND", "PHL", "2027-05-08"),
+}
+
+
+async def test_round_trip_stages_both_flights_and_writes_nothing(ctx: ToolContext) -> None:
+    # The model's own directions are ignored: the leg's key says which way it goes.
+    legs = {key: {**leg, "direction": "internal"} for key, leg in _ROUND_TRIP.items()}
+
+    outcome = await _stage(ctx, "add_round_trip", legs)
+
+    assert outcome.ok, outcome.content
+    assert [(p.name, p.arguments["direction"]) for p in outcome.prepared] == [
+        ("add_flight", "outbound"),
+        ("add_flight", "return"),
+    ]
+    assert outcome.summary == (
+        "Proposed: Add flight “PHL to HND” on 2027-05-01 10:00; "
+        "Add flight “HND to PHL” on 2027-05-08 10:00"
+    )
+    assert await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id) == []
+
+
+async def test_round_trip_legs_are_applied_as_ordinary_flights(ctx: ToolContext) -> None:
+    outcome = await _stage(ctx, "add_round_trip", _ROUND_TRIP)
+
+    for prepared in outcome.prepared:
+        change = ProposedChange(
+            call_id="call_1",
+            name=prepared.name,
+            arguments=prepared.arguments,
+            summary=prepared.summary,
+        )
+        assert (await apply_change(ctx, change)).ok
+
+    assert await _directions(ctx) == {"PHL to HND": "outbound", "HND to PHL": "return"}
+
+
+async def test_round_trip_home_must_leave_after_the_flight_out_lands(ctx: ToolContext) -> None:
+    early = {**_ROUND_TRIP, "return": _flight("HND", "PHL", "2027-05-01")}
+
+    outcome = await _stage(ctx, "add_round_trip", early)
+
+    assert not outcome.ok and not outcome.prepared
+    assert "must leave after the outbound flight lands" in outcome.content
+
+
+async def test_round_trip_legs_fit_the_budget_together(ctx: ToolContext) -> None:
+    await _set_budget(ctx, 1000)
+    leg_cost = {"cost": {"amount": 600}}
+    pricey = {key: {**leg, **leg_cost} for key, leg in _ROUND_TRIP.items()}
+
+    outcome = await _stage(ctx, "add_round_trip", pricey)
+
+    assert not outcome.ok
+    assert "200.00 USD over the 1,000.00 USD budget" in outcome.content
+
+
+async def test_round_trip_needs_both_legs(ctx: ToolContext) -> None:
+    outcome = await _stage(ctx, "add_round_trip", {"outbound": _ROUND_TRIP["outbound"]})
+
+    assert not outcome.ok
+    assert outcome.content.startswith("Error: Invalid arguments for add_round_trip:")
+
+
+def test_round_trip_spec_has_two_flight_legs_without_a_direction() -> None:
+    parameters = TOOLS["add_round_trip"].spec.parameters
+
+    assert parameters["required"] == ["outbound", "return"]
+    for key in ("outbound", "return"):
+        leg = parameters["properties"][key]["properties"]
+        assert "carrier" in leg and "end_timezone" in leg
+        assert "direction" not in leg

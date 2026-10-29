@@ -342,6 +342,11 @@ flowchart TD
     SR -->|"yes, results"| R1["ok = true<br/>numbered results + URLs<br/>'set source_url when adding'"]
 ```
 
+**Round trips.** `add_round_trip` takes an `outbound` and a `return` leg, prepares each as
+an `add_flight` (direction set by its key, the return checked with the outbound already on
+the card so the pair fits the budget together, and the return leaving after the outbound
+lands), and stages both on the card. Approval applies them as two ordinary flights.
+
 **Flight direction inference** (small models often mislabel the flight home as
 "outbound"). Strongest evidence wins; the inferred direction is part of the staged
 arguments, so the card shows what will be stored:

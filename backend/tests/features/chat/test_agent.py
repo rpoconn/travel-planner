@@ -317,6 +317,21 @@ async def test_an_outbound_flight_alone_gets_a_return_flight_reminder(ctx: ToolC
     assert len(_system_notes(llm)) == 1
 
 
+async def test_a_round_trip_stages_two_flights_with_distinct_ids(ctx: ToolContext) -> None:
+    round_trip = tool_calls(("add_round_trip", {"outbound": OUTBOUND, "return": RETURN}))
+    llm = FakeLLM([round_trip, round_trip, text("I've proposed both flights.")])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, "Fly me there and back", staged=staged)
+
+    assert [change.arguments["direction"] for change in staged] == ["outbound", "return"]
+    first_call = _of_type(events, ToolResultEvent)[0].call_id
+    assert [change.call_id for change in staged] == [first_call, f"{first_call}-2"]
+    # The repeat is caught, and a whole round trip needs no return-flight reminder.
+    assert llm.requests[2].messages[-1].content == ALREADY_STAGED
+    assert _system_notes(llm) == []
+
+
 async def test_both_flights_on_one_card_need_no_reminder(ctx: ToolContext) -> None:
     llm = FakeLLM([tool_calls(("add_flight", OUTBOUND), ("add_flight", RETURN)), text("Done.")])
 

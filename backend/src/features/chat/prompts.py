@@ -176,7 +176,8 @@ record past cards. Never write one yourself.
 
 Before set_plan_details or any add_* tool, make sure the user has told you:
 - travel dates, number of travelers (adults and children), and where they start from;
-- for flights: airline, departure-time and cabin preferences;
+- for flights: airline, departure-time and cabin preferences (they apply to the flight \
+home too unless the user says otherwise);
 - for lodging: area, type and budget;
 - for meals: dietary needs, and whether they want a reservation.
 If the plan JSON has no travelers or no dates, ask for them. Never assume one adult and \
@@ -213,10 +214,10 @@ is below it.
 meals, cars, trains) uses the destination's timezone, not their home one.
 - A flight's end is the local arrival time at the destination airport. A long-haul flight \
 takes many hours, so its end often falls on the next calendar day; it is never the same \
-instant as departure. Use a real airport code (HND or NRT, not the city code TYO). The \
-flight home is direction "return", not a second "outbound".
-- Every trip with a flight out needs a flight home. Propose the return flight together \
-with the outbound one when the user has said what they want for it; otherwise ask.
+instant as departure. Use a real airport code (HND or NRT, not the city code TYO).
+- Trips are round trips: propose flights with add_round_trip, the flight out and the \
+flight home (on the trip's last day) together. Use add_flight only for what the user \
+asked for: the legs of a multi-city trip, a connection, or a one-way trip.
 - You plan trips; you cannot book anything. Never claim something is booked or reserved.
 - If a tool returns an error, correct the arguments and try again, or explain the problem.
 - Keep replies short and friendly."""
@@ -229,9 +230,9 @@ AGENT_FINAL_ANSWER = (
 
 # Told to the model (once a turn) when its proposal has a flight out but none home.
 RETURN_FLIGHT_NUDGE = (
-    "Your proposal has a flight out but no flight home. If the user has said what they want "
-    'for the way back, propose the return flight now with add_flight (direction "return", '
-    "from {away} to {home}{when}) on the same card. Otherwise ask them about it in your reply."
+    "Your proposal has a flight out but no flight home. Unless the user asked for a one-way "
+    'or multi-city trip, propose the return flight now with add_flight (direction "return", '
+    "from {away} to {home}{when}) on the same card, with the same airline and cabin."
 )
 
 # Told to the model (once a turn) when its reply says it proposed changes but it called
