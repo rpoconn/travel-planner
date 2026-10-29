@@ -881,7 +881,8 @@ async def test_round_trip_legs_are_applied_as_ordinary_flights(ctx: ToolContext)
 
 
 async def test_round_trip_home_must_leave_after_the_flight_out_lands(ctx: ToolContext) -> None:
-    early = {**_ROUND_TRIP, "return": _flight("HND", "PHL", "2027-05-01")}
+    # Earlier but not overlapping, so only the round-trip check catches it.
+    early = {**_ROUND_TRIP, "return": _flight("HND", "PHL", "2027-04-30")}
 
     outcome = await _stage(ctx, "add_round_trip", early)
 
@@ -915,3 +916,51 @@ def test_round_trip_spec_has_two_flight_legs_without_a_direction() -> None:
         leg = parameters["properties"][key]["properties"]
         assert "carrier" in leg and "end_timezone" in leg
         assert "direction" not in leg
+
+
+# ---------------------------------------------------------------------------
+# Flight routes (no overlaps; each flight leaves from where the last one landed)
+# ---------------------------------------------------------------------------
+
+
+async def test_a_second_flight_out_is_rejected_with_how_to_swap(ctx: ToolContext) -> None:
+    await _run(ctx, "add_flight", {**_flight("PHL", "HND", "2027-05-01"), "title": "Pricey"})
+    (old,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    cheaper = {**_flight("PHL", "HND", "2027-05-01"), "title": "Cheaper"}
+    cheaper["start"], cheaper["end"] = "2027-05-01T11:00:00", "2027-05-01T13:00:00"
+
+    outcome = await _stage(ctx, "add_flight", cheaper)
+
+    assert not outcome.ok
+    assert "Cheaper overlaps the flight Pricey" in outcome.content
+    assert f'remove_item (item_id "{old.id}")' in outcome.content
+
+
+async def test_a_flight_removed_on_the_same_card_does_not_count(ctx: ToolContext) -> None:
+    await _run(ctx, "add_flight", _flight("PHL", "HND", "2027-05-01"))
+    (old,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    removal = _change(await _stage(ctx, "remove_item", {"item_id": str(old.id)}))
+
+    outcome = await _stage(
+        replace(ctx, staged=[removal]), "add_flight", _flight("PHL", "HND", "2027-05-01")
+    )
+
+    assert outcome.ok, outcome.content
+
+
+async def test_moving_a_flight_so_it_breaks_the_route_is_rejected(ctx: ToolContext) -> None:
+    await _run(ctx, "add_flight", _flight("PHL", "HND", "2027-05-01"))
+    await _run(ctx, "add_flight", _flight("HND", "PHL", "2027-05-08"))
+    items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    home = next(item for item in items if item.title == "HND to PHL")
+
+    outcome = await _stage(
+        ctx,
+        "update_item",
+        {"item_id": str(home.id), "changes": {"from_place": {"iata": "KIX"}}},
+    )
+
+    assert not outcome.ok
+    assert "HND to PHL leaves from KIX, but after PHL to HND the traveller is at HND" in (
+        outcome.content
+    )

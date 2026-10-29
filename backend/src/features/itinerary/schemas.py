@@ -390,6 +390,7 @@ WarningKind = Literal[
     "over_limit",
     "over_budget",
     "wrong_timezone",
+    "wrong_departure",
 ]
 
 

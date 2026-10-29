@@ -704,3 +704,48 @@ async def test_decisions_are_validated_before_the_stream(
     again = await client.post(url, json={"action": "approve"}, headers=headers)
     assert again.status_code == 409
     assert again.json()["detail"] == "This proposal was already denied"
+
+
+async def test_approving_a_flight_swap_removes_the_old_one_first(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
+) -> None:
+    # The reported bug: a cheaper flight was added and the pricier one stayed. A card that
+    # removes the old flight before adding the new one must pass the approval check, which
+    # would otherwise see two flights out of PHL.
+    pricey = _flight_args("ANA 1", "2027-05-01T10:00:00", "2027-05-02T12:00:00")
+    body = {"type": "flight", "direction": "outbound", **pricey}
+    response = await client.post(f"/plans/{plan['id']}/items", json=body, headers=headers)
+    assert response.status_code == 201, response.text
+    old_id = response.json()["id"]
+    cheaper = _flight_args("ANA 2", "2027-05-01T13:00:00", "2027-05-02T15:00:00")
+    fake_llm.queue(
+        ON_TOPIC,
+        tool_calls(("remove_item", {"item_id": old_id}), ("add_flight", cheaper)),
+        text("I've proposed swapping to the cheaper flight."),
+    )
+    proposal = done_message(
+        await send(client, headers, plan["id"], "Switch me to the cheaper flight")
+    ).message.proposal
+    assert proposal is not None and [c.name for c in proposal.changes] == [
+        "remove_item",
+        "add_flight",
+    ]
+    fake_llm.queue(text("Done: you're on the cheaper flight."))
+
+    events = await decide(client, headers, plan["id"], str(proposal.id), "approve")
+
+    updated = next(e for e in events if isinstance(e, PlanUpdatedEvent))
+    assert [item.title for item in updated.plan.items] == ["ANA 2"]
+
+
+def _flight_args(title: str, start: str, end: str) -> dict[str, Any]:
+    return {
+        "title": title,
+        "carrier": "ANA",
+        "start": start,
+        "end": end,
+        "timezone": "America/New_York",
+        "end_timezone": "Asia/Tokyo",
+        "from_place": {"name": "Philadelphia International Airport", "iata": "PHL"},
+        "to_place": {"name": "Narita International Airport", "iata": "NRT"},
+    }

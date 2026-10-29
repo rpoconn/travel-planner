@@ -9,7 +9,7 @@ Item creation is split into one tool per item type (rather than one `add_item` t
 discriminated union): a flat schema per type is much easier for a small local model.
 
 Write tools are split in two. `prepare` validates a call against the plan (same models,
-past-date check, item lookup, flight direction) and writes nothing; `apply` writes a
+past-date check, item lookup, flight direction and route) and writes nothing; `apply` writes a
 prepared change. The agent only prepares: each prepared change is staged into a proposal
 the user approves or denies, and approving runs `apply_change`, which prepares again (the
 plan may have changed since) before writing.
@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from features.chat.prompts import RETURN_FLIGHT_NUDGE
 from features.chat.schemas import ProposedChange
 from features.itinerary import budget as budget_rules
+from features.itinerary import routes as route_rules
 from features.itinerary import service as itinerary_service
 from features.itinerary import zones as zone_rules
 from features.itinerary.airports import same_area
@@ -377,7 +378,7 @@ async def _check_budget(
 
 
 # ---------------------------------------------------------------------------
-# Timezone check
+# Timezone and route checks
 # ---------------------------------------------------------------------------
 
 _WRONG_ZONE_HELP = (
@@ -426,6 +427,41 @@ async def _check_zone(
         raise ToolError(f"{problem}. {_WRONG_ZONE_HELP.format(zone=expected)}")
 
 
+_REPLACE_FLIGHT_HELP = (
+    "If this flight replaces {title}, first propose removing that one with remove_item "
+    '(item_id "{item_id}"), then propose this flight again. Otherwise fix the times or '
+    "airports"
+)
+_ROUTE_HELP = "Fix the times or airports so each flight leaves from where the last one landed"
+
+
+async def _check_route(
+    ctx: ToolContext,
+    flight: FlightFields,
+    name: str,
+    arguments: dict[str, Any],
+    item_id: UUID | None = None,
+) -> None:
+    """Raise a ToolError if `flight` (new, or flight `item_id` as it would be after an
+    update) overlaps another flight or breaks the route (see features.itinerary.routes).
+    Flights this card already removes don't count, so a swap goes through."""
+    items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    removed = {str(c.arguments.get("item_id")) for c in ctx.staged if c.name == "remove_item"}
+    others = [other for other in items if other.id != item_id and str(other.id) not in removed]
+    problem = route_rules.route_problem(flight, [*others, *_staged_items(ctx, name, arguments)])
+    if problem is None:
+        return
+    # A clash with a planned flight is usually a replacement (a cheaper fare, another
+    # time), which small models add without removing the old one.
+    clash = problem.other
+    help_text = (
+        _REPLACE_FLIGHT_HELP.format(title=clash.title, item_id=clash.id)
+        if isinstance(clash, FlightItem)
+        else _ROUTE_HELP
+    )
+    raise ToolError(f"{problem.message}. {help_text}")
+
+
 def _prepare_add(item_type: ItemType) -> PrepareHandler:
     model = _CREATE_MODELS[item_type]
 
@@ -453,6 +489,8 @@ def _prepare_add(item_type: ItemType) -> PrepareHandler:
         # Defaults are left out to keep the proposal small; they come back on re-prepare.
         normalised = data.model_dump(mode="json", exclude_defaults=True, exclude={"type"})
         await _check_zone(ctx, data, f"add_{item_type}", normalised)
+        if isinstance(data, FlightFields):
+            await _check_route(ctx, data, f"add_{item_type}", normalised)
         await _check_budget(ctx, plan, data, f"add_{item_type}", normalised)
         return Prepared(
             name=f"add_{item_type}",
@@ -668,6 +706,8 @@ def return_flight_nudge(plan: TravelPlan, staged: Sequence[ProposedChange]) -> s
 # Item fields whose change re-runs the budget checks.
 _BUDGET_FIELDS = frozenset({"cost", "category", "status"})
 _TIME_FIELDS = frozenset({"start", "end", "timezone", "end_timezone"})
+# Item fields whose change re-runs the route check (a flight's times, airports, status).
+_ROUTE_FIELDS = _TIME_FIELDS | {"from_place", "to_place", "status"}
 
 
 @dataclass(frozen=True)
@@ -706,6 +746,8 @@ async def _prepare_update(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
     # cost before the budget was set is fine (the timeline flags it instead).
     if patch.model_fields_set & _TIME_FIELDS:
         await _check_zone(ctx, merged, "update_item", arguments, item_id=args.item_id)
+    if isinstance(merged, FlightFields) and patch.model_fields_set & _ROUTE_FIELDS:
+        await _check_route(ctx, merged, "update_item", arguments, item_id=args.item_id)
     if patch.model_fields_set & _BUDGET_FIELDS:
         plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
         await _check_budget(ctx, plan, merged, "update_item", arguments, item_id=args.item_id)

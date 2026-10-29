@@ -12,7 +12,7 @@ Everything the client needs is yielded as `ChatEvent`s; the router only encodes 
 
 import logging
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from uuid import UUID
 
@@ -310,8 +310,11 @@ async def _apply_proposal(
     the current plan first, and nothing is written if any fails. Yields the tool events of
     the writes, then one `plan_updated`. The tool results of what was applied and the
     reasons for failures are appended to the out-parameters `applied` and `failures`."""
-    for change in changes:
-        outcome = await tools.check_change(ctx, change)
+    for index, change in enumerate(changes):
+        # Checked like it was staged: with the card's earlier changes counted, so a swap
+        # (remove the old flight, add the new one) or two hotels sharing the budget is
+        # judged as the user saw it, not against the plan alone.
+        outcome = await tools.check_change(replace(ctx, staged=changes[:index]), change)
         if not outcome.ok:
             failures.append(f"{change.summary}: {outcome.summary}")
     if not failures:

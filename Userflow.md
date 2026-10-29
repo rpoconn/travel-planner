@@ -347,6 +347,15 @@ an `add_flight` (direction set by its key, the return checked with the outbound 
 the card so the pair fits the budget together, and the return leaving after the outbound
 lands), and stages both on the card. Approval applies them as two ordinary flights.
 
+**Flight routes** (`features/itinerary/routes.py`). A new or moved flight must not overlap
+another flight, must leave from where the previous flight landed (airports of one city
+count as one; a ground transfer in between skips the check), and must not strand the next
+flight. A clash with a planned flight returns its id and tells the model to remove it with
+`remove_item` first, which is how a "cheaper flight" swap goes on one card. Flights the card
+already removes don't count, and on approval each change is checked with the card's earlier
+changes counted, so the swap passes there too. The timeline shows a `wrong_departure` warning
+for routes already broken.
+
 **Flight direction inference** (small models often mislabel the flight home as
 "outbound"). Strongest evidence wins; the inferred direction is part of the staged
 arguments, so the card shows what will be stored:

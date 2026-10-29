@@ -369,6 +369,25 @@ def test_an_item_at_the_destination_in_the_home_zone_is_flagged() -> None:
     )
 
 
+def test_a_flight_leaving_from_elsewhere_than_the_last_landing_is_flagged() -> None:
+    arrival = flight("2027-05-01T11:00", "2027-05-02T14:30", title="Out")
+    home = flight(
+        "2027-05-08T17:00",
+        "2027-05-08T19:00",
+        from_place=JFK,
+        to_place=SFO,
+        end_timezone=LA_TZ,
+        title="Home",
+    )
+
+    timeline = _timeline([arrival, home])
+
+    (warning,) = [w for w in timeline.warnings if w.kind == "wrong_departure"]
+    assert warning.item_ids == [arrival.id, home.id]
+    assert warning.date == date(2027, 5, 8)
+    assert warning.message == "Home leaves from JFK, but after Out the traveller is at NRT"
+
+
 def test_items_before_the_first_flight_belong_to_its_departure_zone() -> None:
     lunch = activity("2027-05-01T08:00", "2027-05-01T09:00", title="Lunch", timezone=LA_TZ)
     timeline = _timeline([lunch, flight("2027-05-01T11:00", "2027-05-02T14:30")])

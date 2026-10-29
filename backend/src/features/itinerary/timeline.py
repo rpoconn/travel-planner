@@ -18,6 +18,7 @@ from features.itinerary.budget import (
     needs_cost,
     total_error,
 )
+from features.itinerary.routes import departure_problem
 from features.itinerary.schemas import (
     ActivityItem,
     FlightItem,
@@ -237,6 +238,26 @@ def _zone_warnings(items: Sequence[ItineraryItem]) -> list[TimelineWarning]:
     return warnings
 
 
+def _route_warnings(items: Sequence[ItineraryItem]) -> list[TimelineWarning]:
+    # Each flight against the one before it, so a broken link is reported once. Flights in
+    # the air together are already an "overlap".
+    warnings: list[TimelineWarning] = []
+    for flight in items:
+        if not isinstance(flight, FlightItem):
+            continue
+        problem = departure_problem(flight, [other for other in items if other.id != flight.id])
+        if problem is not None and isinstance(problem.other, FlightItem):
+            warnings.append(
+                TimelineWarning(
+                    kind="wrong_departure",
+                    message=problem.message,
+                    date=item_days(flight)[0],
+                    item_ids=[problem.other.id, flight.id],
+                )
+            )
+    return warnings
+
+
 def _budget_warnings(
     budget: Money | None,
     limits: Sequence[SpendingLimit],
@@ -335,6 +356,7 @@ def build_timeline(
         *_overlaps([i for i in active if i.type == "lodging"]),
         *_missing_transfers(dates, active),
         *_zone_warnings(active),
+        *_route_warnings(active),
         *_budget_warnings(budget, limits, travelers, active),
     ]
     warnings.sort(key=lambda w: w.date or range_first)

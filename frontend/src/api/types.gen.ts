@@ -1323,7 +1323,7 @@ export type TimelineWarning = {
     /**
      * Kind
      */
-    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget' | 'wrong_timezone';
+    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget' | 'wrong_timezone' | 'wrong_departure';
     /**
      * Message
      */
@@ -1814,7 +1814,7 @@ export type WarningToFix = {
     /**
      * Kind
      */
-    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget' | 'wrong_timezone';
+    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget' | 'wrong_timezone' | 'wrong_departure';
     /**
      * Message
      */
