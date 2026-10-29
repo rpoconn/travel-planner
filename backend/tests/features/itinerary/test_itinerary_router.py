@@ -249,6 +249,25 @@ async def test_timeline_endpoint(
         (s["item"]["id"], s["start_day_index"], s["end_day_index"]) for s in timeline["lodging"]
     ] == [(hotel["id"], 1, 5)]
     assert {"no_lodging", "missing_transfer"} <= {w["kind"] for w in timeline["warnings"]}
+    # No budget, so missing costs are fine.
+    assert "missing_cost" not in {w["kind"] for w in timeline["warnings"]}
+
+
+async def test_timeline_checks_items_against_the_plan_budget(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+) -> None:
+    # The flight costs 1240.50; the hotel has no cost.
+    await _add(client, headers, plan["id"], FLIGHT)
+    await _add(client, headers, plan["id"], HOTEL)
+    budget = {"budget": {"amount": "1000", "currency": "USD"}}
+    patched = await client.patch(f"/plans/{plan['id']}", json=budget, headers=headers)
+    assert patched.status_code == 200, patched.text
+
+    response = await client.get(f"/plans/{plan['id']}/timeline", headers=headers)
+
+    kinds = [w["kind"] for w in response.json()["warnings"]]
+    assert kinds.count("missing_cost") == 1
+    assert "over_budget" in kinds
 
 
 # ---------------------------------------------------------------------------

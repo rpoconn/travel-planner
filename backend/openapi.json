@@ -4090,7 +4090,10 @@
               "no_lodging",
               "overlap",
               "missing_transfer",
-              "outside_trip"
+              "outside_trip",
+              "missing_cost",
+              "over_limit",
+              "over_budget"
             ],
             "title": "Kind"
           },
@@ -5127,7 +5130,10 @@
               "no_lodging",
               "overlap",
               "missing_transfer",
-              "outside_trip"
+              "outside_trip",
+              "missing_cost",
+              "over_limit",
+              "over_budget"
             ],
             "title": "Kind"
           },

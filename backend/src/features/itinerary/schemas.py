@@ -381,7 +381,15 @@ ItineraryItemPatch = Annotated[
 # ---------------------------------------------------------------------------
 
 TimelineCardItem = Annotated[FlightItem | ActivityItem | TransferItem, Field(discriminator="type")]
-WarningKind = Literal["no_lodging", "overlap", "missing_transfer", "outside_trip"]
+WarningKind = Literal[
+    "no_lodging",
+    "overlap",
+    "missing_transfer",
+    "outside_trip",
+    "missing_cost",
+    "over_limit",
+    "over_budget",
+]
 
 
 class TimelineEntry(BaseModel):

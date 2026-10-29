@@ -12,12 +12,19 @@ from datetime import date, datetime, time, timedelta
 from itertools import pairwise
 from uuid import UUID
 
+from features.itinerary.budget import (
+    cost_error,
+    limit_error,
+    needs_cost,
+    total_error,
+)
 from features.itinerary.schemas import (
     ActivityItem,
     FlightItem,
     ItineraryItem,
     LodgingItem,
     LodgingSpan,
+    SpendingLimit,
     Timeline,
     TimelineCardItem,
     TimelineDay,
@@ -25,7 +32,7 @@ from features.itinerary.schemas import (
     TimelineWarning,
     TransferItem,
 )
-from shared.domain import Place
+from shared.domain import Money, Place, Travelers
 
 # ---------------------------------------------------------------------------
 # Day helpers
@@ -200,6 +207,37 @@ def _outside_trip(
     return warnings
 
 
+def _budget_warnings(
+    budget: Money | None,
+    limits: Sequence[SpendingLimit],
+    travelers: Travelers | None,
+    items: Sequence[ItineraryItem],
+) -> list[TimelineWarning]:
+    # The agent can't propose items that break these rules, but the user can add items,
+    # set a budget after the fact or lower it, so the plan is checked as it stands.
+    warnings: list[TimelineWarning] = []
+    for item in items:
+        if not needs_cost(item, budget, limits):
+            continue
+        day = item_days(item)[0]
+        error = cost_error(item, budget)
+        if error is not None:
+            warnings.append(
+                TimelineWarning(kind="missing_cost", message=error, date=day, item_ids=[item.id])
+            )
+            continue
+        error = limit_error(item, limits, travelers)
+        if error is not None:
+            warnings.append(
+                TimelineWarning(kind="over_limit", message=error, date=day, item_ids=[item.id])
+            )
+    error = total_error(budget, (item.cost for item in items))
+    if error is not None:
+        # About the whole trip, so no date or items.
+        warnings.append(TimelineWarning(kind="over_budget", message=f"The trip {error}"))
+    return warnings
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -212,6 +250,9 @@ def build_timeline(
     start_date: date | None,
     end_date: date | None,
     items: Sequence[ItineraryItem],
+    budget: Money | None = None,
+    limits: Sequence[SpendingLimit] = (),
+    travelers: Travelers | None = None,
 ) -> Timeline:
     spans_by_item = {item.id: item_days(item) for item in items}
 
@@ -262,6 +303,7 @@ def build_timeline(
         *_overlaps([i for i in active if i.type != "lodging"]),
         *_overlaps([i for i in active if i.type == "lodging"]),
         *_missing_transfers(dates, active),
+        *_budget_warnings(budget, limits, travelers, active),
     ]
     warnings.sort(key=lambda w: w.date or range_first)
 

@@ -1,8 +1,10 @@
 from collections.abc import Sequence
 from datetime import date, timedelta
+from decimal import Decimal
 
-from features.itinerary.schemas import ItineraryItem, Timeline, WarningKind
+from features.itinerary.schemas import ItineraryItem, SpendingLimit, Timeline, WarningKind
 from features.itinerary.timeline import build_timeline, item_days
+from shared.domain import Cost, Money, Travelers
 from tests.features.itinerary.factories import (
     JFK,
     LAX,
@@ -264,3 +266,68 @@ def test_consecutive_items_at_the_same_place_need_no_transfer() -> None:
     missing = [w for w in timeline.warnings if w.kind == "missing_transfer"]
 
     assert [w.item_ids for w in missing] == [[gardens.id, market.id]]
+
+
+# ---------------------------------------------------------------------------
+# Budget
+# ---------------------------------------------------------------------------
+
+BUDGET = Money(amount=Decimal(1000))
+FOOD_LIMIT = SpendingLimit(category="food", max_per_person=Money(amount=Decimal(200)))
+
+
+def _costing(item: ItineraryItem, amount: int | None, **update: object) -> ItineraryItem:
+    cost = Cost(amount=Decimal(amount)) if amount is not None else None
+    return item.model_copy(update={"cost": cost, **update})
+
+
+def _budget_timeline(items: Sequence[ItineraryItem]) -> Timeline:
+    return build_timeline(
+        plan_id=PLAN_ID,
+        version=3,
+        start_date=date(2027, 5, 1),
+        end_date=date(2027, 5, 8),
+        items=items,
+        budget=BUDGET,
+        limits=[FOOD_LIMIT],
+        travelers=Travelers(adults=2),
+    )
+
+
+def test_items_without_a_cost_are_flagged_when_there_is_a_budget() -> None:
+    hotel = lodging("2027-05-01T15:00", "2027-05-08T11:00", place=OKURA)
+    museum = activity("2027-05-03T10:00", "2027-05-03T12:00")
+    items = [_costing(hotel, 700), museum]
+
+    with_budget = _budget_timeline(items)
+    without = _timeline(items)
+
+    (warning,) = [w for w in with_budget.warnings if w.kind == "missing_cost"]
+    assert warning.message == "Senso-ji has no cost"
+    assert warning.item_ids == [museum.id] and warning.date == date(2027, 5, 3)
+    assert _warnings(without, "missing_cost") == []
+
+
+def test_meals_over_their_limit_are_flagged() -> None:
+    dinner = activity("2027-05-03T19:00", "2027-05-03T21:00", title="Alchimiste")
+
+    timeline = _budget_timeline([_costing(dinner, 504, category="food")])
+
+    (warning,) = [w for w in timeline.warnings if w.kind == "over_limit"]
+    assert "over the food limit of 200.00 USD a person" in warning.message
+
+
+def test_a_trip_over_budget_is_flagged_once_without_a_date() -> None:
+    hotel = lodging("2027-05-01T15:00", "2027-05-08T11:00", place=OKURA)
+    museum = activity("2027-05-03T10:00", "2027-05-03T12:00")
+    cancelled = activity("2027-05-04T10:00", "2027-05-04T12:00", status="cancelled")
+
+    timeline = _budget_timeline(
+        [_costing(hotel, 900), _costing(museum, 150), _costing(cancelled, 5000)]
+    )
+
+    (warning,) = [w for w in timeline.warnings if w.kind == "over_budget"]
+    assert warning.message == (
+        "The trip costs total 1,050.00 USD, 50.00 USD over the 1,000.00 USD budget"
+    )
+    assert warning.date is None and warning.item_ids == []

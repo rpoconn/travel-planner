@@ -118,12 +118,16 @@ async def get_plan_snapshot(session: AsyncSession, user_id: UUID, plan_id: UUID)
 
 async def get_timeline(session: AsyncSession, user_id: UUID, plan_id: UUID) -> Timeline:
     plan = await plans_service.get_plan(session, user_id, plan_id)
+    details = PlanDetails.model_validate(plan)
     return build_timeline(
         plan_id=plan.id,
         version=plan.version,
         start_date=plan.start_date,
         end_date=plan.end_date,
         items=await _items_for(session, plan.id),
+        budget=details.budget,
+        limits=details.limits,
+        travelers=details.travelers,
     )
 
 
