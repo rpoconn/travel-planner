@@ -462,12 +462,28 @@ async def _check_route(
     raise ToolError(f"{problem.message}. {help_text}")
 
 
+def _flight_title(fields: dict[str, Any]) -> str | None:
+    """'Flight PHL to HND' from a flight's airports, or None if they don't validate (the
+    model's own validation then reports them)."""
+    try:
+        ends = [Place.model_validate(fields.get(key)) for key in ("from_place", "to_place")]
+    except ValidationError:
+        return None
+    return "Flight {} to {}".format(*(_airport(place) for place in ends))
+
+
 def _prepare_add(item_type: ItemType) -> PrepareHandler:
     model = _CREATE_MODELS[item_type]
 
     async def prepare(ctx: ToolContext, arguments: dict[str, Any]) -> Prepared:
         # `type` is implied by the tool, so it's not in the schema; set it here.
         fields = {**_drop_nulls(arguments), "type": item_type}
+        # Small models often leave out a flight's title (especially in add_round_trip's
+        # nested legs); its airports say all a title would.
+        if item_type == "flight" and not fields.get("title"):
+            title = _flight_title(fields)
+            if title is not None:
+                fields["title"] = title
         # Small models often leave out a flight's `direction`, or label the trip home
         # "outbound". Validate with a placeholder when it's missing, then reconcile the
         # label with the plan rather than trusting it or failing the call.
@@ -517,9 +533,20 @@ async def _apply_add(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
 _prepare_flight = _prepare_add("flight")
 
 
+async def _prepare_leg(ctx: ToolContext, leg: str, arguments: dict[str, Any]) -> Prepared:
+    direction: FlightDirection = "outbound" if leg == "outbound" else "return"
+    try:
+        return await _prepare_flight(ctx, {**arguments, "direction": direction})
+    except ValidationError as exc:
+        # Name the leg: the error's location is inside it, so the model can't tell which.
+        raise ToolError(
+            f"Invalid arguments for add_round_trip's {leg} leg: {summarize_validation_error(exc)}"
+        ) from exc
+
+
 async def _prepare_round_trip(ctx: ToolContext, arguments: dict[str, Any]) -> tuple[Prepared, ...]:
     args = RoundTripArgs.model_validate(_drop_nulls(arguments))
-    outbound = await _prepare_flight(ctx, {**args.outbound, "direction": "outbound"})
+    outbound = await _prepare_leg(ctx, "outbound", args.outbound)
     # The flight home is checked with the flight out already on the card, so the pair has
     # to fit the budget together. The call id is a placeholder: this change isn't kept.
     with_outbound = replace(
@@ -534,7 +561,7 @@ async def _prepare_round_trip(ctx: ToolContext, arguments: dict[str, Any]) -> tu
             ),
         ],
     )
-    home = await _prepare_flight(with_outbound, {**args.return_flight, "direction": "return"})
+    home = await _prepare_leg(with_outbound, "return", args.return_flight)
     # Aware datetimes (each in its own zone), so they compare as instants.
     if home.payload.start <= outbound.payload.end:
         raise ToolError(

@@ -921,6 +921,34 @@ async def test_round_trip_legs_fit_the_budget_together(ctx: ToolContext) -> None
     assert "200.00 USD over the 1,000.00 USD budget" in outcome.content
 
 
+async def test_round_trip_legs_without_a_title_are_named_after_their_airports(
+    ctx: ToolContext,
+) -> None:
+    untitled = {
+        key: {name: value for name, value in leg.items() if name != "title"}
+        for key, leg in _ROUND_TRIP.items()
+    }
+
+    outcome = await _stage(ctx, "add_round_trip", untitled)
+
+    assert outcome.ok, outcome.content
+    assert [p.arguments["title"] for p in outcome.prepared] == [
+        "Flight PHL to HND",
+        "Flight HND to PHL",
+    ]
+
+
+async def test_round_trip_errors_name_the_leg(ctx: ToolContext) -> None:
+    broken = {**_ROUND_TRIP, "return": {**_ROUND_TRIP["return"], "start": "soon"}}
+
+    outcome = await _stage(ctx, "add_round_trip", broken)
+
+    assert not outcome.ok
+    assert outcome.content.startswith(
+        "Error: Invalid arguments for add_round_trip's return leg: start:"
+    )
+
+
 async def test_round_trip_needs_both_legs(ctx: ToolContext) -> None:
     outcome = await _stage(ctx, "add_round_trip", {"outbound": _ROUND_TRIP["outbound"]})
 
