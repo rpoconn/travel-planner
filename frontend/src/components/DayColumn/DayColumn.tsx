@@ -1,20 +1,28 @@
-import { TriangleAlert } from 'lucide-react'
+import { Clock, TriangleAlert } from 'lucide-react'
 import { Fragment, type CSSProperties } from 'react'
 
 import type { TimelineDay, TimelineWarning } from '@/api/types.gen'
 import { ItemCard } from '@/components/ItemCard/ItemCard'
 import { TransferConnector } from '@/components/TransferConnector/TransferConnector'
 import type { ItineraryItem } from '@/lib/itemMeta'
-import { formatDayHeader, missingTransferBetween } from '@/lib/timeline'
+import {
+    dayZoneChange,
+    dayZoneLabel,
+    formatDayHeader,
+    missingTransferBetween,
+} from '@/lib/timeline'
 
 // One day of the timeline. It spans every row of the timeline grid and uses `subgrid`, so
 // its sticky date header sits in the first row, its cards in the last, and the lodging lanes
-// that ItineraryTimeline draws in between line up with every column.
+// that ItineraryTimeline draws in between line up with every column. The header shows the
+// timezone the traveller is in, and flags the day the clocks change (e.g. landing in Tokyo).
 
 // ----- types -----
 
 interface DayColumnProps {
     day: TimelineDay
+    /** The day before, to spot a timezone change; undefined for the first day. */
+    previousDay?: TimelineDay
     /** All timeline warnings: used to find `missing_transfer` gaps between cards. */
     warnings: readonly TimelineWarning[]
     /** Warnings dated this day, summarized in the header. */
@@ -26,6 +34,7 @@ interface DayColumnProps {
 
 export function DayColumn({
     day,
+    previousDay,
     warnings,
     dayWarnings = [],
     warningsByItem,
@@ -34,6 +43,8 @@ export function DayColumn({
 }: DayColumnProps) {
     // ----- state -----
     const { weekday, date } = formatDayHeader(day.date)
+    const zone = dayZoneLabel(day)
+    const zoneChange = dayZoneChange(day, previousDay)
 
     // ----- markup -----
     return (
@@ -45,13 +56,18 @@ export function DayColumn({
             // grow to fit their widest content and spill into the next day.
             className="grid min-w-0 grid-cols-1 grid-rows-subgrid border-r last-of-type:border-r-0"
         >
-            <header className="bg-background/95 sticky top-0 z-10 flex items-baseline gap-2 border-b px-3 py-2 backdrop-blur-sm">
+            <header className="bg-background/95 sticky top-0 z-10 flex flex-wrap items-baseline gap-x-2 border-b px-3 py-2 backdrop-blur-sm">
                 <span className="text-muted-foreground text-[0.7rem] font-semibold tracking-wider uppercase">
                     Day {day.index + 1}
                 </span>
                 <span className="font-heading text-base">
                     {weekday}, {date}
                 </span>
+                {zone && (
+                    <span className="text-muted-foreground text-xs" title={day.timezone ?? ''}>
+                        {zone}
+                    </span>
+                )}
                 {dayWarnings.length > 0 && (
                     <span
                         className="text-warning ml-auto self-center"
@@ -62,6 +78,12 @@ export function DayColumn({
                             {dayWarnings.length} warning{dayWarnings.length === 1 ? '' : 's'}
                         </span>
                     </span>
+                )}
+                {zoneChange && (
+                    <p className="text-flight inline-flex basis-full items-center gap-1 text-xs font-medium">
+                        <Clock className="size-3.5" aria-hidden />
+                        Clocks {zoneChange.shift} · now {zoneChange.label}
+                    </p>
                 )}
             </header>
 

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { TimelineDay, TimelineWarning } from '@/api/types.gen'
+import { zoneLabel } from '@/lib/timeline'
 import { activityItem, flightItem, timelineEntry, transferItem } from '@/test/fixtures'
 
 import { DayColumn } from './DayColumn'
@@ -16,13 +17,15 @@ const ARRIVAL_DAY: TimelineDay = {
     index: 1,
     date: '2027-05-02',
     entries: [LANDING, timelineEntry(transferItem()), DINNER],
+    timezone: 'Asia/Tokyo',
 }
 
-function renderDay(day: TimelineDay, warnings: TimelineWarning[] = []) {
+function renderDay(day: TimelineDay, warnings: TimelineWarning[] = [], previousDay?: TimelineDay) {
     const onSelectItem = vi.fn()
     render(
         <DayColumn
             day={day}
+            previousDay={previousDay}
             warnings={warnings}
             dayWarnings={warnings.filter((warning) => warning.date === day.date)}
             warningsByItem={new Map()}
@@ -68,8 +71,35 @@ describe('DayColumn', () => {
         expect(within(column).getByText('1 warning')).toBeInTheDocument()
     })
 
+    it('flags the day the clocks change on landing', () => {
+        const departureDay: TimelineDay = {
+            index: 0,
+            date: '2027-05-01',
+            entries: [],
+            timezone: 'America/Los_Angeles',
+        }
+        const { column } = renderDay(ARRIVAL_DAY, [], departureDay)
+
+        const tokyo = zoneLabel('Asia/Tokyo', new Date(Date.UTC(2027, 4, 2, 12)))
+        expect(column).toHaveTextContent(`Clocks +16h · now ${tokyo}`)
+    })
+
+    it('shows the zone without a change marker on a day in the same zone', () => {
+        const { column } = renderDay(ARRIVAL_DAY, [], { ...ARRIVAL_DAY, index: 0 })
+
+        expect(column).toHaveTextContent(
+            zoneLabel('Asia/Tokyo', new Date(Date.UTC(2027, 4, 2, 12))),
+        )
+        expect(column).not.toHaveTextContent('Clocks')
+    })
+
     it('shows a free day when nothing is planned', () => {
-        const { column } = renderDay({ index: 1, date: '2027-05-02', entries: [] })
+        const { column } = renderDay({
+            index: 1,
+            date: '2027-05-02',
+            entries: [],
+            timezone: null,
+        })
 
         expect(column).toHaveTextContent('Free day')
     })

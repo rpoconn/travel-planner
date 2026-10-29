@@ -1284,6 +1284,10 @@ export type TimelineDay = {
      * Entries
      */
     entries: Array<TimelineEntry>;
+    /**
+     * Timezone
+     */
+    timezone: string | null;
 };
 
 /**
@@ -1319,7 +1323,7 @@ export type TimelineWarning = {
     /**
      * Kind
      */
-    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget';
+    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget' | 'wrong_timezone';
     /**
      * Message
      */
@@ -1810,7 +1814,7 @@ export type WarningToFix = {
     /**
      * Kind
      */
-    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget';
+    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget' | 'wrong_timezone';
     /**
      * Message
      */

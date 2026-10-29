@@ -92,13 +92,14 @@ def activity(
     *,
     place: Place = SENSOJI,
     title: str | None = None,
+    timezone: str = TOKYO_TZ,
     status: ItemStatus = "proposed",
 ) -> ActivityItem:
     return ActivityItem.model_validate(
         {
             **_common(title or place.name, start, end, status),
             "type": "activity",
-            "timezone": TOKYO_TZ,
+            "timezone": timezone,
             "place": place,
             "category": "sightseeing",
         }

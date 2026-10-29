@@ -186,6 +186,8 @@ export function tokyoTimeline(): Timeline {
                 index: 0,
                 date: '2027-05-01',
                 entries: [timelineEntry(flight, { continues_to_next_day: true })],
+                // Still in San Francisco time until the flight lands.
+                timezone: 'America/Los_Angeles',
             },
             {
                 index: 1,
@@ -194,10 +196,16 @@ export function tokyoTimeline(): Timeline {
                     timelineEntry(flight, { continues_from_previous_day: true }),
                     timelineEntry(transferItem()),
                 ],
+                timezone: 'Asia/Tokyo',
             },
-            { index: 2, date: '2027-05-03', entries: [timelineEntry(activityItem())] },
-            { index: 3, date: '2027-05-04', entries: [] },
-            { index: 4, date: '2027-05-05', entries: [] },
+            {
+                index: 2,
+                date: '2027-05-03',
+                entries: [timelineEntry(activityItem())],
+                timezone: 'Asia/Tokyo',
+            },
+            { index: 3, date: '2027-05-04', entries: [], timezone: 'Asia/Tokyo' },
+            { index: 4, date: '2027-05-05', entries: [], timezone: 'Asia/Tokyo' },
         ],
         lodging: [{ item: lodgingItem(), start_day_index: 1, end_day_index: 4 }],
     })

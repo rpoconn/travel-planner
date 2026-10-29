@@ -4030,13 +4030,25 @@
             },
             "type": "array",
             "title": "Entries"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           }
         },
         "type": "object",
         "required": [
           "index",
           "date",
-          "entries"
+          "entries",
+          "timezone"
         ],
         "title": "TimelineDay"
       },
@@ -4093,7 +4105,8 @@
               "outside_trip",
               "missing_cost",
               "over_limit",
-              "over_budget"
+              "over_budget",
+              "wrong_timezone"
             ],
             "title": "Kind"
           },
@@ -5133,7 +5146,8 @@
               "outside_trip",
               "missing_cost",
               "over_limit",
-              "over_budget"
+              "over_budget",
+              "wrong_timezone"
             ],
             "title": "Kind"
           },

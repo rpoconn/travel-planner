@@ -73,7 +73,12 @@ describe('ItineraryTimeline', () => {
 
         // The assistant removed the activity: the plan_updated handler invalidates the query.
         const withoutActivity = tokyoTimeline()
-        withoutActivity.days[2] = { index: 2, date: '2027-05-03', entries: [] }
+        withoutActivity.days[2] = {
+            index: 2,
+            date: '2027-05-03',
+            entries: [],
+            timezone: 'Asia/Tokyo',
+        }
         getTimeline.mockResolvedValue(sdkOk(withoutActivity))
         await queryClient.invalidateQueries({
             queryKey: getTimelineQueryKey({ path: { plan_id: PLAN_ID } }),
@@ -146,7 +151,9 @@ describe('ItineraryTimeline', () => {
 
     it('nudges toward the chat when the days are all empty', async () => {
         vi.spyOn(sdk, 'getTimeline').mockResolvedValue(
-            sdkOk(timeline({ days: [{ index: 0, date: '2027-05-01', entries: [] }] })),
+            sdkOk(
+                timeline({ days: [{ index: 0, date: '2027-05-01', entries: [], timezone: null }] }),
+            ),
         )
 
         renderTimeline()

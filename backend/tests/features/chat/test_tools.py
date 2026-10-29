@@ -365,6 +365,69 @@ async def test_removals_on_the_card_free_up_budget(ctx: ToolContext) -> None:
     assert outcome.ok, outcome.content
 
 
+# The reported trip: PHL 15:00 (New York) → HND 07:00 the next morning (Tokyo).
+_PHL_HND: dict[str, Any] = {
+    "title": "PHL to HND",
+    "carrier": "Japan Airlines",
+    "start": "2027-05-01T15:00:00",
+    "end": "2027-05-02T07:00:00",
+    "timezone": "America/New_York",
+    "end_timezone": "Asia/Tokyo",
+    "from_place": {"iata": "PHL"},
+    "to_place": {"iata": "HND"},
+    "direction": "outbound",
+}
+
+
+async def test_an_item_at_the_destination_in_the_home_timezone_is_rejected(
+    ctx: ToolContext,
+) -> None:
+    await _run(ctx, "add_flight", _PHL_HND)
+
+    outcome = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "timezone": "America/New_York"})
+
+    assert not outcome.ok
+    assert "traveller is in Asia/Tokyo" in outcome.content
+    assert "local times in Asia/Tokyo" in outcome.content
+
+
+async def test_an_item_in_the_destination_timezone_is_accepted(ctx: ToolContext) -> None:
+    await _run(ctx, "add_flight", _PHL_HND)
+
+    outcome = await _stage(ctx, "add_lodging", HOTEL_ARGS)
+
+    assert outcome.ok, outcome.content
+
+
+async def test_a_flight_on_the_card_sets_the_timezone_for_the_rest_of_it(
+    ctx: ToolContext,
+) -> None:
+    flight = await _stage(ctx, "add_flight", _PHL_HND)
+    on_card = replace(ctx, staged=[_change(flight)])
+
+    outcome = await _stage(on_card, "add_lodging", {**HOTEL_ARGS, "timezone": "America/New_York"})
+
+    assert not outcome.ok and "traveller is in Asia/Tokyo" in outcome.content
+
+
+async def test_moving_an_item_into_the_wrong_timezone_is_rejected(ctx: ToolContext) -> None:
+    await _run(ctx, "add_flight", _PHL_HND)
+    hotel_id = await _add_hotel_after_flight(ctx)
+
+    outcome = await _stage(
+        ctx, "update_item", {"item_id": hotel_id, "changes": {"timezone": "America/New_York"}}
+    )
+
+    assert not outcome.ok and "traveller is in Asia/Tokyo" in outcome.content
+
+
+async def _add_hotel_after_flight(ctx: ToolContext) -> str:
+    outcome = await _run(ctx, "add_lodging", HOTEL_ARGS)
+    assert outcome.ok, outcome.content
+    items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    return next(str(item.id) for item in items if item.type == "lodging")
+
+
 async def test_a_meal_over_the_per_person_limit_is_rejected(ctx: ToolContext) -> None:
     limit = {"category": "food", "max_per_person": {"amount": 200, "currency": "USD"}}
     await _run(ctx, "set_plan_details", {"travelers": {"adults": 2}, "limits": [limit]})

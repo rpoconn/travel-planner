@@ -178,6 +178,7 @@ function TimelineGrid({ timeline, onSelectItem }: TimelineGridProps) {
                     <DayColumn
                         key={day.date}
                         day={day}
+                        previousDay={timeline.days[day.index - 1]}
                         warnings={timeline.warnings}
                         dayWarnings={byDate.get(day.date)}
                         warningsByItem={byItem}

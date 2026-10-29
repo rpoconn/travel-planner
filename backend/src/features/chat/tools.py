@@ -32,11 +32,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from features.chat.schemas import ProposedChange
 from features.itinerary import budget as budget_rules
 from features.itinerary import service as itinerary_service
+from features.itinerary import zones as zone_rules
 from features.itinerary.airports import same_area
 from features.itinerary.schemas import (
     ActivityItemCreate,
     ActivityItemPatch,
     FlightDirection,
+    FlightFields,
     FlightItem,
     FlightItemCreate,
     FlightItemPatch,
@@ -358,6 +360,56 @@ async def _check_budget(
         raise ToolError(f"With {item.title} the trip {error}. {_OVER_BUDGET_HELP}")
 
 
+# ---------------------------------------------------------------------------
+# Timezone check
+# ---------------------------------------------------------------------------
+
+_WRONG_ZONE_HELP = (
+    "Times are local to where the traveller is: give start and end as local times in "
+    "{zone} and set timezone to {zone}"
+)
+
+
+def _staged_items(ctx: ToolContext, name: str, arguments: dict[str, Any]) -> list[ItemFields]:
+    """Items this turn's proposal adds, so a hotel staged right after its flight is checked
+    against that flight. The change being prepared is skipped if it's already staged.
+    Staged updates and removals aren't projected: the timeline flags what slips through."""
+    items: list[ItemFields] = []
+    for change in ctx.staged:
+        if change.name == name and change.arguments == arguments:
+            continue
+        item_type = change.name.removeprefix("add_")
+        # `item_type` is a plain str here (not every change is an add), hence the ignore.
+        model = _CREATE_MODELS.get(item_type)  # type: ignore[call-overload]
+        if model is None:
+            continue
+        try:
+            items.append(model.model_validate({**change.arguments, "type": item_type}))
+        except ValidationError:
+            # Staged arguments were validated when staged; skip rather than fail this call.
+            logger.warning("Staged %s no longer validates", change.name)
+    return items
+
+
+async def _check_zone(
+    ctx: ToolContext,
+    item: ItemFields,
+    name: str,
+    arguments: dict[str, Any],
+    item_id: UUID | None = None,
+) -> None:
+    """Raise a ToolError if `item` (new, or item `item_id` as it would be after an update)
+    isn't in the timezone the traveller is in then (see features.itinerary.zones)."""
+    if isinstance(item, FlightFields):
+        return
+    items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    others = [other for other in items if other.id != item_id]
+    result = zone_rules.zone_error(item, [*others, *_staged_items(ctx, name, arguments)])
+    if result is not None:
+        problem, expected = result
+        raise ToolError(f"{problem}. {_WRONG_ZONE_HELP.format(zone=expected)}")
+
+
 def _prepare_add(item_type: ItemType) -> PrepareHandler:
     model = _CREATE_MODELS[item_type]
 
@@ -384,6 +436,7 @@ def _prepare_add(item_type: ItemType) -> PrepareHandler:
             data = data.model_copy(update={"direction": direction})
         # Defaults are left out to keep the proposal small; they come back on re-prepare.
         normalised = data.model_dump(mode="json", exclude_defaults=True, exclude={"type"})
+        await _check_zone(ctx, data, f"add_{item_type}", normalised)
         await _check_budget(ctx, plan, data, f"add_{item_type}", normalised)
         return Prepared(
             name=f"add_{item_type}",
@@ -499,6 +552,7 @@ def _flight_direction(
 
 # Item fields whose change re-runs the budget checks.
 _BUDGET_FIELDS = frozenset({"cost", "category", "status"})
+_TIME_FIELDS = frozenset({"start", "end", "timezone", "end_timezone"})
 
 
 @dataclass(frozen=True)
@@ -535,6 +589,8 @@ async def _prepare_update(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
     arguments = {"item_id": str(args.item_id), "changes": normalised}
     # Only changes that affect what the item costs are checked: moving an item that had no
     # cost before the budget was set is fine (the timeline flags it instead).
+    if patch.model_fields_set & _TIME_FIELDS:
+        await _check_zone(ctx, merged, "update_item", arguments, item_id=args.item_id)
     if patch.model_fields_set & _BUDGET_FIELDS:
         plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
         await _check_budget(ctx, plan, merged, "update_item", arguments, item_id=args.item_id)

@@ -13,6 +13,8 @@ import {
     dayGridColumn,
     dayOffset,
     dayOffsetSuffix,
+    dayZoneChange,
+    dayZoneLabel,
     entryTimeLabel,
     findTimelineItem,
     formatDayHeader,
@@ -23,6 +25,8 @@ import {
     parseWallClock,
     warningsByDate,
     warningsByItem,
+    zoneLabel,
+    zoneOffsetMinutes,
 } from './timeline'
 
 // ----- setup -----
@@ -132,12 +136,14 @@ describe('entryTimeLabel', () => {
     })
 
     it('labels each day of a flight that lands on a later local day', () => {
-        // Departure card: both local times, with the arrival's day offset.
+        // SFO 11:00 (Los Angeles) → NRT 14:30 the next day (Tokyo): each time gets its zone.
+        const departs = `${time(11, 0)} ${zoneLabel('America/Los_Angeles', new Date(flight.start))}`
+        const arrives = `${time(14, 30)} ${zoneLabel('Asia/Tokyo', new Date(flight.end))}`
         expect(entryTimeLabel(timelineEntry(flight, { continues_to_next_day: true }))).toBe(
-            `${time(11, 0)} → ${time(14, 30)} (+1)`,
+            `${departs} → ${arrives} (+1)`,
         )
         expect(entryTimeLabel(timelineEntry(flight, { continues_from_previous_day: true }))).toBe(
-            `Arrives ${time(14, 30)}`,
+            `Arrives ${arrives}`,
         )
         expect(
             entryTimeLabel(
@@ -147,6 +153,16 @@ describe('entryTimeLabel', () => {
                 }),
             ),
         ).toBe('In flight')
+    })
+
+    it('leaves zones off a flight that stays in one timezone', () => {
+        const hop = flightItem({
+            start: '2027-05-04T10:00:00+09:00',
+            end: '2027-05-04T11:15:00+09:00',
+            timezone: 'Asia/Tokyo',
+            end_timezone: 'Asia/Tokyo',
+        })
+        expect(entryTimeLabel(timelineEntry(hop))).toBe(`${time(10, 0)} – ${time(11, 15)}`)
     })
 
     it('shows a single time for an instant', () => {
@@ -245,5 +261,48 @@ describe('findTimelineItem', () => {
         expect(findTimelineItem(data, 'activity-1')?.title).toBe('Senso-ji Temple')
         expect(findTimelineItem(data, 'lodging-1')?.type).toBe('lodging')
         expect(findTimelineItem(data, 'gone')).toBeUndefined()
+    })
+})
+
+describe('timezones', () => {
+    const may = new Date(Date.UTC(2027, 4, 2, 12))
+    const day = (index: number, timezone: string | null) => ({
+        index,
+        date: `2027-05-0${String(index + 1)}`,
+        entries: [],
+        timezone,
+    })
+
+    it('reads the UTC offset of a zone, with daylight saving', () => {
+        expect(zoneOffsetMinutes('America/New_York', may)).toBe(-240)
+        expect(zoneOffsetMinutes('America/New_York', new Date(Date.UTC(2027, 0, 2)))).toBe(-300)
+        expect(zoneOffsetMinutes('Asia/Tokyo', may)).toBe(540)
+        expect(zoneOffsetMinutes('Asia/Kolkata', may)).toBe(330)
+        expect(zoneOffsetMinutes('UTC', may)).toBe(0)
+    })
+
+    it('labels the zone of a day the plan knows', () => {
+        expect(dayZoneLabel(day(1, 'Asia/Tokyo'))).toBe(zoneLabel('Asia/Tokyo', may))
+        expect(dayZoneLabel(day(1, null))).toBeNull()
+    })
+
+    it('flags the day the clocks change, with how far they moved', () => {
+        const home = day(0, 'America/New_York')
+        const tokyo = day(1, 'Asia/Tokyo')
+
+        expect(dayZoneChange(tokyo, home)).toEqual({
+            label: zoneLabel('Asia/Tokyo', may),
+            shift: '+13h',
+        })
+        expect(dayZoneChange(home, tokyo)?.shift).toBe('−13h')
+        expect(dayZoneChange(day(1, 'Asia/Kolkata'), day(0, 'Asia/Tokyo'))?.shift).toBe('−3h 30m')
+    })
+
+    it('flags nothing without a change or a zone to compare', () => {
+        expect(dayZoneChange(day(2, 'Asia/Tokyo'), day(1, 'Asia/Tokyo'))).toBeNull()
+        // Aliases with the same clock aren't a change.
+        expect(dayZoneChange(day(2, 'Japan'), day(1, 'Asia/Tokyo'))).toBeNull()
+        expect(dayZoneChange(day(0, 'Asia/Tokyo'))).toBeNull()
+        expect(dayZoneChange(day(1, 'Asia/Tokyo'), day(0, null))).toBeNull()
     })
 })

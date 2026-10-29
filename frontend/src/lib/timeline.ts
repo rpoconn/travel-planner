@@ -1,4 +1,10 @@
-import type { LodgingSpan, Timeline, TimelineEntry, TimelineWarning } from '@/api/types.gen'
+import type {
+    LodgingSpan,
+    Timeline,
+    TimelineDay,
+    TimelineEntry,
+    TimelineWarning,
+} from '@/api/types.gen'
 import type { ItineraryItem } from '@/lib/itemMeta'
 
 // Pure helpers behind the itinerary timeline: reading item times as local wall-clock time,
@@ -102,6 +108,67 @@ export function dayOffsetSuffix(startIso: string, endIso: string): string {
     return offset > 0 ? ` (+${String(offset)})` : ` (−${String(-offset)})`
 }
 
+// ----- timezones -----
+// Every item carries an IANA zone name and the server tags each day with the zone the
+// traveller ends it in; Intl turns those into short labels ("EDT", "GMT+9") and offsets.
+
+/** Minutes `zone` is ahead of UTC at `instant` (−240 for New York in summer). */
+export function zoneOffsetMinutes(zone: string, instant: Date): number {
+    const name = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' })
+        .formatToParts(instant)
+        .find((part) => part.type === 'timeZoneName')?.value
+    // "GMT+09:00", "GMT-04:00", or a bare "GMT" for UTC itself.
+    const match = /GMT([+-])(\d{2}):(\d{2})/.exec(name ?? '')
+    if (!match) return 0
+    const [, sign, hours, minutes] = match
+    const total = Number(hours) * 60 + Number(minutes)
+    return sign === '-' ? -total : total
+}
+
+/** Short name of `zone` at `instant`: "EDT", "GMT+9" (locale-dependent). */
+export function zoneLabel(zone: string, instant: Date): string {
+    return (
+        new Intl.DateTimeFormat(undefined, { timeZone: zone, timeZoneName: 'short' })
+            .formatToParts(instant)
+            .find((part) => part.type === 'timeZoneName')?.value ?? zone
+    )
+}
+
+/** Noon UTC on a `YYYY-MM-DD` day: a stand-in instant for "that day" in any zone. */
+function midday(isoDate: string): Date {
+    const { year, month, day } = parseWallClock(isoDate)
+    return new Date(Date.UTC(year, month - 1, day, 12))
+}
+
+/** Label of the zone the traveller is in on a day, or null when the plan can't tell. */
+export function dayZoneLabel(day: TimelineDay): string | null {
+    return day.timezone ? zoneLabel(day.timezone, midday(day.date)) : null
+}
+
+export interface ZoneChange {
+    /** The new zone, e.g. "GMT+9". */
+    label: string
+    /** How far clocks moved since the day before, e.g. "+13h", "−5h 30m". */
+    shift: string
+}
+
+/** How a day's clocks differ from the day before's; null when they don't (or can't tell). */
+export function dayZoneChange(day: TimelineDay, previous?: TimelineDay): ZoneChange | null {
+    if (!day.timezone || !previous?.timezone) return null
+    const at = midday(day.date)
+    const minutes = zoneOffsetMinutes(day.timezone, at) - zoneOffsetMinutes(previous.timezone, at)
+    if (minutes === 0) return null
+    const hours = Math.floor(Math.abs(minutes) / 60)
+    const rest = Math.abs(minutes) % 60
+    const size = rest === 0 ? `${String(hours)}h` : `${String(hours)}h ${String(rest)}m`
+    return { label: zoneLabel(day.timezone, at), shift: `${minutes > 0 ? '+' : '−'}${size}` }
+}
+
+/** The "+09:00" / "Z" ending of an ISO date-time, i.e. which clock it was read on. */
+function isoOffset(iso: string): string {
+    return /(Z|[+-]\d{2}:?\d{2})$/.exec(iso)?.[1] ?? ''
+}
+
 /**
  * Which part of a multi-day item one day's card shows. A flight that lands on a later local
  * day (long-haul, or crossing time zones eastward) is drawn on each day it touches; only the
@@ -122,19 +189,28 @@ export function flightLeg(entry: TimelineEntry): FlightLeg {
  * so each day only shows the part that's relevant to it.
  */
 export function entryTimeLabel(entry: TimelineEntry): string {
-    const { start, end } = entry.item
-    if (entry.item.type === 'flight') {
+    const { item } = entry
+    const { start, end } = item
+    if (item.type === 'flight') {
         // Both ends are local times, so a flight shows its local arrival time on the departure
-        // day too, flagged "(+1)" when that's on another calendar day.
+        // day too, flagged "(+1)" when that's on another calendar day. When it changes time
+        // zone, each time is labelled with its zone so the clock change is visible.
+        const crossesZones = isoOffset(start) !== isoOffset(end)
+        const at = (iso: string, zone: string) =>
+            crossesZones
+                ? `${formatWallTime(iso)} ${zoneLabel(zone, new Date(iso))}`
+                : formatWallTime(iso)
+        const departs = at(start, item.timezone)
+        const arrives = at(end, item.end_timezone ?? item.timezone)
         switch (flightLeg(entry)) {
             case 'departure':
-                return `${formatWallTime(start)} → ${formatWallTime(end)}${dayOffsetSuffix(start, end)}`
+                return `${departs} → ${arrives}${dayOffsetSuffix(start, end)}`
             case 'in_flight':
                 return 'In flight'
             case 'arrival':
-                return `Arrives ${formatWallTime(end)}`
+                return `Arrives ${arrives}`
             case 'whole':
-                break
+                return start === end ? departs : `${departs} – ${arrives}`
         }
     }
     if (entry.continues_from_previous_day && entry.continues_to_next_day) return 'All day'

@@ -205,6 +205,8 @@ is below it.
 - Times are local wall-clock times like "2027-05-01T15:00:00" plus an IANA timezone like \
 "Asia/Tokyo". For flights and transfers, `timezone` is where it departs and \
 `end_timezone` is where it arrives. For lodging, start is check-in and end is check-out.
+- Once the traveller has flown to the destination, everything there (lodging, activities, \
+meals, cars, trains) uses the destination's timezone, not their home one.
 - A flight's end is the local arrival time at the destination airport. A long-haul flight \
 takes many hours, so its end often falls on the next calendar day; it is never the same \
 instant as departure. Use a real airport code (HND or NRT, not the city code TYO). The \

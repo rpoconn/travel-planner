@@ -389,6 +389,7 @@ WarningKind = Literal[
     "missing_cost",
     "over_limit",
     "over_budget",
+    "wrong_timezone",
 ]
 
 
@@ -401,9 +402,14 @@ class TimelineEntry(BaseModel):
 
 
 class TimelineDay(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
     index: int
     date: dt.date
     entries: list[TimelineEntry]  # sorted by start
+    # IANA zone the traveller ends the day in (where they sleep), from the flights and
+    # transfers; None when the plan has none to go by.
+    timezone: str | None = None
 
 
 class LodgingSpan(BaseModel):

@@ -7,6 +7,7 @@ from features.itinerary.timeline import build_timeline, item_days
 from shared.domain import Cost, Money, Travelers
 from tests.features.itinerary.factories import (
     JFK,
+    LA_TZ,
     LAX,
     NRT,
     OKURA,
@@ -331,3 +332,45 @@ def test_a_trip_over_budget_is_flagged_once_without_a_date() -> None:
         "The trip costs total 1,050.00 USD, 50.00 USD over the 1,000.00 USD budget"
     )
     assert warning.date is None and warning.item_ids == []
+
+
+# ---------------------------------------------------------------------------
+# Timezones
+# ---------------------------------------------------------------------------
+
+
+def test_each_day_is_in_the_zone_the_traveller_ends_it_in() -> None:
+    # SFO 11:00 May 1 → NRT 14:30 May 2: still in LA time on day 1, Tokyo from day 2.
+    timeline = _timeline(
+        [flight("2027-05-01T11:00", "2027-05-02T14:30")], end_date=date(2027, 5, 3)
+    )
+
+    assert [day.timezone for day in timeline.days] == [LA_TZ, TOKYO_TZ, TOKYO_TZ]
+
+
+def test_days_have_no_zone_without_flights_or_transfers() -> None:
+    timeline = _timeline([activity("2027-05-03T10:00", "2027-05-03T12:00")])
+
+    assert {day.timezone for day in timeline.days} == {None}
+
+
+def test_an_item_at_the_destination_in_the_home_zone_is_flagged() -> None:
+    arrival = flight("2027-05-01T11:00", "2027-05-02T14:30")
+    # Meant as 19:00 in Tokyo, but sent in LA time: 11:00 the next morning in Tokyo.
+    dinner = activity("2027-05-03T19:00", "2027-05-03T21:00", title="Dinner", timezone=LA_TZ)
+    museum = activity("2027-05-03T10:00", "2027-05-03T12:00")
+
+    timeline = _timeline([arrival, dinner, museum])
+
+    (warning,) = [w for w in timeline.warnings if w.kind == "wrong_timezone"]
+    assert warning.item_ids == [dinner.id]
+    assert warning.message == (
+        "Dinner is in America/Los_Angeles time, but the traveller is in Asia/Tokyo then"
+    )
+
+
+def test_items_before_the_first_flight_belong_to_its_departure_zone() -> None:
+    lunch = activity("2027-05-01T08:00", "2027-05-01T09:00", title="Lunch", timezone=LA_TZ)
+    timeline = _timeline([lunch, flight("2027-05-01T11:00", "2027-05-02T14:30")])
+
+    assert _warnings(timeline, "wrong_timezone") == []

@@ -155,7 +155,11 @@ appears on the timeline (and opens in the detail sheet), and the off-topic redir
   when set, e.g. a flight's arrival airport). Naive input times are read as wall-clock time there.
 - `GET /plans/{id}/timeline` derives local-day columns, one lodging bar per stay, and warnings
   (nights without lodging, overlaps, missing transfers between places, items outside the trip
-  dates). The logic is pure and lives in `features/itinerary/timeline.py`.
+  dates, items in another timezone than the traveller is in). The logic is pure and lives in
+  `features/itinerary/timeline.py`.
+- Each timeline day carries the `timezone` the traveller ends it in, worked out from the
+  flights and transfers (`features/itinerary/zones.py`). The agent's tools reject a hotel,
+  activity or transfer whose timezone doesn't match it (e.g. a Tokyo dinner in New York time).
 
 ## Hardening
 

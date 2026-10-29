@@ -32,6 +32,7 @@ from features.itinerary.schemas import (
     TimelineWarning,
     TransferItem,
 )
+from features.itinerary.zones import arrival_zone, legs, zone_error
 from shared.domain import Money, Place, Travelers
 
 # ---------------------------------------------------------------------------
@@ -58,6 +59,19 @@ def _date_range(first: date, last: date) -> Iterator[date]:
 
 def _label(day: date) -> str:
     return f"{day:%b} {day.day}"
+
+
+def _day_zones(days: Sequence[date], items: Sequence[ItineraryItem]) -> list[str | None]:
+    """The zone the traveller ends each day in: the arrival zone of the last leg that has
+    landed by then (on its local arrival day), else the first leg's departure zone."""
+    ordered = legs(items)
+    if not ordered:
+        return [None for _ in days]
+    zones: list[str | None] = []
+    for day in days:
+        landed = [leg for leg in ordered if item_days(leg)[1] <= day]
+        zones.append(arrival_zone(landed[-1]) if landed else ordered[0].timezone)
+    return zones
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +221,22 @@ def _outside_trip(
     return warnings
 
 
+def _zone_warnings(items: Sequence[ItineraryItem]) -> list[TimelineWarning]:
+    warnings: list[TimelineWarning] = []
+    for item in items:
+        result = zone_error(item, [other for other in items if other.id != item.id])
+        if result is not None:
+            warnings.append(
+                TimelineWarning(
+                    kind="wrong_timezone",
+                    message=result[0],
+                    date=item_days(item)[0],
+                    item_ids=[item.id],
+                )
+            )
+    return warnings
+
+
 def _budget_warnings(
     budget: Money | None,
     limits: Sequence[SpendingLimit],
@@ -267,6 +297,7 @@ def build_timeline(
 
     # Cards per day (everything except lodging, which is drawn as spans).
     ordered = sorted(items, key=lambda i: (i.start, i.end, i.title))
+    zones = _day_zones(dates, [item for item in ordered if item.status != "cancelled"])
     days: list[TimelineDay] = []
     for index, day in enumerate(dates):
         entries: list[TimelineEntry] = []
@@ -283,7 +314,7 @@ def build_timeline(
                         continues_to_next_day=day < last,
                     )
                 )
-        days.append(TimelineDay(index=index, date=day, entries=entries))
+        days.append(TimelineDay(index=index, date=day, entries=entries, timezone=zones[index]))
 
     lodging = [
         LodgingSpan(
@@ -303,6 +334,7 @@ def build_timeline(
         *_overlaps([i for i in active if i.type != "lodging"]),
         *_overlaps([i for i in active if i.type == "lodging"]),
         *_missing_transfers(dates, active),
+        *_zone_warnings(active),
         *_budget_warnings(budget, limits, travelers, active),
     ]
     warnings.sort(key=lambda w: w.date or range_first)
