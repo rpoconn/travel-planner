@@ -36,6 +36,17 @@ SpendingLimits = Annotated[
 ]
 
 
+def active_budget(budget: Money | None) -> Money | None:
+    """`budget`, or None when it is 0: a $0 budget means "no budget", not "spend nothing".
+    Otherwise every cost would break it and the agent would push the user to raise it."""
+    return None if budget is not None and budget.amount == 0 else budget
+
+
+# Normalised on the way in (a 0 budget is stored as none) and on the way out (plans saved
+# before that still read as having no budget).
+Budget = Annotated[Money | None, AfterValidator(active_budget)]
+
+
 def check_date_range(start: date | None, end: date | None) -> None:
     if start is not None and end is not None and end < start:
         raise ValueError("end_date must be on or after start_date")
@@ -54,7 +65,7 @@ class PlanCreate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     travelers: Travelers | None = None
-    budget: Money | None = None
+    budget: Budget = None
     limits: SpendingLimits = Field(default_factory=list)
     notes: PlanNotes = ""
 
@@ -82,7 +93,7 @@ class PlanUpdate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     travelers: Travelers | None = None
-    budget: Money | None = None
+    budget: Budget = None
     limits: SpendingLimits | None = None  # replaces the whole list; [] clears it
     notes: PlanNotes | None = None
 
@@ -129,7 +140,7 @@ class PlanDetails(BaseModel):
     start_date: date | None
     end_date: date | None
     travelers: Travelers | None
-    budget: Money | None
+    budget: Budget
     limits: list[SpendingLimit]
     notes: str
     version: int

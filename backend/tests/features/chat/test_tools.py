@@ -288,6 +288,26 @@ async def test_without_a_budget_costs_are_optional(ctx: ToolContext) -> None:
     assert (await _stage(ctx, "add_lodging", HOTEL_ARGS)).ok
 
 
+async def test_a_zero_budget_is_no_budget(ctx: ToolContext) -> None:
+    await _set_budget(ctx, 0)
+
+    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+    assert plan.budget is None
+    pricey = {**HOTEL_ARGS, "cost": {"amount": 900, "currency": "USD"}}
+    assert (await _stage(ctx, "add_lodging", HOTEL_ARGS)).ok
+    assert (await _stage(ctx, "add_lodging", pricey)).ok
+
+
+async def test_a_zero_budget_saved_before_it_meant_none_is_ignored(ctx: ToolContext) -> None:
+    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+    plan.budget = {"amount": "0", "currency": "USD"}
+    await ctx.session.flush()
+
+    outcome = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 900}})
+
+    assert outcome.ok, outcome.content
+
+
 async def test_a_cost_in_another_currency_than_the_budget_is_rejected(ctx: ToolContext) -> None:
     await _set_budget(ctx, 1000)
 

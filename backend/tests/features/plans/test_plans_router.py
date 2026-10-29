@@ -123,6 +123,21 @@ async def test_patch_can_clear_optional_fields(
     assert response.json()["end_date"] is None
 
 
+async def test_a_zero_budget_is_saved_as_no_budget(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    created = await _create(client, headers, **TOKYO)
+
+    response = await client.patch(
+        f"/plans/{created['id']}",
+        json={"budget": {"amount": "0", "currency": "USD"}},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["budget"] is None
+
+
 async def test_patch_can_clear_travelers(client: AsyncClient, headers: dict[str, str]) -> None:
     created = await _create(client, headers, **TOKYO)
 

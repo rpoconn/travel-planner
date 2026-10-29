@@ -59,7 +59,7 @@ from features.itinerary.schemas import (
 )
 from features.plans import service as plans_service
 from features.plans.models import Plan
-from features.plans.schemas import PlanUpdate, TravelPlan
+from features.plans.schemas import PlanUpdate, TravelPlan, active_budget
 from shared.domain import Cost, Money, Place, Travelers
 from shared.llm.schema import inline_schema
 from shared.llm.types import LLMToolCall, ToolSpec
@@ -358,7 +358,7 @@ async def _check_budget(
 ) -> None:
     """Raise a ToolError if `item` (new, or item `item_id` as it would be after an update)
     breaks the plan's budget rules (see features.itinerary.budget)."""
-    budget = Money.model_validate(plan.budget) if plan.budget else None
+    budget = active_budget(Money.model_validate(plan.budget) if plan.budget else None)
     limits = [SpendingLimit.model_validate(limit) for limit in plan.limits]
     if item.status == "cancelled" or not budget_rules.needs_cost(item, budget, limits):
         return
