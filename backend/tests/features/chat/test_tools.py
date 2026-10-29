@@ -309,6 +309,18 @@ async def test_set_plan_details(ctx: ToolContext) -> None:
     assert plan.version == version + 1
 
 
+async def test_set_plan_details_sets_spending_limits(ctx: ToolContext) -> None:
+    limit = {"category": "food", "max_per_person": {"amount": 200, "currency": "USD"}}
+
+    outcome = await _run(ctx, "set_plan_details", {"limits": [limit]})
+
+    assert outcome.ok, outcome.content
+    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+    assert plan.limits == [
+        {"category": "food", "max_per_person": {"amount": "200", "currency": "USD"}}
+    ]
+
+
 async def test_set_plan_details_accepts_place_as_string(ctx: ToolContext) -> None:
     # Local models often send "destination": "Tokyo" instead of an object.
     outcome = await _run(ctx, "set_plan_details", {"destination": "Tokyo"})

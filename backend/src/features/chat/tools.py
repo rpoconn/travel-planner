@@ -42,6 +42,7 @@ from features.itinerary.schemas import (
     ItemType,
     LodgingItemCreate,
     LodgingItemPatch,
+    SpendingLimit,
     TransferItemCreate,
     TransferItemPatch,
 )
@@ -201,6 +202,15 @@ class SetPlanDetailsArgs(BaseModel):
     end_date: str | None = Field(default=None, description="Last day, YYYY-MM-DD")
     travelers: Travelers | None = None
     budget: Money | None = Field(default=None, description="Total trip budget")
+    limits: list[SpendingLimit] | None = Field(
+        default=None,
+        description=(
+            "Per-person caps the user gave for one activity of a category, e.g. "
+            '[{"category": "food", "max_per_person": {"amount": 200, "currency": "USD"}}] '
+            'for "dinners under $200 a person". Send the whole list: it replaces the '
+            "current one"
+        ),
+    )
 
 
 class UpdateItemArgs(BaseModel):

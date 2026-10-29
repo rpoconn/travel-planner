@@ -5,7 +5,7 @@ These are embedded values (stored as JSON columns), not request/response schemas
 
 import re
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 from pydantic_core import from_json
@@ -115,6 +115,21 @@ class Money(BaseModel):
                 # An explicit currency on the object wins over one found in the string.
                 data = {**parsed, **data, "amount": parsed["amount"]}
         return data
+
+
+CostBasis = Literal["exact", "estimate"]
+
+
+class Cost(Money):
+    # An itinerary item's price, marked as quoted or guessed so the UI and the budget
+    # checks can tell them apart. (No class docstring: it would land in the tool schema.)
+    basis: CostBasis = Field(
+        default="estimate",
+        description=(
+            "exact = a price the user or a web_search result gave; estimate = your best "
+            "guess (e.g. from a $$ price range)"
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -2,9 +2,16 @@ from datetime import date, datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
-from features.itinerary.schemas import ItineraryItem
+from features.itinerary.schemas import ItineraryItem, SpendingLimit
 from shared.domain import Money, Place, Travelers
 
 # ---------------------------------------------------------------------------
@@ -14,6 +21,19 @@ from shared.domain import Money, Place, Travelers
 PlanStatus = Literal["draft", "planned", "booked"]
 PlanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 PlanNotes = Annotated[str, Field(max_length=5000)]
+
+
+def _one_per_category(limits: list[SpendingLimit]) -> list[SpendingLimit]:
+    categories = [limit.category for limit in limits]
+    repeated = sorted({category for category in categories if categories.count(category) > 1})
+    if repeated:
+        raise ValueError(f"Only one limit per category: {', '.join(repeated)}")
+    return limits
+
+
+SpendingLimits = Annotated[
+    list[SpendingLimit], Field(max_length=10), AfterValidator(_one_per_category)
+]
 
 
 def check_date_range(start: date | None, end: date | None) -> None:
@@ -35,6 +55,7 @@ class PlanCreate(BaseModel):
     end_date: date | None = None
     travelers: Travelers | None = None
     budget: Money | None = None
+    limits: SpendingLimits = Field(default_factory=list)
     notes: PlanNotes = ""
 
     @model_validator(mode="after")
@@ -44,7 +65,7 @@ class PlanCreate(BaseModel):
 
 
 # Fields that exist on every plan; a PATCH may omit them but may not null them out.
-_NON_NULLABLE_FIELDS = frozenset({"title", "status", "notes"})
+_NON_NULLABLE_FIELDS = frozenset({"title", "status", "notes", "limits"})
 
 
 class PlanUpdate(BaseModel):
@@ -62,6 +83,7 @@ class PlanUpdate(BaseModel):
     end_date: date | None = None
     travelers: Travelers | None = None
     budget: Money | None = None
+    limits: SpendingLimits | None = None  # replaces the whole list; [] clears it
     notes: PlanNotes | None = None
 
     @model_validator(mode="after")
@@ -108,6 +130,7 @@ class PlanDetails(BaseModel):
     end_date: date | None
     travelers: Travelers | None
     budget: Money | None
+    limits: list[SpendingLimit]
     notes: str
     version: int
     created_at: datetime

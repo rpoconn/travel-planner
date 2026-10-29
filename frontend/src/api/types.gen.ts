@@ -57,7 +57,7 @@ export type ActivityItem = {
     /**
      * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
-    cost: MoneyOutput | null;
+    cost: CostOutput | null;
     /**
      * Booking Ref
      */
@@ -128,7 +128,7 @@ export type ActivityItemCreate = {
     /**
      * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
-    cost?: MoneyInput | null;
+    cost?: CostInput | null;
     /**
      * Booking Ref
      */
@@ -186,7 +186,7 @@ export type ActivityItemPatch = {
      * Status
      */
     status?: 'proposed' | 'confirmed' | 'cancelled' | null;
-    cost?: MoneyInput | null;
+    cost?: CostInput | null;
     /**
      * Booking Ref
      */
@@ -290,6 +290,54 @@ export type ChatProposal = {
 };
 
 /**
+ * Cost
+ */
+export type CostInput = {
+    /**
+     * Amount
+     *
+     * A plain number such as 1380.50 (no commas, symbols or text)
+     */
+    amount: number | string;
+    /**
+     * Currency
+     *
+     * ISO 4217 code: USD, EUR, JPY...
+     */
+    currency?: string;
+    /**
+     * Basis
+     *
+     * exact = a price the user or a web_search result gave; estimate = your best guess (e.g. from a $$ price range)
+     */
+    basis?: 'exact' | 'estimate';
+};
+
+/**
+ * Cost
+ */
+export type CostOutput = {
+    /**
+     * Amount
+     *
+     * A plain number such as 1380.50 (no commas, symbols or text)
+     */
+    amount: string;
+    /**
+     * Currency
+     *
+     * ISO 4217 code: USD, EUR, JPY...
+     */
+    currency?: string;
+    /**
+     * Basis
+     *
+     * exact = a price the user or a web_search result gave; estimate = your best guess (e.g. from a $$ price range)
+     */
+    basis?: 'exact' | 'estimate';
+};
+
+/**
  * DoneEvent
  *
  * The stored assistant reply; always the last event of a successful turn.
@@ -384,7 +432,7 @@ export type FlightItem = {
     /**
      * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
-    cost: MoneyOutput | null;
+    cost: CostOutput | null;
     /**
      * Booking Ref
      */
@@ -480,7 +528,7 @@ export type FlightItemCreate = {
     /**
      * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
-    cost?: MoneyInput | null;
+    cost?: CostInput | null;
     /**
      * Booking Ref
      */
@@ -563,7 +611,7 @@ export type FlightItemPatch = {
      * Status
      */
     status?: 'proposed' | 'confirmed' | 'cancelled' | null;
-    cost?: MoneyInput | null;
+    cost?: CostInput | null;
     /**
      * Booking Ref
      */
@@ -699,7 +747,7 @@ export type LodgingItem = {
     /**
      * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
-    cost: MoneyOutput | null;
+    cost: CostOutput | null;
     /**
      * Booking Ref
      */
@@ -773,7 +821,7 @@ export type LodgingItemCreate = {
     /**
      * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
-    cost?: MoneyInput | null;
+    cost?: CostInput | null;
     /**
      * Booking Ref
      */
@@ -832,7 +880,7 @@ export type LodgingItemPatch = {
      * Status
      */
     status?: 'proposed' | 'confirmed' | 'cancelled' | null;
-    cost?: MoneyInput | null;
+    cost?: CostInput | null;
     /**
      * Booking Ref
      */
@@ -989,6 +1037,10 @@ export type PlanCreate = {
     travelers?: Travelers | null;
     budget?: MoneyInput | null;
     /**
+     * Limits
+     */
+    limits?: Array<SpendingLimitInput>;
+    /**
      * Notes
      */
     notes?: string;
@@ -1060,6 +1112,10 @@ export type PlanUpdate = {
     end_date?: string | null;
     travelers?: Travelers | null;
     budget?: MoneyInput | null;
+    /**
+     * Limits
+     */
+    limits?: Array<SpendingLimitInput> | null;
     /**
      * Notes
      */
@@ -1146,6 +1202,44 @@ export type SendMessage = {
      */
     content: string;
     fix?: WarningToFix | null;
+};
+
+/**
+ * SpendingLimit
+ *
+ * The most one activity of a category may cost per person (a plan setting, defined here
+ * because it is about items).
+ */
+export type SpendingLimitInput = {
+    /**
+     * Category
+     *
+     * Which activities it caps, e.g. food
+     */
+    category: 'sightseeing' | 'food' | 'tour' | 'museum' | 'outdoors' | 'nightlife' | 'shopping' | 'relax' | 'other';
+    /**
+     * The most one such activity may cost per person
+     */
+    max_per_person: MoneyInput;
+};
+
+/**
+ * SpendingLimit
+ *
+ * The most one activity of a category may cost per person (a plan setting, defined here
+ * because it is about items).
+ */
+export type SpendingLimitOutput = {
+    /**
+     * Category
+     *
+     * Which activities it caps, e.g. food
+     */
+    category: 'sightseeing' | 'food' | 'tour' | 'museum' | 'outdoors' | 'nightlife' | 'shopping' | 'relax' | 'other';
+    /**
+     * The most one such activity may cost per person
+     */
+    max_per_person: MoneyOutput;
 };
 
 /**
@@ -1414,7 +1508,7 @@ export type TransferItem = {
     /**
      * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
-    cost: MoneyOutput | null;
+    cost: CostOutput | null;
     /**
      * Booking Ref
      */
@@ -1488,7 +1582,7 @@ export type TransferItemCreate = {
     /**
      * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
-    cost?: MoneyInput | null;
+    cost?: CostInput | null;
     /**
      * Booking Ref
      */
@@ -1549,7 +1643,7 @@ export type TransferItemPatch = {
      * Status
      */
     status?: 'proposed' | 'confirmed' | 'cancelled' | null;
-    cost?: MoneyInput | null;
+    cost?: CostInput | null;
     /**
      * Booking Ref
      */
@@ -1615,6 +1709,10 @@ export type TravelPlan = {
     end_date: string | null;
     travelers: Travelers | null;
     budget: MoneyOutput | null;
+    /**
+     * Limits
+     */
+    limits: Array<SpendingLimitOutput>;
     /**
      * Notes
      */

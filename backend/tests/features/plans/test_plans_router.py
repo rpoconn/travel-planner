@@ -144,6 +144,45 @@ async def test_patch_rejects_nulling_required_fields(
     assert response.status_code == 422
 
 
+FOOD_LIMIT: dict[str, Any] = {
+    "category": "food",
+    "max_per_person": {"amount": "200.00", "currency": "USD"},
+}
+
+
+async def test_spending_limits_are_stored_replaced_and_cleared(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    created = await _create(client, headers, **TOKYO)
+    assert created["limits"] == []
+    url = f"/plans/{created['id']}"
+
+    set_limits = await client.patch(url, json={"limits": [FOOD_LIMIT]}, headers=headers)
+    other_patch = await client.patch(url, json={"title": "Tokyo"}, headers=headers)
+    cleared = await client.patch(url, json={"limits": []}, headers=headers)
+
+    assert set_limits.json()["limits"] == [FOOD_LIMIT]
+    assert other_patch.json()["limits"] == [FOOD_LIMIT]  # untouched by other fields
+    assert cleared.json()["limits"] == []
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [None, [FOOD_LIMIT, {**FOOD_LIMIT, "max_per_person": {"amount": "50"}}]],
+    ids=["null", "two-per-category"],
+)
+async def test_patch_rejects_bad_limits(
+    client: AsyncClient, headers: dict[str, str], limits: list[dict[str, Any]] | None
+) -> None:
+    created = await _create(client, headers)
+
+    response = await client.patch(
+        f"/plans/{created['id']}", json={"limits": limits}, headers=headers
+    )
+
+    assert response.status_code == 422
+
+
 async def test_patch_checks_dates_against_existing_plan(
     client: AsyncClient, headers: dict[str, str]
 ) -> None:

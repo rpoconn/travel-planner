@@ -27,7 +27,7 @@ from pydantic import (
 )
 
 from features.itinerary.airports import metro_code_error, name_code_error
-from shared.domain import Money, Place
+from shared.domain import Cost, Money, Place
 
 # ---------------------------------------------------------------------------
 # Field types
@@ -72,6 +72,14 @@ def _check_timezone(name: str) -> str:
 TimezoneName = Annotated[str, Field(max_length=64), AfterValidator(_check_timezone)]
 
 
+class SpendingLimit(BaseModel):
+    """The most one activity of a category may cost per person (a plan setting, defined here
+    because it is about items)."""
+
+    category: ActivityCategory = Field(description="Which activities it caps, e.g. food")
+    max_per_person: Money = Field(description="The most one such activity may cost per person")
+
+
 def to_zone(value: datetime, timezone: str) -> datetime:
     """Naive → wall-clock time in `timezone`; aware → the same instant shown in `timezone`."""
     zone = ZoneInfo(timezone)
@@ -109,7 +117,7 @@ class ItemFields(BaseModel):
         default=None, description="IANA timezone of `end` when it differs (arrival airport)"
     )
     status: ItemStatus = "proposed"
-    cost: Money | None = Field(
+    cost: Cost | None = Field(
         default=None,
         description=(
             'Total price for all travelers (not per person) as {"amount": 1380, '
@@ -320,7 +328,7 @@ class ItemPatchFields(BaseModel):
     timezone: TimezoneName | None = None
     end_timezone: TimezoneName | None = None
     status: ItemStatus | None = None
-    cost: Money | None = None
+    cost: Cost | None = None
     booking_ref: ShortText | None = None
     source_url: SourceUrl | None = None
     notes: ItemNotes | None = None

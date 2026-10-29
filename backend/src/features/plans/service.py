@@ -24,7 +24,10 @@ class InvalidPlanError(Exception):
 
 
 def _column_value(value: Any) -> Any:
-    # Value objects go into JSON columns; dates/strings/ints map to native columns as-is.
+    # Value objects (and lists of them) go into JSON columns; dates/strings/ints map to
+    # native columns as-is.
+    if isinstance(value, list):
+        return [_column_value(element) for element in value]
     return value.model_dump(mode="json") if isinstance(value, BaseModel) else value
 
 

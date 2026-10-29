@@ -15,7 +15,7 @@ from features.chat.prompts import (
 from features.chat.schemas import ProposedChange
 from features.itinerary.schemas import ActivityItem, TimelineWarning
 from features.plans.schemas import TravelPlan
-from shared.domain import Money
+from shared.domain import Cost, Money
 from tests.features.itinerary.factories import PLAN_ID, TSUKIJI, activity
 
 CREATED = datetime(2026, 10, 1, tzinfo=UTC)
@@ -34,6 +34,7 @@ def _plan(*items: ActivityItem) -> TravelPlan:
             "end_date": None,
             "travelers": None,
             "budget": None,
+            "limits": [],
             "notes": "",
             "version": 1,
             "created_at": CREATED,
@@ -85,9 +86,9 @@ def test_agent_prompt_totals_costs_against_the_budget() -> None:
     ramen = activity("2027-05-03T19:00", "2027-05-03T21:00")
     skipped = activity("2027-05-04T19:00", "2027-05-04T21:00")
     plan = _plan(
-        dinner.model_copy(update={"cost": Money(amount=Decimal("252.12"))}),
-        ramen.model_copy(update={"cost": Money(amount=Decimal(30))}),
-        skipped.model_copy(update={"cost": Money(amount=Decimal(999)), "status": "cancelled"}),
+        dinner.model_copy(update={"cost": Cost(amount=Decimal("252.12"))}),
+        ramen.model_copy(update={"cost": Cost(amount=Decimal(30))}),
+        skipped.model_copy(update={"cost": Cost(amount=Decimal(999)), "status": "cancelled"}),
     ).model_copy(update={"budget": Money(amount=Decimal(5000))})
 
     prompt = agent_system_prompt(plan, date(2026, 10, 29))

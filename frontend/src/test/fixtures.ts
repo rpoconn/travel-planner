@@ -61,6 +61,7 @@ export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
         end_date: '2027-05-08',
         travelers: { adults: 2, children: 0 },
         budget: null,
+        limits: [],
         notes: '',
         version: 1,
         created_at: '2026-10-01T12:00:00Z',

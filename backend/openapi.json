@@ -1439,7 +1439,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Output"
+                "$ref": "#/components/schemas/Cost-Output"
               },
               {
                 "type": "null"
@@ -1582,7 +1582,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Input"
+                "$ref": "#/components/schemas/Cost-Input"
               },
               {
                 "type": "null"
@@ -1744,7 +1744,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Input"
+                "$ref": "#/components/schemas/Cost-Input"
               },
               {
                 "type": "null"
@@ -1985,6 +1985,77 @@
         "title": "ChatProposal",
         "description": "The changes the assistant proposed in one reply, applied all-or-nothing on approval."
       },
+      "Cost-Input": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Amount",
+            "description": "A plain number such as 1380.50 (no commas, symbols or text)"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "description": "ISO 4217 code: USD, EUR, JPY...",
+            "default": "USD"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "estimate"
+            ],
+            "title": "Basis",
+            "description": "exact = a price the user or a web_search result gave; estimate = your best guess (e.g. from a $$ price range)",
+            "default": "estimate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount"
+        ],
+        "title": "Cost"
+      },
+      "Cost-Output": {
+        "properties": {
+          "amount": {
+            "type": "string",
+            "title": "Amount",
+            "description": "A plain number such as 1380.50 (no commas, symbols or text)"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "description": "ISO 4217 code: USD, EUR, JPY...",
+            "default": "USD"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "estimate"
+            ],
+            "title": "Basis",
+            "description": "exact = a price the user or a web_search result gave; estimate = your best guess (e.g. from a $$ price range)",
+            "default": "estimate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount"
+        ],
+        "title": "Cost"
+      },
       "DoneEvent": {
         "properties": {
           "type": {
@@ -2122,7 +2193,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Output"
+                "$ref": "#/components/schemas/Cost-Output"
               },
               {
                 "type": "null"
@@ -2302,7 +2373,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Input"
+                "$ref": "#/components/schemas/Cost-Input"
               },
               {
                 "type": "null"
@@ -2499,7 +2570,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Input"
+                "$ref": "#/components/schemas/Cost-Input"
               },
               {
                 "type": "null"
@@ -2774,7 +2845,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Output"
+                "$ref": "#/components/schemas/Cost-Output"
               },
               {
                 "type": "null"
@@ -2932,7 +3003,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Input"
+                "$ref": "#/components/schemas/Cost-Input"
               },
               {
                 "type": "null"
@@ -3108,7 +3179,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Input"
+                "$ref": "#/components/schemas/Cost-Input"
               },
               {
                 "type": "null"
@@ -3481,6 +3552,14 @@
               }
             ]
           },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/SpendingLimit-Input"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Limits"
+          },
           "notes": {
             "type": "string",
             "maxLength": 5000,
@@ -3664,6 +3743,21 @@
               }
             ]
           },
+          "limits": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SpendingLimit-Input"
+                },
+                "type": "array",
+                "maxItems": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limits"
+          },
           "notes": {
             "anyOf": [
               {
@@ -3813,6 +3907,68 @@
           "content"
         ],
         "title": "SendMessage"
+      },
+      "SpendingLimit-Input": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "sightseeing",
+              "food",
+              "tour",
+              "museum",
+              "outdoors",
+              "nightlife",
+              "shopping",
+              "relax",
+              "other"
+            ],
+            "title": "Category",
+            "description": "Which activities it caps, e.g. food"
+          },
+          "max_per_person": {
+            "$ref": "#/components/schemas/Money-Input",
+            "description": "The most one such activity may cost per person"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "max_per_person"
+        ],
+        "title": "SpendingLimit",
+        "description": "The most one activity of a category may cost per person (a plan setting, defined here\nbecause it is about items)."
+      },
+      "SpendingLimit-Output": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "sightseeing",
+              "food",
+              "tour",
+              "museum",
+              "outdoors",
+              "nightlife",
+              "shopping",
+              "relax",
+              "other"
+            ],
+            "title": "Category",
+            "description": "Which activities it caps, e.g. food"
+          },
+          "max_per_person": {
+            "$ref": "#/components/schemas/Money-Output",
+            "description": "The most one such activity may cost per person"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "max_per_person"
+        ],
+        "title": "SpendingLimit",
+        "description": "The most one activity of a category may cost per person (a plan setting, defined here\nbecause it is about items)."
       },
       "Timeline": {
         "properties": {
@@ -4204,7 +4360,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Output"
+                "$ref": "#/components/schemas/Cost-Output"
               },
               {
                 "type": "null"
@@ -4381,7 +4537,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Input"
+                "$ref": "#/components/schemas/Cost-Input"
               },
               {
                 "type": "null"
@@ -4575,7 +4731,7 @@
           "cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money-Input"
+                "$ref": "#/components/schemas/Cost-Input"
               },
               {
                 "type": "null"
@@ -4794,6 +4950,13 @@
               }
             ]
           },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/SpendingLimit-Output"
+            },
+            "type": "array",
+            "title": "Limits"
+          },
           "notes": {
             "type": "string",
             "title": "Notes"
@@ -4854,6 +5017,7 @@
           "end_date",
           "travelers",
           "budget",
+          "limits",
           "notes",
           "version",
           "created_at",

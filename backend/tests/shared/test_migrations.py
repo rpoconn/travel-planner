@@ -17,6 +17,9 @@ from shared.migrations import BASELINE_REVISION, alembic_config, run_migrations
 _BASELINE_TABLES = frozenset(
     {"users", "travel_plans", "itinerary_items", "chat_messages", "search_cache"}
 )
+# Columns later migrations added to the baseline tables: create_all builds today's models,
+# so these are dropped again to get the pre-migration schema.
+_LATER_COLUMNS = {"travel_plans": ("limits",)}
 
 
 @pytest.fixture
@@ -70,6 +73,9 @@ async def test_pre_migration_database_is_adopted(engine: AsyncEngine) -> None:
     baseline = [table for name, table in Base.metadata.tables.items() if name in _BASELINE_TABLES]
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all, tables=baseline)
+        for table, columns in _LATER_COLUMNS.items():
+            for column in columns:
+                await connection.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
 
     await run_migrations(engine)
 

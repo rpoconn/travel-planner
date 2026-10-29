@@ -91,7 +91,7 @@ async def test_add_item_returns_it_in_local_time_and_bumps_version(
     assert item["status"] == "proposed"
     assert item["start"] == "2027-05-01T11:00:00-07:00"
     assert item["end"] == "2027-05-02T14:30:00+09:00"
-    assert item["cost"] == {"amount": "1240.50", "currency": "USD"}
+    assert item["cost"] == {"amount": "1240.50", "currency": "USD", "basis": "estimate"}
     after = await _get_plan(client, headers, plan["id"])
     assert after["version"] == plan["version"] + 1
     assert [i["id"] for i in after["items"]] == [item["id"]]
