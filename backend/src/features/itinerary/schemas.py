@@ -48,7 +48,16 @@ ActivityCategory = Literal[
     "sightseeing", "food", "tour", "museum", "outdoors", "nightlife", "shopping", "relax", "other"
 ]
 TransferMode = Literal[
-    "car_rental", "taxi", "rideshare", "train", "bus", "ferry", "shuttle", "walk", "metro"
+    "car_rental",
+    "car_service",
+    "taxi",
+    "rideshare",
+    "train",
+    "bus",
+    "ferry",
+    "shuttle",
+    "walk",
+    "metro",
 ]
 
 

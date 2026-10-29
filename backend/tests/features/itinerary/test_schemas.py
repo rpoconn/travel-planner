@@ -10,6 +10,7 @@ from features.itinerary.schemas import (
     FlightItemCreate,
     ItineraryItemCreate,
     LodgingItemCreate,
+    TransferItemCreate,
 )
 
 _CREATE = TypeAdapter[ItineraryItemCreate](ItineraryItemCreate)
@@ -177,6 +178,21 @@ def test_transfer_rejects_a_code_that_names_another_airport() -> None:
 
     with pytest.raises(ValidationError, match="is HND, not NRT"):
         _CREATE.validate_python(transfer)
+
+
+def test_transfer_accepts_a_car_service() -> None:
+    transfer = {
+        "type": "transfer",
+        "title": "Car from Haneda",
+        "start": "2027-05-01T09:00:00",
+        "end": "2027-05-01T11:00:00",
+        "timezone": "Asia/Tokyo",
+        "mode": "car_service",
+        "from_place": {"name": "Tokyo Haneda Airport", "iata": "HND"},
+        "to_place": {"name": "Hotel Livemax Kayabacho"},
+    }
+
+    assert TransferItemCreate.model_validate(transfer).mode == "car_service"
 
 
 def test_stored_flight_from_before_the_rules_still_loads() -> None:

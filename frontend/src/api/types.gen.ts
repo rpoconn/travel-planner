@@ -1436,7 +1436,7 @@ export type TransferItem = {
     /**
      * Mode
      */
-    mode: 'car_rental' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
+    mode: 'car_rental' | 'car_service' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
     from_place: Place;
     to_place: Place;
     /**
@@ -1510,7 +1510,7 @@ export type TransferItemCreate = {
     /**
      * Mode
      */
-    mode: 'car_rental' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
+    mode: 'car_rental' | 'car_service' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
     from_place: Place;
     to_place: Place;
     /**
@@ -1569,7 +1569,7 @@ export type TransferItemPatch = {
     /**
      * Mode
      */
-    mode?: 'car_rental' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro' | null;
+    mode?: 'car_rental' | 'car_service' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro' | null;
     from_place?: Place | null;
     to_place?: Place | null;
     /**

@@ -648,7 +648,9 @@ _ALL_TOOLS: list[Tool] = [
     ),
     _add_tool(
         "transfer",
-        "Add ground/sea transport between two places: train, taxi, car rental, ferry...",
+        "Add ground/sea transport between two places: train, taxi, car rental, ferry... "
+        "mode car_service is a booked private car with a driver (e.g. an airport pickup); "
+        "car_rental is only a car the traveller drives themselves.",
     ),
     WriteTool(
         spec=ToolSpec(

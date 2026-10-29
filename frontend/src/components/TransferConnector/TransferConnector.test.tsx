@@ -31,6 +31,18 @@ describe('TransferConnector', () => {
         expect(screen.getByRole('button')).toHaveTextContent('Taxi · 1h')
     })
 
+    it('labels a chauffeured car as a car service, not a rental', () => {
+        render(
+            <TransferConnector
+                variant="transfer"
+                item={transferItem({ mode: 'car_service', provider: null })}
+                onSelect={vi.fn()}
+            />,
+        )
+
+        expect(screen.getByRole('button')).toHaveTextContent('Car service · 1h')
+    })
+
     it('marks a missing transfer', () => {
         render(
             <TransferConnector

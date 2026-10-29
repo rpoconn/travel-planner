@@ -73,6 +73,7 @@ export const ITEM_TYPE_META: Record<ItemType, ItemTypeMeta> = {
 
 export const TRANSFER_MODE_META: Record<TransferMode, { label: string; icon: LucideIcon }> = {
     car_rental: { label: 'Car rental', icon: Car },
+    car_service: { label: 'Car service', icon: Car },
     taxi: { label: 'Taxi', icon: CarTaxiFront },
     rideshare: { label: 'Rideshare', icon: Car },
     train: { label: 'Train', icon: TrainFront },

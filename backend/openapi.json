@@ -4252,6 +4252,7 @@
             "type": "string",
             "enum": [
               "car_rental",
+              "car_service",
               "taxi",
               "rideshare",
               "train",
@@ -4428,6 +4429,7 @@
             "type": "string",
             "enum": [
               "car_rental",
+              "car_service",
               "taxi",
               "rideshare",
               "train",
@@ -4627,6 +4629,7 @@
                 "type": "string",
                 "enum": [
                   "car_rental",
+                  "car_service",
                   "taxi",
                   "rideshare",
                   "train",
