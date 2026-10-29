@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 from features.chat.prompts import (
@@ -14,6 +15,7 @@ from features.chat.prompts import (
 from features.chat.schemas import ProposedChange
 from features.itinerary.schemas import ActivityItem, TimelineWarning
 from features.plans.schemas import TravelPlan
+from shared.domain import Money
 from tests.features.itinerary.factories import PLAN_ID, TSUKIJI, activity
 
 CREATED = datetime(2026, 10, 1, tzinfo=UTC)
@@ -76,6 +78,28 @@ def test_agent_prompt_spells_out_weekdays() -> None:
     assert "Sat 2027-05-01, Sun 2027-05-02" in calendar
     assert "Tue 2027-05-04" in calendar and "Thu 2027-05-06" in calendar
     assert calendar.endswith("Sat 2027-05-08")
+
+
+def test_agent_prompt_totals_costs_against_the_budget() -> None:
+    dinner = activity("2027-05-02T19:00", "2027-05-02T22:00")
+    ramen = activity("2027-05-03T19:00", "2027-05-03T21:00")
+    skipped = activity("2027-05-04T19:00", "2027-05-04T21:00")
+    plan = _plan(
+        dinner.model_copy(update={"cost": Money(amount=Decimal("252.12"))}),
+        ramen.model_copy(update={"cost": Money(amount=Decimal(30))}),
+        skipped.model_copy(update={"cost": Money(amount=Decimal(999)), "status": "cancelled"}),
+    ).model_copy(update={"budget": Money(amount=Decimal(5000))})
+
+    prompt = agent_system_prompt(plan, date(2026, 10, 29))
+
+    # The cancelled dinner is not counted.
+    assert "Costs so far: 282.12 USD of the 5,000.00 USD budget (4,717.88 USD left)" in prompt
+    assert "not per person" in prompt
+    assert 'Only call a price "within"' in prompt
+
+
+def test_agent_prompt_has_no_cost_line_without_budget_or_costs() -> None:
+    assert "Costs so far" not in agent_system_prompt(_plan(), date(2026, 10, 29))
 
 
 def test_agent_prompt_skips_the_calendar_without_dates_or_for_long_trips() -> None:

@@ -111,7 +111,10 @@ class ItemFields(BaseModel):
     status: ItemStatus = "proposed"
     cost: Money | None = Field(
         default=None,
-        description='Price as {"amount": 1380, "currency": "USD"}; amount is a plain number',
+        description=(
+            'Total price for all travelers (not per person) as {"amount": 1380, '
+            '"currency": "USD"}; amount is a plain number'
+        ),
     )
     booking_ref: ShortText | None = None
     source_url: SourceUrl | None = Field(

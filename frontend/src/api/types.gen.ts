@@ -55,7 +55,7 @@ export type ActivityItem = {
      */
     status: 'proposed' | 'confirmed' | 'cancelled';
     /**
-     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
     cost: MoneyOutput | null;
     /**
@@ -126,7 +126,7 @@ export type ActivityItemCreate = {
      */
     status?: 'proposed' | 'confirmed' | 'cancelled';
     /**
-     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
     cost?: MoneyInput | null;
     /**
@@ -382,7 +382,7 @@ export type FlightItem = {
      */
     status: 'proposed' | 'confirmed' | 'cancelled';
     /**
-     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
     cost: MoneyOutput | null;
     /**
@@ -478,7 +478,7 @@ export type FlightItemCreate = {
      */
     status?: 'proposed' | 'confirmed' | 'cancelled';
     /**
-     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
     cost?: MoneyInput | null;
     /**
@@ -697,7 +697,7 @@ export type LodgingItem = {
      */
     status: 'proposed' | 'confirmed' | 'cancelled';
     /**
-     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
     cost: MoneyOutput | null;
     /**
@@ -771,7 +771,7 @@ export type LodgingItemCreate = {
      */
     status?: 'proposed' | 'confirmed' | 'cancelled';
     /**
-     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
     cost?: MoneyInput | null;
     /**
@@ -1412,7 +1412,7 @@ export type TransferItem = {
      */
     status: 'proposed' | 'confirmed' | 'cancelled';
     /**
-     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
     cost: MoneyOutput | null;
     /**
@@ -1486,7 +1486,7 @@ export type TransferItemCreate = {
      */
     status?: 'proposed' | 'confirmed' | 'cancelled';
     /**
-     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     * Total price for all travelers (not per person) as {"amount": 1380, "currency": "USD"}; amount is a plain number
      */
     cost?: MoneyInput | null;
     /**

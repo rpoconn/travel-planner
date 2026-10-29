@@ -11,6 +11,7 @@ from uuid import UUID
 from features.chat.schemas import ProposedChange
 from features.itinerary.schemas import TimelineWarning
 from features.plans.schemas import TravelPlan
+from shared.costs import budget_summary, totals_by_currency
 from shared.llm.types import LLMMessage
 
 ASSISTANT_NAME = "Wayfinder"
@@ -124,6 +125,13 @@ def _trip_calendar(plan: TravelPlan) -> str:
     )
 
 
+def _cost_summary(plan: TravelPlan) -> str:
+    # Cancelled items stay in the plan but cost nothing.
+    totals = totals_by_currency(item.cost for item in plan.items if item.status != "cancelled")
+    summary = budget_summary(plan.budget, totals)
+    return f"\n\n{summary}" if summary else ""
+
+
 def _next_may(today: date) -> int:
     return today.year if today.month <= 5 else today.year + 1
 
@@ -147,7 +155,7 @@ with them. Today is {today:%A} {today.isoformat()} ({today:%B} {today.day}, {tod
 
 The current plan (JSON; it is always up to date, and item ids are what update_item and \
 remove_item need; a field that is missing is unknown):
-{_plan_json(plan)}{_trip_calendar(plan)}
+{_plan_json(plan)}{_trip_calendar(plan)}{_cost_summary(plan)}
 
 How changes work:
 - Calling set_plan_details, an add_* tool, update_item or remove_item does not change the \
@@ -182,6 +190,11 @@ after today: {_future_month_example(today)}. Never propose a date before today.
 suggesting specific ones. Never invent prices, flight numbers or booking references; leave \
 them out unless the user or a search result gave them. When you propose an item you found \
 with web_search, set its source_url to the result's URL.
+- An item's cost is the total for everyone travelling, not per person: multiply a \
+per-person price by the number of travelers.
+- Only call a price "within", "under" or "in" a budget or limit when its number really \
+is below it. If an option costs more than a limit the user gave, say so plainly and ask \
+whether it is acceptable.
 - Times are local wall-clock times like "2027-05-01T15:00:00" plus an IANA timezone like \
 "Asia/Tokyo". For flights and transfers, `timezone` is where it departs and \
 `end_timezone` is where it arrives. For lodging, start is check-in and end is check-out.

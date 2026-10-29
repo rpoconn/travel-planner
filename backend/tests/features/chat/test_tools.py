@@ -252,6 +252,36 @@ async def test_update_item_merges_changes(ctx: ToolContext) -> None:
     assert item.title == "Hotel Okura"
 
 
+async def test_staging_an_item_that_breaks_the_budget_says_so(ctx: ToolContext) -> None:
+    await _run(ctx, "set_plan_details", {"budget": {"amount": 1000, "currency": "USD"}})
+    await _run(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 800}})
+
+    within = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 200}})
+    over = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 300}})
+
+    assert "budget" not in within.summary
+    note = "(puts the trip at 1,100.00 USD, over the 1,000.00 USD budget)"
+    assert over.summary.endswith(note)
+    assert note in over.content  # the model is told too
+    assert _change(over).summary.endswith(note)  # and the proposal card shows it
+
+
+async def test_updating_a_cost_counts_it_in_place_of_the_old_one(ctx: ToolContext) -> None:
+    await _run(ctx, "set_plan_details", {"budget": {"amount": 1000, "currency": "USD"}})
+    await _run(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 800}})
+    (item,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+
+    cheaper = await _stage(
+        ctx, "update_item", {"item_id": str(item.id), "changes": {"cost": {"amount": 900}}}
+    )
+    dearer = await _stage(
+        ctx, "update_item", {"item_id": str(item.id), "changes": {"cost": {"amount": 1200}}}
+    )
+
+    assert "budget" not in cheaper.summary
+    assert dearer.summary.endswith("(puts the trip at 1,200.00 USD, over the 1,000.00 USD budget)")
+
+
 async def test_remove_item(ctx: ToolContext) -> None:
     item_id = await _add_hotel(ctx)
 

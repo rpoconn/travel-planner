@@ -1445,7 +1445,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
+            "description": "Total price for all travelers (not per person) as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
           },
           "booking_ref": {
             "anyOf": [
@@ -1588,7 +1588,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
+            "description": "Total price for all travelers (not per person) as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
           },
           "booking_ref": {
             "anyOf": [
@@ -2128,7 +2128,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
+            "description": "Total price for all travelers (not per person) as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
           },
           "booking_ref": {
             "anyOf": [
@@ -2308,7 +2308,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
+            "description": "Total price for all travelers (not per person) as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
           },
           "booking_ref": {
             "anyOf": [
@@ -2780,7 +2780,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
+            "description": "Total price for all travelers (not per person) as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
           },
           "booking_ref": {
             "anyOf": [
@@ -2938,7 +2938,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
+            "description": "Total price for all travelers (not per person) as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
           },
           "booking_ref": {
             "anyOf": [
@@ -4210,7 +4210,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
+            "description": "Total price for all travelers (not per person) as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
           },
           "booking_ref": {
             "anyOf": [
@@ -4387,7 +4387,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
+            "description": "Total price for all travelers (not per person) as {\"amount\": 1380, \"currency\": \"USD\"}; amount is a plain number"
           },
           "booking_ref": {
             "anyOf": [

@@ -48,6 +48,7 @@ from features.itinerary.schemas import (
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import PlanUpdate
+from shared.costs import over_budget_note, totals_by_currency
 from shared.domain import Money, Place, Travelers
 from shared.llm.schema import inline_schema
 from shared.llm.types import LLMToolCall, ToolSpec
@@ -274,6 +275,21 @@ async def _apply_plan_details(ctx: ToolContext, prepared: Prepared) -> ToolOutco
     )
 
 
+async def _budget_note(
+    ctx: ToolContext, plan: Plan, cost: Money | None, replacing: UUID | None = None
+) -> str:
+    """A suffix like " (puts the trip at …, over the … budget)" when the plan's costs with
+    `cost` (in place of item `replacing`'s) exceed its budget, else "". It goes into the
+    change's summary, so both the model and the proposal card see it: models call prices
+    "within budget" without adding them up."""
+    if cost is None or plan.budget is None:
+        return ""
+    items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    others = [i.cost for i in items if i.status != "cancelled" and i.id != replacing]
+    note = over_budget_note(Money.model_validate(plan.budget), totals_by_currency([*others, cost]))
+    return f" ({note})" if note else ""
+
+
 def _prepare_add(item_type: ItemType) -> PrepareHandler:
     model = _CREATE_MODELS[item_type]
 
@@ -298,11 +314,12 @@ def _prepare_add(item_type: ItemType) -> PrepareHandler:
             if direction != given:
                 logger.info("Flight %r direction %s -> %s", data.title, given, direction)
             data = data.model_copy(update={"direction": direction})
+        note = await _budget_note(ctx, plan, data.cost)
         return Prepared(
             name=f"add_{item_type}",
             # Defaults are left out to keep the proposal small; they come back on re-prepare.
             arguments=data.model_dump(mode="json", exclude_defaults=True, exclude={"type"}),
-            summary=f"Add {item_type} “{data.title}” on {data.start:%Y-%m-%d %H:%M}",
+            summary=f"Add {item_type} “{data.title}” on {data.start:%Y-%m-%d %H:%M}{note}",
             payload=data,
         )
 
@@ -442,10 +459,14 @@ async def _prepare_update(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
     except itinerary_service.InvalidItemError as exc:
         raise ToolError(str(exc)) from exc
     normalised = patch.model_dump(mode="json", exclude_unset=True, exclude={"type"})
+    note = ""
+    if "cost" in patch.model_fields_set:
+        plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+        note = await _budget_note(ctx, plan, patch.cost, replacing=args.item_id)
     return Prepared(
         name="update_item",
         arguments={"item_id": str(args.item_id), "changes": normalised},
-        summary=f"Change “{current.title}”: {_field_list(sorted(normalised))}",
+        summary=f"Change “{current.title}”: {_field_list(sorted(normalised))}{note}",
         payload=_ItemChange(args.item_id, current.title, current.type, patch),
     )
 
