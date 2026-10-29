@@ -70,7 +70,7 @@ async def test_text_reply_streams_tokens(ctx: ToolContext) -> None:
     (request,) = llm.requests
     assert request.streamed and request.tools == TOOL_SPECS
     system = request.messages[0].content
-    assert "Today is 2027-01-15 (January 15, 2027)" in system and '"Tokyo in May"' in system
+    assert "Today is Friday 2027-01-15 (January 15, 2027)" in system and '"Tokyo in May"' in system
     # Last month is the example: in January, "December" is this year's.
     assert '"in December" means December 2027' in system
     assert request.messages[-1].content == "Plan my flights"

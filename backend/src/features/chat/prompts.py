@@ -5,7 +5,7 @@ Kept separate from the logic so wording can be tuned without touching control fl
 """
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 
 from features.chat.schemas import ProposedChange
@@ -104,6 +104,26 @@ def _plan_json(plan: TravelPlan) -> str:
     )
 
 
+# Longer trips skip the calendar: the list would cost more context than it saves.
+_MAX_CALENDAR_DAYS = 31
+
+
+def _trip_calendar(plan: TravelPlan) -> str:
+    # Small models can't reliably work out the weekday of a date (one called 2027-05-04,
+    # a Tuesday, "Thursday"), so every trip day is spelled out for them to read off.
+    if plan.start_date is None or plan.end_date is None:
+        return ""
+    length = (plan.end_date - plan.start_date).days + 1
+    if not 0 < length <= _MAX_CALENDAR_DAYS:
+        return ""
+    days = (plan.start_date + timedelta(days=offset) for offset in range(length))
+    listed = ", ".join(f"{day:%a} {day.isoformat()}" for day in days)
+    return (
+        "\n\nTrip calendar (whenever you name a weekday, read it from here; never work one "
+        f"out yourself):\n{listed}"
+    )
+
+
 def _next_may(today: date) -> int:
     return today.year if today.month <= 5 else today.year + 1
 
@@ -123,11 +143,11 @@ def agent_system_prompt(plan: TravelPlan, today: date) -> str:
     # example of asking instead of guessing.
     return f"""\
 You are {ASSISTANT_NAME}, a travel-planning assistant that builds the user's itinerary \
-with them. Today is {today.isoformat()} ({today:%B} {today.day}, {today.year}).
+with them. Today is {today:%A} {today.isoformat()} ({today:%B} {today.day}, {today.year}).
 
 The current plan (JSON; it is always up to date, and item ids are what update_item and \
 remove_item need; a field that is missing is unknown):
-{_plan_json(plan)}
+{_plan_json(plan)}{_trip_calendar(plan)}
 
 How changes work:
 - Calling set_plan_details, an add_* tool, update_item or remove_item does not change the \

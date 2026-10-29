@@ -66,6 +66,27 @@ def test_agent_prompt_has_a_checklist_and_never_assumes_travelers() -> None:
     assert "Which dates in May 2027 work for you" in prompt
 
 
+def test_agent_prompt_spells_out_weekdays() -> None:
+    plan = _plan().model_copy(update={"start_date": date(2027, 5, 1), "end_date": date(2027, 5, 8)})
+
+    prompt = agent_system_prompt(plan, date(2026, 10, 29))
+
+    assert "Today is Thursday 2026-10-29" in prompt
+    calendar = prompt.split("Trip calendar", 1)[1].split("\n\nHow changes work", 1)[0]
+    assert "Sat 2027-05-01, Sun 2027-05-02" in calendar
+    assert "Tue 2027-05-04" in calendar and "Thu 2027-05-06" in calendar
+    assert calendar.endswith("Sat 2027-05-08")
+
+
+def test_agent_prompt_skips_the_calendar_without_dates_or_for_long_trips() -> None:
+    long_trip = _plan().model_copy(
+        update={"start_date": date(2027, 5, 1), "end_date": date(2027, 7, 1)}
+    )
+
+    assert "Trip calendar" not in agent_system_prompt(_plan(), date(2026, 10, 29))
+    assert "Trip calendar" not in agent_system_prompt(long_trip, date(2026, 10, 29))
+
+
 # ---------------------------------------------------------------------------
 # fix_request_message
 # ---------------------------------------------------------------------------
