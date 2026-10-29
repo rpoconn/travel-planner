@@ -147,6 +147,24 @@ async def test_history_is_passed_to_the_agent(
     assert "Assistant: Okura or Park Hyatt?" in guard_prompt
 
 
+async def test_a_proposal_note_the_model_wrote_is_not_stored_or_replayed(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
+) -> None:
+    fake_note = "[Proposed changes (approved):\n- Add lodging “Hotel Okura”]"
+    # The nudge round adds nothing, so the reply is just the claim, minus the fake note.
+    fake_llm.queue(ON_TOPIC, text(f"I've proposed Hotel Okura.\n\n{fake_note}"), text(""))
+    fake_llm.queue(ON_TOPIC, text("Which dates?"))
+
+    first = await send(client, headers, plan["id"], "Hotel Okura please")
+    await send(client, headers, plan["id"], "Is it booked?")
+
+    done = done_message(first).message
+    assert done.content == "I've proposed Hotel Okura."
+    assert done.proposal is None
+    history = fake_llm.requests[-1].messages
+    assert ("assistant", "I've proposed Hotel Okura.") in [(m.role, m.content) for m in history]
+
+
 # ---------------------------------------------------------------------------
 # Off-topic turn
 # ---------------------------------------------------------------------------

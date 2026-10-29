@@ -10,7 +10,9 @@ from features.chat.prompts import (
     approval_applied_message,
     approval_failed_message,
     fix_request_message,
+    proposal_note,
     revise_request_message,
+    strip_proposal_notes,
 )
 from features.chat.schemas import ProposedChange
 from features.itinerary.schemas import ActivityItem, TimelineWarning
@@ -112,6 +114,30 @@ def test_agent_prompt_skips_the_calendar_without_dates_or_for_long_trips() -> No
 
     assert "Trip calendar" not in agent_system_prompt(_plan(), date(2026, 10, 29))
     assert "Trip calendar" not in agent_system_prompt(long_trip, date(2026, 10, 29))
+
+
+# ---------------------------------------------------------------------------
+# Proposal notes
+# ---------------------------------------------------------------------------
+
+
+def test_proposal_note_lists_the_changes_with_their_status() -> None:
+    note = proposal_note("pending", ["Add lodging “Hotel Okura”", "Remove item “Tsukiji”"])
+
+    assert note == (
+        "[Proposed changes (pending):\n- Add lodging “Hotel Okura”\n- Remove item “Tsukiji”]"
+    )
+
+
+def test_strip_proposal_notes_removes_copied_notes_and_keeps_the_rest() -> None:
+    note = proposal_note("approved", ["Add flight “Flight NRT to PHL” [ANA]"])
+
+    assert strip_proposal_notes(f"I've proposed the flight.\n\n{note}") == (
+        "I've proposed the flight."
+    )
+    assert strip_proposal_notes(f"{note}\nAnything else?") == "Anything else?"
+    assert strip_proposal_notes(note) == ""
+    assert strip_proposal_notes("Rooms are [usually] $300.") == "Rooms are [usually] $300."
 
 
 # ---------------------------------------------------------------------------

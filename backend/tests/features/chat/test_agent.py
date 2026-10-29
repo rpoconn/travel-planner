@@ -7,6 +7,7 @@ from features.chat.agent import MAX_TOOL_ROUNDS, run_agent
 from features.chat.prompts import (
     AGENT_FINAL_ANSWER,
     ALREADY_STAGED,
+    PHANTOM_PROPOSAL_NUDGE,
     RETURN_FLIGHT_NUDGE,
     agent_system_prompt,
 )
@@ -360,6 +361,52 @@ async def test_removing_the_return_flight_gets_a_reminder(ctx: ToolContext) -> N
     await _run(llm, ctx, "Drop the flight home")
 
     assert len(_system_notes(llm)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Claimed proposal with no tool call
+# ---------------------------------------------------------------------------
+
+# What a small model wrote in place of calling add_flight, copying its history's note.
+PHANTOM = (
+    "I've proposed adding a return flight from NRT to PHL.\n\n"
+    "[Proposed changes (approved):\n- Add flight “Flight NRT to PHL” on 2027-05-08 14:00]"
+)
+
+
+async def test_a_claimed_proposal_without_a_tool_call_gets_a_nudge(ctx: ToolContext) -> None:
+    llm = FakeLLM([text(PHANTOM), tool_calls(("add_flight", RETURN)), text("It's on the card.")])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, "Yes, fly me home on the 8th", staged=staged)
+
+    assert llm.requests[1].messages[-2:] == [
+        LLMMessage(role="assistant", content=PHANTOM),
+        LLMMessage(role="system", content=PHANTOM_PROPOSAL_NUDGE),
+    ]
+    assert [change.name for change in staged] == ["add_flight"]
+    assert _text(events) == f"{PHANTOM}\n\nIt's on the card."
+
+
+async def test_the_claimed_proposal_nudge_is_given_once_a_turn(ctx: ToolContext) -> None:
+    llm = FakeLLM([text("I\u2019ve proposed the flight."), text("I proposed it, honest.")])
+    staged: list[ProposedChange] = []
+
+    await _run(llm, ctx, staged=staged)
+
+    assert llm.pending == 0
+    assert _system_notes(llm) == [PHANTOM_PROPOSAL_NUDGE]
+    assert staged == []
+
+
+async def test_a_plain_answer_or_a_real_proposal_gets_no_nudge(ctx: ToolContext) -> None:
+    plain = FakeLLM([text("Which day would you like to fly home?")])
+    real = FakeLLM([tool_calls(("add_lodging", HOTEL_ARGS)), text("I've proposed Hotel Okura.")])
+
+    await _run(plain, ctx)
+    await _run(real, ctx)
+
+    assert _system_notes(plain) == _system_notes(real) == []
 
 
 # ---------------------------------------------------------------------------

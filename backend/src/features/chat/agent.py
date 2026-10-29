@@ -4,17 +4,24 @@ back, and repeat until it answers in plain text (or the round limit is hit).
 Read tools (web_search) run immediately. Write tools only validate: each change is staged
 into the caller's `staged` list, which becomes the reply's proposal card. Nothing in the
 plan changes during a turn, so the plan JSON in the system prompt stays current. A card
-that adds a flight out without one home gets the model a reminder to propose it or ask.
+that adds a flight out without one home gets the model a reminder to propose it or ask,
+and a reply that says it proposed something without calling a tool gets one to call it.
 """
 
 import logging
+import re
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
 from datetime import date
 from uuid import uuid4
 
 from features.chat import tools
-from features.chat.prompts import AGENT_FINAL_ANSWER, ALREADY_STAGED, agent_system_prompt
+from features.chat.prompts import (
+    AGENT_FINAL_ANSWER,
+    ALREADY_STAGED,
+    PHANTOM_PROPOSAL_NUDGE,
+    agent_system_prompt,
+)
 from features.chat.schemas import (
     ChatEvent,
     ProposedChange,
@@ -33,6 +40,12 @@ MAX_TOOL_ROUNDS = 6
 
 # Inserted between the text of two rounds ("Let me add that." ... "Done!").
 _ROUND_SEPARATOR = "\n\n"
+
+# A reply claiming a card: "I've proposed …" (straight or curly apostrophe), or a copy of
+# the history's "[Proposed changes (…)]" note.
+_CLAIMED_PROPOSAL = re.compile(
+    r"\bI(?:['\u2019]ve| have)?\s+(?:just\s+)?proposed\b|\[Proposed changes\b", re.IGNORECASE
+)
 
 
 def new_call_id() -> str:
@@ -90,6 +103,7 @@ async def run_agent(
     ]
     wrote_text = False
     nudged_return = False
+    nudged_phantom = False
 
     for round_index in range(MAX_TOOL_ROUNDS + 1):
         final_round = round_index == MAX_TOOL_ROUNDS
@@ -108,6 +122,15 @@ async def run_agent(
                 yield TokenEvent(text=chunk.content)
             calls.extend(chunk.tool_calls)
         wrote_text = wrote_text or bool(content.strip())
+
+        # ---- "I've proposed …" with no card: have the model make the tool calls, once ----
+        phantom = not calls and not final_round and not staged and not nudged_phantom
+        if phantom and _CLAIMED_PROPOSAL.search(content):
+            nudged_phantom = True
+            logger.info("Reply on plan %s claims a proposal it never made", ctx.plan_id)
+            messages.append(LLMMessage(role="assistant", content=content))
+            messages.append(LLMMessage(role="system", content=PHANTOM_PROPOSAL_NUDGE))
+            continue
 
         if not calls or final_round:
             return

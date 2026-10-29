@@ -4,6 +4,7 @@ messages that tell the agent how the user answered a proposal card.
 Kept separate from the logic so wording can be tuned without touching control flow.
 """
 
+import re
 from collections.abc import Sequence
 from datetime import date, timedelta
 from uuid import UUID
@@ -169,6 +170,9 @@ reply in 1-2 sentences: what you proposed, plus any question you still have.
 Proposed items have no id until they are approved.
 - After the user approves, you are told what was applied. Confirm it in one sentence and \
 suggest the next step.
+- Describing a change in your reply proposes nothing: only a tool call puts it on a card. \
+Earlier replies may end with a "[Proposed changes (…): …]" note; the app adds those to \
+record past cards. Never write one yourself.
 
 Before set_plan_details or any add_* tool, make sure the user has told you:
 - travel dates, number of travelers (adults and children), and where they start from;
@@ -230,11 +234,40 @@ RETURN_FLIGHT_NUDGE = (
     "from {away} to {home}{when}) on the same card. Otherwise ask them about it in your reply."
 )
 
+# Told to the model (once a turn) when its reply says it proposed changes but it called
+# no tool, so there's no card: small models copy the history's proposal notes instead.
+PHANTOM_PROPOSAL_NUDGE = (
+    "Your reply says you proposed changes, but you called no tool, so the user has no "
+    "proposal card and nothing to approve. If you meant to propose changes, call the tools "
+    "for them now, then add at most one short sentence without repeating yourself. "
+    "Otherwise add nothing."
+)
+
 # Tool result for a change that is already on this turn's proposal card.
 ALREADY_STAGED = (
     "Already staged; do not repeat it. Stop calling tools for this change and reply to the "
     "user with what you proposed."
 )
+
+
+# ---------------------------------------------------------------------------
+# Proposal notes (past cards, as the agent sees them in its history)
+# ---------------------------------------------------------------------------
+
+# A note runs from "[Proposed changes" to the "]" that ends a line. Lazy and DOTALL, so a
+# note spans its bullet lines but stops at its own end; leading blank lines go with it.
+_PROPOSAL_NOTE = re.compile(r"\s*\[Proposed changes\b.*?\][ \t]*(?=\n|$)", re.DOTALL)
+
+
+def proposal_note(status: str, summaries: Sequence[str]) -> str:
+    """What a stored reply's proposal looks like to the agent later: the model never sees
+    its tool calls again, so without this "approve" has no context."""
+    return f"[Proposed changes ({status}):\n{_bullets(summaries)}]"
+
+
+def strip_proposal_notes(text: str) -> str:
+    """Remove notes the model wrote itself, copying its history; they create no card."""
+    return _PROPOSAL_NOTE.sub("", text).strip()
 
 
 # ---------------------------------------------------------------------------

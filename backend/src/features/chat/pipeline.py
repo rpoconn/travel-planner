@@ -25,7 +25,9 @@ from features.chat.prompts import (
     approval_applied_message,
     approval_failed_message,
     fix_request_message,
+    proposal_note,
     revise_request_message,
+    strip_proposal_notes,
 )
 from features.chat.schemas import (
     ChatEvent,
@@ -76,12 +78,14 @@ DECISION_GUARDRAIL_TOPIC = "proposal decision"
 
 
 def _history_content(row: Message) -> str:
-    # The model never sees its tool calls again, so a reply that staged changes carries
-    # them (and what the user decided) as text; otherwise "approve" has no context later.
+    # A reply that staged changes carries them (and what the user decided) as a note. Notes
+    # the model wrote itself are dropped first, also from rows stored before they were
+    # stripped on the way in, so the agent doesn't take them for real cards.
+    content = strip_proposal_notes(row.content) if row.role == "assistant" else row.content
     if row.proposal is None:
-        return row.content
-    changes = "\n".join(f"- {change['summary']}" for change in row.proposal.changes)
-    return f"{row.content}\n\n[Proposed changes ({row.proposal.status}):\n{changes}]"
+        return content
+    summaries = [change["summary"] for change in row.proposal.changes]
+    return f"{content}\n\n{proposal_note(row.proposal.status, summaries)}"
 
 
 def _llm_history(rows: Sequence[Message]) -> list[LLMMessage]:
@@ -154,7 +158,10 @@ async def _store_reply(
     plan_version: int = 0,
 ) -> AsyncIterator[ChatEvent]:
     """Store the assistant's reply (and its proposal), ending with `done`."""
-    if not reply.text.strip():
+    # A note copied from the history looks like a card but isn't one; the client shows the
+    # stored text once the turn ends, so the streamed copy goes away too.
+    reply.text = strip_proposal_notes(reply.text)
+    if not reply.text:
         # Small models sometimes stop after tool calls without saying anything.
         if staged:
             fallback = EMPTY_REPLY_AFTER_PROPOSAL

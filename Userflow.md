@@ -292,7 +292,10 @@ sequenceDiagram
 **Context after reload.** The model never sees its old tool calls, so in the agent's history
 an assistant message that proposed changes is rendered as its text plus
 `[Proposed changes (<status>): - <summary> …]`, and the user's decisions (`kind=decision`)
-are included like normal messages.
+are included like normal messages. Small models sometimes copy that note into a reply
+instead of calling a tool, which creates no card: the agent strips such copies (when storing
+a reply and when replaying history), and a reply that says "I've proposed …" with nothing
+staged gets one reminder to make the tool calls.
 
 **"Fix it" flow.** Clicking *Fix it* on a timeline warning sends a turn with the warning
 details and fix instructions (D5). The agent proposes the fix on a card like any other
