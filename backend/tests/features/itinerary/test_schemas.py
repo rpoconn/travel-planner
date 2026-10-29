@@ -134,6 +134,51 @@ def test_flight_rejects_a_city_code(field: str) -> None:
         _CREATE.validate_python({**FLIGHT, field: {"name": "Tokyo", "iata": "TYO"}})
 
 
+def test_flight_rejects_a_code_that_names_another_airport() -> None:
+    haneda = {"name": "Tokyo Haneda Airport", "iata": "NRT"}
+
+    message = r"'Tokyo Haneda Airport' is HND, not NRT \(NRT is Narita\)"
+
+    with pytest.raises(ValidationError, match=message):
+        _CREATE.validate_python({**FLIGHT, "to_place": haneda})
+
+
+@pytest.mark.parametrize(
+    "place",
+    [
+        {"name": "Tokyo Haneda Airport", "iata": "HND"},
+        {"name": "Tokyo Airport", "iata": "NRT"},  # no airport-specific name to check
+        {"name": "Narita International Airport (NRT)", "iata": "NRT"},
+        {"name": "Paris Orly", "iata": "ORY"},
+    ],
+)
+def test_flight_accepts_a_code_that_matches_its_name(place: dict[str, str]) -> None:
+    assert _CREATE.validate_python({**FLIGHT, "to_place": place})
+
+
+def test_airport_names_match_whole_words_only() -> None:
+    # "orly" is inside "poorly" but this is not Orly airport.
+    assert _CREATE.validate_python(
+        {**FLIGHT, "to_place": {"name": "Poorly Named Field", "iata": "NRT"}}
+    )
+
+
+def test_transfer_rejects_a_code_that_names_another_airport() -> None:
+    transfer = {
+        "type": "transfer",
+        "title": "Car from Haneda",
+        "start": "2027-05-01T09:00:00",
+        "end": "2027-05-01T11:00:00",
+        "timezone": "Asia/Tokyo",
+        "mode": "taxi",
+        "from_place": {"name": "Tokyo Haneda Airport", "iata": "NRT"},
+        "to_place": {"name": "Hotel Livemax Kayabacho"},
+    }
+
+    with pytest.raises(ValidationError, match="is HND, not NRT"):
+        _CREATE.validate_python(transfer)
+
+
 def test_stored_flight_from_before_the_rules_still_loads() -> None:
     # Rows saved before these input rules existed must keep loading (and stay deletable).
     stored = {

@@ -424,6 +424,26 @@ async def test_add_flight_rejects_a_zero_length_flight(ctx: ToolContext) -> None
     assert await _directions(ctx) == {}
 
 
+async def test_add_transfer_rejects_an_airport_code_that_names_another_airport(
+    ctx: ToolContext,
+) -> None:
+    # The reported bug: "Tokyo Haneda Airport" sent with Narita's code.
+    transfer = {
+        "title": "Car from Haneda",
+        "start": "2027-05-01T09:00:00",
+        "end": "2027-05-01T11:00:00",
+        "timezone": "Asia/Tokyo",
+        "mode": "taxi",
+        "from_place": {"name": "Tokyo Haneda Airport", "iata": "NRT"},
+        "to_place": {"name": "Hotel Okura"},
+    }
+
+    outcome = await _stage(ctx, "add_transfer", transfer)
+
+    assert not outcome.ok and outcome.prepared is None
+    assert "'Tokyo Haneda Airport' is HND, not NRT" in outcome.content
+
+
 # ---------------------------------------------------------------------------
 # Failures are reported, never raised
 # ---------------------------------------------------------------------------

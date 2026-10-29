@@ -6,8 +6,9 @@ Times: `start`/`end` are always returned as aware datetimes in the item's own ti
 which case they are read as wall-clock time in that timezone.
 
 Some rules apply only to new input (`*ItemCreate`, which updates are re-validated as),
-not to stored items: a flight or transfer must take time, and a flight must use real
-airports rather than city codes. Rows saved before a rule existed still load.
+not to stored items: a flight or transfer must take time, a flight must use real
+airports rather than city codes, and an airport's code must match its name. Rows saved
+before a rule existed still load.
 """
 
 import datetime as dt
@@ -25,7 +26,7 @@ from pydantic import (
     model_validator,
 )
 
-from features.itinerary.airports import metro_code_error
+from features.itinerary.airports import metro_code_error, name_code_error
 from shared.domain import Money, Place
 
 # ---------------------------------------------------------------------------
@@ -161,6 +162,17 @@ def _too_short_message(item: ItemFields, kind: str, minimum: timedelta) -> str |
     return message
 
 
+def _airport_code_error(*places: Place) -> str | None:
+    """The first airport whose code is a city code or names a different airport."""
+    for place in places:
+        if place.iata is None:
+            continue
+        error = metro_code_error(place.iata) or name_code_error(place.name, place.iata)
+        if error is not None:
+            return error
+    return None
+
+
 # Shortest realistic scheduled flight; anything below this is a time-entry mistake.
 _MIN_FLIGHT = timedelta(minutes=15)
 _MIN_TRANSFER = timedelta(minutes=1)
@@ -192,10 +204,9 @@ class FlightItemCreate(FlightFields):
     # it into the OpenAPI spec and the tool schema.
     @model_validator(mode="after")
     def _is_a_real_flight(self) -> Self:
-        for place in (self.from_place, self.to_place, *self.layovers):
-            error = metro_code_error(place.iata) if place.iata else None
-            if error is not None:
-                raise ValueError(error)
+        error = _airport_code_error(self.from_place, self.to_place, *self.layovers)
+        if error is not None:
+            raise ValueError(error)
         error = _too_short_message(self, "flight", _MIN_FLIGHT)
         if error is not None:
             raise ValueError(error)
@@ -233,7 +244,11 @@ class TransferFields(ItemFields):
 
 class TransferItemCreate(TransferFields):
     @model_validator(mode="after")
-    def _takes_time(self) -> Self:
+    def _is_a_real_transfer(self) -> Self:
+        # Airport transfers carry the airport's code too, and get it wrong the same way.
+        error = _airport_code_error(self.from_place, self.to_place)
+        if error is not None:
+            raise ValueError(error)
         error = _too_short_message(self, "transfer", _MIN_TRANSFER)
         if error is not None:
             raise ValueError(error)
