@@ -4,11 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as sdk from '@/api/sdk.gen'
 import { setSessionFromToken } from '@/lib/auth'
-import { planSummary, sdkOk, tokenResponse, travelPlan } from '@/test/fixtures'
+import { planSummary, sdkOk, timeline, tokenResponse, travelPlan } from '@/test/fixtures'
 
 import { App } from './App'
 
 // Full app with the real route tree: checks the auth guards end to end (SDK mocked).
+
+// Routes are code-split, so the first render of each page imports its chunk. That can take
+// longer than findBy's 1s default when the whole suite runs in parallel.
+const ROUTE_LOAD = { timeout: 5000 }
 
 describe('App', () => {
     beforeEach(() => {
@@ -18,7 +22,9 @@ describe('App', () => {
     it('sends signed-out visitors to the login page', async () => {
         render(<App />)
 
-        expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+        expect(
+            await screen.findByRole('heading', { name: 'Welcome back' }, ROUTE_LOAD),
+        ).toBeInTheDocument()
         expect(window.location.pathname).toBe('/login')
     })
 
@@ -28,11 +34,13 @@ describe('App', () => {
 
         render(<App />)
 
-        expect(await screen.findByText(/No trips yet/)).toBeInTheDocument()
+        expect(await screen.findByText(/No trips yet/, {}, ROUTE_LOAD)).toBeInTheDocument()
 
         await userEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-        expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+        expect(
+            await screen.findByRole('heading', { name: 'Welcome back' }, ROUTE_LOAD),
+        ).toBeInTheDocument()
         await waitFor(() => {
             expect(window.location.pathname).toBe('/login')
         })
@@ -52,9 +60,11 @@ describe('App', () => {
         vi.spyOn(sdk, 'getPlan').mockResolvedValue(
             sdkOk(travelPlan({ id: 'new-plan', title: 'Untitled trip' })),
         )
+        vi.spyOn(sdk, 'listMessages').mockResolvedValue(sdkOk([]))
+        vi.spyOn(sdk, 'getTimeline').mockResolvedValue(sdkOk(timeline()))
 
         render(<App />)
-        await userEvent.click(await screen.findByRole('button', { name: 'New trip' }))
+        await userEvent.click(await screen.findByRole('button', { name: 'New trip' }, ROUTE_LOAD))
 
         await waitFor(() => {
             expect(window.location.pathname).toBe('/plans/new-plan')

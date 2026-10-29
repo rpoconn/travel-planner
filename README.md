@@ -4,11 +4,11 @@ A travel-itinerary chat app. Every message goes to a small local model (Ollama),
 message is about trip planning, gently redirects if not, and otherwise acts as an agent that can
 search the web and edit a structured itinerary shown as a timeline beside the chat.
 
-> Status: **Phase 4 — web search.** Register/login (JWT), per-user trip CRUD, the three-pane
-> workspace shell, the itinerary API (flights / lodging / activities / transfers plus a derived
-> day-by-day timeline with warnings), and the chat backend: topic guardrail, planning agent with
-> itinerary tools and cached web search, streamed over SSE. The chat and timeline UI come in
-> Phase 5.
+> Status: **Phase 5 — chat + timeline UI.** Register/login (JWT), per-user trips, the itinerary
+> API (flights / lodging / activities / transfers plus a derived day-by-day timeline with
+> warnings), and the chat: topic guardrail, planning agent with itinerary tools and cached web
+> search, streamed over SSE into a chat panel whose edits show up live on the timeline. Phase 6
+> adds full-stack E2E tests, rate limiting and Alembic migrations.
 
 ## Layout
 
@@ -111,6 +111,21 @@ In VS Code, the Run and Debug view has (`.vscode/launch.json`, needs `uv sync` f
   cached in the `search_cache` table for `SEARCH_CACHE_TTL_HOURS` (default 24).
 - To add another provider (Brave, SearXNG, …), implement the `SearchProvider` protocol in
   `backend/src/shared/search/types.py` and select it in `shared/search/provider.py`.
+
+## Frontend
+
+- **Chat** (`components/ChatPanel`): history from `GET /plans/{id}/messages` plus the live turn.
+  `lib/sse.ts` streams `POST /plans/{id}/chat` through the generated SDK's SSE client (never
+  retried, since a retry would store the message twice) and narrows each event on `type`;
+  `lib/chatTurn.ts` folds the events into the turn (tokens, tool chips, redirect, error).
+- **Live itinerary**: each `plan_updated` event is written into the plan query cache and
+  invalidates the timeline (`lib/planCache.ts`), so the right-hand panel updates as the agent works.
+- **Timeline** (`components/ItineraryTimeline`): one column per day on a half-column CSS grid.
+  Stays are drawn from mid check-in day to mid check-out day, so back-to-back stays share a lane
+  (`layoutLodging` in `lib/timeline.ts`). Times show in each place's local time, read straight from
+  the ISO offset, never converted to the viewer's timezone. Click any item for the detail sheet.
+- **Theme**: sand / terracotta / deep-teal tokens and per-item-type colors in `src/index.css`,
+  Fraunces for headings, light/dark toggle in the header (`lib/theme.ts`).
 
 ## API client generation
 

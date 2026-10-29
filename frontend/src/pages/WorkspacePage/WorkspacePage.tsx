@@ -4,14 +4,17 @@ import { CalendarRange, LogOut, MessagesSquare, Plane } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { getPlanOptions } from '@/api/@tanstack/react-query.gen'
+import { ChatPanel } from '@/components/ChatPanel/ChatPanel'
+import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
+import { ThemeToggle } from '@/components/ThemeToggle/ThemeToggle'
 import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/apiError'
 import { clearSession, useAuthSession } from '@/lib/auth'
 import { formatDateRange } from '@/lib/format'
 
-// Three-pane shell: trips sidebar | chat | itinerary timeline.
-// Chat (Phase 3/5) and the timeline (Phase 5) are placeholders for now.
+// Three-pane shell: trips sidebar | chat | itinerary timeline. The chat and timeline are
+// keyed by plan id so switching trips starts them fresh (and aborts a streaming reply).
 
 interface WorkspacePageProps {
     planId?: string
@@ -60,21 +63,31 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 </p>
             )
         }
-        return (
-            <EmptyPane icon={<MessagesSquare aria-hidden />} title="Chat coming soon">
-                Your travel assistant will live here.
-            </EmptyPane>
-        )
+        return <ChatPanel key={planQuery.data.id} plan={planQuery.data} />
+    }
+
+    function renderItineraryPane() {
+        if (planId === undefined || !plan) {
+            return (
+                <EmptyPane icon={<CalendarRange aria-hidden />} title="Itinerary">
+                    Select a trip to see its itinerary.
+                </EmptyPane>
+            )
+        }
+        return <ItineraryTimeline key={planId} planId={planId} />
     }
 
     return (
         <div className="flex h-screen flex-col">
-            <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
-                <span className="flex items-center gap-2 font-semibold">
-                    <Plane className="size-5" aria-hidden />
+            <header className="from-primary/10 via-background to-terracotta/12 flex h-14 shrink-0 items-center justify-between border-b bg-linear-to-r px-4">
+                <span className="font-heading flex items-center gap-2 text-xl">
+                    <span className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-full">
+                        <Plane className="size-4" aria-hidden />
+                    </span>
                     Travel Planner
                 </span>
                 <div className="flex items-center gap-3 text-sm">
+                    <ThemeToggle />
                     <span className="text-muted-foreground" data-testid="current-user">
                         {session && (session.user.display_name || session.user.email)}
                     </span>
@@ -85,8 +98,8 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 </div>
             </header>
 
-            <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)_minmax(0,1.25fr)]">
-                <aside className="min-h-0 border-r">
+            <div className="grid min-h-0 flex-1 grid-cols-[17rem_minmax(22rem,1fr)_minmax(0,1.5fr)]">
+                <aside className="bg-sidebar min-h-0 border-r">
                     <PlansSidebar
                         selectedPlanId={planId}
                         onSelectPlan={handleSelectPlan}
@@ -97,7 +110,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 <section aria-label="Chat" className="flex min-h-0 flex-col border-r">
                     {plan && (
                         <div className="border-b px-6 py-3">
-                            <h1 className="truncate text-lg font-semibold">{plan.title}</h1>
+                            <h1 className="font-heading truncate text-xl">{plan.title}</h1>
                             <p className="text-muted-foreground text-xs">
                                 {[
                                     plan.destination?.name,
@@ -111,12 +124,8 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                     <div className="min-h-0 flex-1">{renderChatPane()}</div>
                 </section>
 
-                <section aria-label="Itinerary" className="bg-muted/30 min-h-0">
-                    <EmptyPane icon={<CalendarRange aria-hidden />} title="Itinerary">
-                        {plan
-                            ? 'Flights, stays, and activities will appear here as a timeline.'
-                            : 'Select a trip to see its itinerary.'}
-                    </EmptyPane>
+                <section aria-label="Itinerary" className="bg-muted/40 min-h-0 min-w-0">
+                    {renderItineraryPane()}
                 </section>
             </div>
         </div>

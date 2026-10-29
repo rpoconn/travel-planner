@@ -1,10 +1,10 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as sdk from '@/api/sdk.gen'
 import { getSession, setSessionFromToken } from '@/lib/auth'
-import { planSummary, sdkOk, tokenResponse, travelPlan } from '@/test/fixtures'
+import { planSummary, sdkOk, tokenResponse, tokyoTimeline, travelPlan } from '@/test/fixtures'
 import { renderWithRouter } from '@/test/render'
 
 import { WorkspacePage } from './WorkspacePage'
@@ -13,6 +13,8 @@ describe('WorkspacePage', () => {
     beforeEach(() => {
         setSessionFromToken(tokenResponse())
         vi.spyOn(sdk, 'listPlans').mockResolvedValue(sdkOk([planSummary()]))
+        vi.spyOn(sdk, 'listMessages').mockResolvedValue(sdkOk([]))
+        vi.spyOn(sdk, 'getTimeline').mockResolvedValue(sdkOk(tokyoTimeline()))
     })
 
     it('shows the three panes and the signed-in user', async () => {
@@ -22,11 +24,14 @@ describe('WorkspacePage', () => {
         expect(screen.getByRole('region', { name: 'Chat' })).toHaveTextContent(
             'Pick a trip to start',
         )
-        expect(screen.getByRole('region', { name: 'Itinerary' })).toBeInTheDocument()
+        expect(screen.getByRole('region', { name: 'Itinerary' })).toHaveTextContent(
+            'Select a trip to see its itinerary.',
+        )
         expect(screen.getByTestId('current-user')).toHaveTextContent('Ada')
+        expect(screen.getByRole('button', { name: /Switch to (dark|light) theme/ })).toBeVisible()
     })
 
-    it('loads and shows the selected plan', async () => {
+    it('loads the selected plan into the chat and itinerary panes', async () => {
         const getPlan = vi.spyOn(sdk, 'getPlan').mockResolvedValue(sdkOk(travelPlan()))
 
         await renderWithRouter(<WorkspacePage planId={travelPlan().id} />)
@@ -35,6 +40,11 @@ describe('WorkspacePage', () => {
         expect(getPlan).toHaveBeenCalledWith(
             expect.objectContaining({ path: { plan_id: travelPlan().id } }),
         )
+        const chat = screen.getByRole('region', { name: 'Chat' })
+        expect(await within(chat).findByText('Where to next?')).toBeInTheDocument()
+        expect(within(chat).getByRole('textbox', { name: 'Message' })).toBeInTheDocument()
+        const itinerary = screen.getByRole('region', { name: 'Itinerary' })
+        expect(await within(itinerary).findAllByRole('region', { name: /^Day \d/ })).toHaveLength(5)
     })
 
     it('shows an error when the plan cannot be loaded', async () => {
