@@ -8,6 +8,7 @@ plan changes during a turn, so the plan JSON in the system prompt stays current.
 
 import logging
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import replace
 from datetime import date
 from uuid import uuid4
 
@@ -78,6 +79,9 @@ async def run_agent(
     their `tool_result` events have `proposed=True`. Raises `LLMError` if the model fails;
     tool failures are reported to the model instead.
     """
+    # The tools see the card as it grows (the same list), so its changes count towards the
+    # budget: three dinners proposed together can't each fit on their own.
+    ctx = replace(ctx, staged=staged)
     messages = [
         LLMMessage(role="system", content=agent_system_prompt(plan, today)),
         *history,

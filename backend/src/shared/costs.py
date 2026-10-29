@@ -30,6 +30,11 @@ def _format(amount: Decimal, currency: str) -> str:
     return f"{amount:,.2f} {currency}"
 
 
+def format_money(money: Money) -> str:
+    """Write `money` as "1,380.50 USD", the way amounts appear in messages to the agent."""
+    return _format(money.amount, money.currency)
+
+
 # ---------------------------------------------------------------------------
 # Messages
 # ---------------------------------------------------------------------------
@@ -56,17 +61,3 @@ def budget_summary(budget: Money | None, totals: dict[str, Decimal]) -> str | No
         listed = ", ".join(_format(amount, other) for other, amount in others)
         summary += f"; not counted, in other currencies: {listed}"
     return summary
-
-
-def over_budget_note(budget: Money | None, totals: dict[str, Decimal]) -> str | None:
-    """A note like "puts the trip at 5,240.00 USD, over the 5,000.00 USD budget", or None
-    when the totals fit the budget (or there is none)."""
-    if budget is None:
-        return None
-    spent = totals.get(budget.currency, Decimal(0))
-    if spent <= budget.amount:
-        return None
-    return (
-        f"puts the trip at {_format(spent, budget.currency)}, over the "
-        f"{_format(budget.amount, budget.currency)} budget"
-    )

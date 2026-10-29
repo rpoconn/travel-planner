@@ -252,34 +252,138 @@ async def test_update_item_merges_changes(ctx: ToolContext) -> None:
     assert item.title == "Hotel Okura"
 
 
-async def test_staging_an_item_that_breaks_the_budget_says_so(ctx: ToolContext) -> None:
-    await _run(ctx, "set_plan_details", {"budget": {"amount": 1000, "currency": "USD"}})
+# ---------------------------------------------------------------------------
+# Budget rules (a plan with a budget or spending limits)
+# ---------------------------------------------------------------------------
+
+DINNER_ARGS: dict[str, Any] = {
+    "title": "Dinner at Alchimiste",
+    "start": "2027-05-03T19:00:00",
+    "end": "2027-05-03T21:00:00",
+    "timezone": "Asia/Tokyo",
+    "place": {"name": "Alchimiste", "city": "Tokyo"},
+    "category": "food",
+}
+
+
+async def _set_budget(ctx: ToolContext, amount: int, **details: Any) -> None:
+    outcome = await _run(
+        ctx, "set_plan_details", {"budget": {"amount": amount, "currency": "USD"}, **details}
+    )
+    assert outcome.ok, outcome.content
+
+
+async def test_with_a_budget_every_item_needs_a_cost(ctx: ToolContext) -> None:
+    await _set_budget(ctx, 1000)
+
+    outcome = await _stage(ctx, "add_lodging", HOTEL_ARGS)
+
+    assert not outcome.ok and outcome.prepared is None
+    assert "Hotel Okura has no cost" in outcome.content
+    assert 'best estimate (basis "estimate")' in outcome.content
+
+
+async def test_without_a_budget_costs_are_optional(ctx: ToolContext) -> None:
+    assert (await _stage(ctx, "add_lodging", HOTEL_ARGS)).ok
+
+
+async def test_a_cost_in_another_currency_than_the_budget_is_rejected(ctx: ToolContext) -> None:
+    await _set_budget(ctx, 1000)
+
+    outcome = await _stage(
+        ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 30000, "currency": "JPY"}}
+    )
+
+    assert not outcome.ok
+    assert "costs 30,000.00 JPY, but the budget is in USD" in outcome.content
+
+
+async def test_an_item_that_breaks_the_budget_is_rejected(ctx: ToolContext) -> None:
+    await _set_budget(ctx, 1000)
     await _run(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 800}})
 
     within = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 200}})
     over = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 300}})
 
-    assert "budget" not in within.summary
-    note = "(puts the trip at 1,100.00 USD, over the 1,000.00 USD budget)"
-    assert over.summary.endswith(note)
-    assert note in over.content  # the model is told too
-    assert _change(over).summary.endswith(note)  # and the proposal card shows it
+    assert within.ok and within.prepared is not None
+    assert not over.ok and over.prepared is None
+    assert "costs total 1,100.00 USD, 100.00 USD over the 1,000.00 USD budget" in over.content
+    assert "ask the user whether to raise the budget" in over.content
 
 
-async def test_updating_a_cost_counts_it_in_place_of_the_old_one(ctx: ToolContext) -> None:
-    await _run(ctx, "set_plan_details", {"budget": {"amount": 1000, "currency": "USD"}})
+async def test_an_update_counts_the_new_cost_in_place_of_the_old_one(ctx: ToolContext) -> None:
+    await _set_budget(ctx, 1000)
     await _run(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 800}})
     (item,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
 
     cheaper = await _stage(
-        ctx, "update_item", {"item_id": str(item.id), "changes": {"cost": {"amount": 900}}}
+        ctx, "update_item", {"item_id": str(item.id), "changes": {"cost": {"amount": 950}}}
     )
     dearer = await _stage(
         ctx, "update_item", {"item_id": str(item.id), "changes": {"cost": {"amount": 1200}}}
     )
 
-    assert "budget" not in cheaper.summary
-    assert dearer.summary.endswith("(puts the trip at 1,200.00 USD, over the 1,000.00 USD budget)")
+    assert cheaper.ok
+    assert not dearer.ok and "costs total 1,200.00 USD" in dearer.content
+
+
+async def test_an_update_that_does_not_touch_the_cost_is_not_checked(ctx: ToolContext) -> None:
+    # An item from before the budget was set has no cost; moving it is still allowed (the
+    # timeline flags the missing cost instead).
+    item_id = await _add_hotel(ctx)
+    await _set_budget(ctx, 1000)
+
+    outcome = await _stage(
+        ctx, "update_item", {"item_id": item_id, "changes": {"end": "2027-05-07T11:00:00"}}
+    )
+
+    assert outcome.ok, outcome.content
+
+
+async def test_changes_already_on_the_card_count_towards_the_budget(ctx: ToolContext) -> None:
+    await _set_budget(ctx, 1000)
+    first = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 600}})
+    on_card = replace(ctx, staged=[_change(first)])
+
+    second = await _stage(on_card, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 500}})
+    repeat = await _stage(on_card, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 600}})
+
+    assert not second.ok and "costs total 1,100.00 USD" in second.content
+    # Re-sending the change that's already on the card isn't counted twice.
+    assert repeat.ok
+
+
+async def test_removals_on_the_card_free_up_budget(ctx: ToolContext) -> None:
+    await _set_budget(ctx, 1000)
+    await _run(ctx, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 800}})
+    (item,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    removal = await _stage(ctx, "remove_item", {"item_id": str(item.id)})
+    on_card = replace(ctx, staged=[_change(removal)])
+
+    outcome = await _stage(on_card, "add_lodging", {**HOTEL_ARGS, "cost": {"amount": 900}})
+
+    assert outcome.ok, outcome.content
+
+
+async def test_a_meal_over_the_per_person_limit_is_rejected(ctx: ToolContext) -> None:
+    limit = {"category": "food", "max_per_person": {"amount": 200, "currency": "USD"}}
+    await _run(ctx, "set_plan_details", {"travelers": {"adults": 2}, "limits": [limit]})
+
+    within = await _stage(ctx, "add_activity", {**DINNER_ARGS, "cost": {"amount": 380}})
+    over = await _stage(ctx, "add_activity", {**DINNER_ARGS, "cost": {"amount": "504.24"}})
+    no_cost = await _stage(ctx, "add_activity", DINNER_ARGS)
+
+    assert within.ok, within.content
+    assert not over.ok
+    assert (
+        "costs 504.24 USD (252.12 USD a person for 2), over the food limit of 200.00 USD a person"
+        in over.content
+    )
+    assert "ask the user whether to raise that limit" in over.content
+    # A limit needs a cost to check, even without a budget...
+    assert not no_cost.ok and "has no cost" in no_cost.content
+    # ...but only for the limited category.
+    assert (await _stage(ctx, "add_lodging", HOTEL_ARGS)).ok
 
 
 async def test_remove_item(ctx: ToolContext) -> None:

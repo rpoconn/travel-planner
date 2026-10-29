@@ -168,12 +168,11 @@ async def check_update(
     plan_id: UUID,
     item_id: UUID,
     patch: ItineraryItemPatch,
-) -> ItineraryItem:
-    """Raise like `update_item` would, but write nothing; returns the item as it is now."""
+) -> ItineraryItemCreate:
+    """Raise like `update_item` would, but write nothing; returns the item as it would be."""
     plan = await plans_service.get_plan(session, user_id, plan_id)
     current = _to_schema(await _get_row(session, plan.id, item_id))
-    _merge(current, patch)
-    return current
+    return _merge(current, patch)
 
 
 async def update_item(

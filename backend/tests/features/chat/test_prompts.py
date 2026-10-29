@@ -97,6 +97,8 @@ def test_agent_prompt_totals_costs_against_the_budget() -> None:
     assert "Costs so far: 282.12 USD of the 5,000.00 USD budget (4,717.88 USD left)" in prompt
     assert "not per person" in prompt
     assert 'Only call a price "within"' in prompt
+    assert "every item needs a cost" in prompt and 'basis "estimate"' in prompt
+    assert "save it as a limit with set_plan_details" in prompt
 
 
 def test_agent_prompt_has_no_cost_line_without_budget_or_costs() -> None:

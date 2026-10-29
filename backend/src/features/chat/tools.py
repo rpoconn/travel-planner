@@ -20,7 +20,7 @@ plan's destination/dates and returns the top results as text for the model to ci
 
 import logging
 import re
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.chat.schemas import ProposedChange
+from features.itinerary import budget as budget_rules
 from features.itinerary import service as itinerary_service
 from features.itinerary.airports import same_area
 from features.itinerary.schemas import (
@@ -39,7 +40,9 @@ from features.itinerary.schemas import (
     FlightItem,
     FlightItemCreate,
     FlightItemPatch,
+    ItemFields,
     ItemType,
+    ItineraryItem,
     LodgingItemCreate,
     LodgingItemPatch,
     SpendingLimit,
@@ -49,8 +52,7 @@ from features.itinerary.schemas import (
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import PlanUpdate
-from shared.costs import over_budget_note, totals_by_currency
-from shared.domain import Money, Place, Travelers
+from shared.domain import Cost, Money, Place, Travelers
 from shared.llm.schema import inline_schema
 from shared.llm.types import LLMToolCall, ToolSpec
 from shared.search.query import shape_query
@@ -113,6 +115,9 @@ class ToolContext:
     plan_id: UUID
     search: SearchProvider
     today: date
+    # This turn's proposal card so far: its changes count towards the budget too. Empty
+    # when an approved card is applied, where earlier changes are already in the plan.
+    staged: Sequence[ProposedChange] = ()
 
 
 @dataclass(frozen=True)
@@ -285,19 +290,72 @@ async def _apply_plan_details(ctx: ToolContext, prepared: Prepared) -> ToolOutco
     )
 
 
-async def _budget_note(
-    ctx: ToolContext, plan: Plan, cost: Money | None, replacing: UUID | None = None
-) -> str:
-    """A suffix like " (puts the trip at …, over the … budget)" when the plan's costs with
-    `cost` (in place of item `replacing`'s) exceed its budget, else "". It goes into the
-    change's summary, so both the model and the proposal card see it: models call prices
-    "within budget" without adding them up."""
-    if cost is None or plan.budget is None:
-        return ""
+# Appended to a budget rule's message to tell the model what to do about it.
+_NO_COST_HELP = (
+    "This plan has a budget or spending limits, so every item needs a cost in the budget's "
+    'currency: the price from the user or a web_search result (basis "exact"), or your best '
+    'estimate (basis "estimate"). Use 0 for something free'
+)
+_OVER_LIMIT_HELP = "Choose a cheaper option, or ask the user whether to raise that limit"
+_OVER_BUDGET_HELP = (
+    "Choose a cheaper option, or ask the user whether to raise the budget. Do not lower the "
+    "price unless you found a cheaper one"
+)
+
+
+def _projected_costs(
+    ctx: ToolContext, items: Sequence[ItineraryItem], name: str, arguments: dict[str, Any]
+) -> dict[str, Cost | None]:
+    """Each active item's cost, by id, after this turn's staged changes. The change being
+    prepared (`name`, `arguments`) is skipped if it's already staged: models re-send them."""
+    costs: dict[str, Cost | None] = {
+        str(item.id): item.cost for item in items if item.status != "cancelled"
+    }
+    for index, change in enumerate(ctx.staged):
+        if change.name == name and change.arguments == arguments:
+            continue
+        args = change.arguments
+        if change.name.startswith("add_"):
+            cost = args.get("cost")
+            costs[f"staged-{index}"] = Cost.model_validate(cost) if cost is not None else None
+        elif change.name == "update_item":
+            changes = args["changes"]
+            if changes.get("status") == "cancelled":
+                costs.pop(args["item_id"], None)
+            elif "cost" in changes:
+                costs[args["item_id"]] = Cost.model_validate(changes["cost"])
+        elif change.name == "remove_item":
+            costs.pop(args["item_id"], None)
+    return costs
+
+
+async def _check_budget(
+    ctx: ToolContext,
+    plan: Plan,
+    item: ItemFields,
+    name: str,
+    arguments: dict[str, Any],
+    item_id: UUID | None = None,
+) -> None:
+    """Raise a ToolError if `item` (new, or item `item_id` as it would be after an update)
+    breaks the plan's budget rules (see features.itinerary.budget)."""
+    budget = Money.model_validate(plan.budget) if plan.budget else None
+    limits = [SpendingLimit.model_validate(limit) for limit in plan.limits]
+    if item.status == "cancelled" or not budget_rules.needs_cost(item, budget, limits):
+        return
+    error = budget_rules.cost_error(item, budget)
+    if error is not None:
+        raise ToolError(f"{error}. {_NO_COST_HELP}")
+    travelers = Travelers.model_validate(plan.travelers) if plan.travelers else None
+    error = budget_rules.limit_error(item, limits, travelers)
+    if error is not None:
+        raise ToolError(f"{error}. {_OVER_LIMIT_HELP}")
     items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
-    others = [i.cost for i in items if i.status != "cancelled" and i.id != replacing]
-    note = over_budget_note(Money.model_validate(plan.budget), totals_by_currency([*others, cost]))
-    return f" ({note})" if note else ""
+    costs = _projected_costs(ctx, items, name, arguments)
+    costs[str(item_id) if item_id is not None else "new"] = item.cost
+    error = budget_rules.total_error(budget, costs.values())
+    if error is not None:
+        raise ToolError(f"With {item.title} the trip {error}. {_OVER_BUDGET_HELP}")
 
 
 def _prepare_add(item_type: ItemType) -> PrepareHandler:
@@ -324,12 +382,13 @@ def _prepare_add(item_type: ItemType) -> PrepareHandler:
             if direction != given:
                 logger.info("Flight %r direction %s -> %s", data.title, given, direction)
             data = data.model_copy(update={"direction": direction})
-        note = await _budget_note(ctx, plan, data.cost)
+        # Defaults are left out to keep the proposal small; they come back on re-prepare.
+        normalised = data.model_dump(mode="json", exclude_defaults=True, exclude={"type"})
+        await _check_budget(ctx, plan, data, f"add_{item_type}", normalised)
         return Prepared(
             name=f"add_{item_type}",
-            # Defaults are left out to keep the proposal small; they come back on re-prepare.
-            arguments=data.model_dump(mode="json", exclude_defaults=True, exclude={"type"}),
-            summary=f"Add {item_type} “{data.title}” on {data.start:%Y-%m-%d %H:%M}{note}",
+            arguments=normalised,
+            summary=f"Add {item_type} “{data.title}” on {data.start:%Y-%m-%d %H:%M}",
             payload=data,
         )
 
@@ -438,6 +497,10 @@ def _flight_direction(
     return given or "internal"
 
 
+# Item fields whose change re-runs the budget checks.
+_BUDGET_FIELDS = frozenset({"cost", "category", "status"})
+
+
 @dataclass(frozen=True)
 class _ItemChange:
     """The `update_item` / `remove_item` payload."""
@@ -463,20 +526,22 @@ async def _prepare_update(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
     _reject_past(patch.start.date() if patch.start else None, "start", ctx.today)
     try:
         # The merged item is validated as a whole (end after start, airports...).
-        await itinerary_service.check_update(
+        merged = await itinerary_service.check_update(
             ctx.session, ctx.user_id, ctx.plan_id, args.item_id, patch
         )
     except itinerary_service.InvalidItemError as exc:
         raise ToolError(str(exc)) from exc
     normalised = patch.model_dump(mode="json", exclude_unset=True, exclude={"type"})
-    note = ""
-    if "cost" in patch.model_fields_set:
+    arguments = {"item_id": str(args.item_id), "changes": normalised}
+    # Only changes that affect what the item costs are checked: moving an item that had no
+    # cost before the budget was set is fine (the timeline flags it instead).
+    if patch.model_fields_set & _BUDGET_FIELDS:
         plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
-        note = await _budget_note(ctx, plan, patch.cost, replacing=args.item_id)
+        await _check_budget(ctx, plan, merged, "update_item", arguments, item_id=args.item_id)
     return Prepared(
         name="update_item",
-        arguments={"item_id": str(args.item_id), "changes": normalised},
-        summary=f"Change “{current.title}”: {_field_list(sorted(normalised))}{note}",
+        arguments=arguments,
+        summary=f"Change “{current.title}”: {_field_list(sorted(normalised))}",
         payload=_ItemChange(args.item_id, current.title, current.type, patch),
     )
 

@@ -192,9 +192,16 @@ them out unless the user or a search result gave them. When you propose an item 
 with web_search, set its source_url to the result's URL.
 - An item's cost is the total for everyone travelling, not per person: multiply a \
 per-person price by the number of travelers.
+- If the plan has a budget, every item needs a cost in the budget's currency: basis \
+"exact" for a price the user or a web_search result gave, otherwise your best estimate \
+with basis "estimate" (0 for something free).
+- When the user caps what one kind of activity may cost per person ("dinners under $200 \
+a person"), save it as a limit with set_plan_details. The plan's `limits` are those caps.
+- The tools reject an item over a limit or over the budget. Then pick a cheaper option, \
+or tell the user and ask whether to raise the limit or budget. Never lower a price just \
+to make it fit.
 - Only call a price "within", "under" or "in" a budget or limit when its number really \
-is below it. If an option costs more than a limit the user gave, say so plainly and ask \
-whether it is acceptable.
+is below it.
 - Times are local wall-clock times like "2027-05-01T15:00:00" plus an IANA timezone like \
 "Asia/Tokyo". For flights and transfers, `timezone` is where it departs and \
 `end_timezone` is where it arrives. For lodging, start is check-in and end is check-out.

@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from shared.costs import budget_summary, over_budget_note, totals_by_currency
+from shared.costs import budget_summary, format_money, totals_by_currency
 from shared.domain import Money
 
 BUDGET = Money(amount=Decimal(5000))
@@ -42,9 +42,5 @@ def test_budget_summary_without_a_budget() -> None:
     assert budget_summary(None, {"USD": Decimal(15)}) == "Costs so far: 15.00 USD (no budget set)"
 
 
-def test_over_budget_note() -> None:
-    assert over_budget_note(BUDGET, {"USD": Decimal(5000)}) is None
-    assert over_budget_note(None, {"USD": Decimal(9999)}) is None
-    assert over_budget_note(BUDGET, {"USD": Decimal(5240)}) == (
-        "puts the trip at 5,240.00 USD, over the 5,000.00 USD budget"
-    )
+def test_format_money() -> None:
+    assert format_money(Money(amount=Decimal("1380.5"), currency="EUR")) == "1,380.50 EUR"

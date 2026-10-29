@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 from features.chat.agent import MAX_TOOL_ROUNDS, run_agent
@@ -15,6 +16,8 @@ from features.chat.schemas import (
 from features.chat.tools import TOOL_SPECS, ToolContext
 from features.itinerary import service as itinerary_service
 from features.plans import service as plans_service
+from features.plans.schemas import PlanUpdate
+from shared.domain import Money
 from shared.llm.fake import FakeLLM, text, tool_calls
 from shared.llm.types import LLMMessage, ToolSpec
 from tests.features.chat.conftest import HOTEL_ARGS
@@ -148,6 +151,25 @@ async def test_several_calls_are_staged_in_order(ctx: ToolContext) -> None:
     events = await _run(llm, ctx, staged=staged)
 
     assert [e.proposed for e in _of_type(events, ToolResultEvent)] == [True, True]
+    assert [change.arguments["title"] for change in staged] == ["Hotel Okura", "Ryokan Sawanoya"]
+
+
+async def test_changes_in_one_turn_share_the_budget(ctx: ToolContext) -> None:
+    patch = PlanUpdate(budget=Money(amount=Decimal(1000)))
+    await plans_service.update_plan(ctx.session, ctx.user_id, ctx.plan_id, patch)
+    stays = [
+        {**HOTEL_ARGS, "title": title, "cost": {"amount": 400}}
+        for title in ("Hotel Okura", "Ryokan Sawanoya", "Park Hyatt")
+    ]
+    llm = FakeLLM(
+        [tool_calls(*(("add_lodging", stay) for stay in stays)), text("Two fit the budget.")]
+    )
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged)
+
+    # Each fits the budget alone; the third doesn't fit next to the other two.
+    assert [e.ok for e in _of_type(events, ToolResultEvent)] == [True, True, False]
     assert [change.arguments["title"] for change in staged] == ["Hotel Okura", "Ryokan Sawanoya"]
 
 
