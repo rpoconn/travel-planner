@@ -3,7 +3,8 @@ back, and repeat until it answers in plain text (or the round limit is hit).
 
 Read tools (web_search) run immediately. Write tools only validate: each change is staged
 into the caller's `staged` list, which becomes the reply's proposal card. Nothing in the
-plan changes during a turn, so the plan JSON in the system prompt stays current.
+plan changes during a turn, so the plan JSON in the system prompt stays current. A card
+that adds a flight out without one home gets the model a reminder to propose it or ask.
 """
 
 import logging
@@ -88,6 +89,7 @@ async def run_agent(
         LLMMessage(role="user", content=latest),
     ]
     wrote_text = False
+    nudged_return = False
 
     for round_index in range(MAX_TOOL_ROUNDS + 1):
         final_round = round_index == MAX_TOOL_ROUNDS
@@ -124,3 +126,11 @@ async def run_agent(
                 proposed=outcome.prepared is not None,
             )
             messages.append(LLMMessage(role="tool", tool_name=call.name, content=outcome.content))
+
+        # ---- a flight out with none home: have the model propose it (or ask), once ----
+        if not nudged_return:
+            nudge = tools.return_flight_nudge(plan, staged)
+            if nudge is not None:
+                nudged_return = True
+                logger.info("Proposal on plan %s has no return flight; nudging", ctx.plan_id)
+                messages.append(LLMMessage(role="system", content=nudge))

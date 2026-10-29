@@ -29,6 +29,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from features.chat.prompts import RETURN_FLIGHT_NUDGE
 from features.chat.schemas import ProposedChange
 from features.itinerary import budget as budget_rules
 from features.itinerary import service as itinerary_service
@@ -53,7 +54,7 @@ from features.itinerary.schemas import (
 )
 from features.plans import service as plans_service
 from features.plans.models import Plan
-from features.plans.schemas import PlanUpdate
+from features.plans.schemas import PlanUpdate, TravelPlan
 from shared.domain import Cost, Money, Place, Travelers
 from shared.llm.schema import inline_schema
 from shared.llm.types import LLMToolCall, ToolSpec
@@ -548,6 +549,75 @@ def _flight_direction(
     if mirrored is not None:
         return mirrored
     return given or "internal"
+
+
+# ---------------------------------------------------------------------------
+# Return flight
+# ---------------------------------------------------------------------------
+
+
+def _flights_after(
+    items: Sequence[ItineraryItem], staged: Sequence[ProposedChange]
+) -> list[FlightFields]:
+    """The plan's active flights once `staged` is applied: added, removed, cancelled or
+    relabelled ones (no other update changes whether a flight goes out or home)."""
+    flights: dict[str, FlightFields] = {
+        str(item.id): item
+        for item in items
+        if isinstance(item, FlightItem) and item.status != "cancelled"
+    }
+    for index, change in enumerate(staged):
+        args = change.arguments
+        if change.name == "add_flight":
+            try:
+                flights[f"staged-{index}"] = FlightItemCreate.model_validate(
+                    {**args, "type": "flight"}
+                )
+            except ValidationError:
+                # Validated when staged; skip rather than fail the turn.
+                logger.warning("Staged add_flight no longer validates")
+        elif change.name == "remove_item":
+            flights.pop(args["item_id"], None)
+        elif change.name == "update_item" and args["item_id"] in flights:
+            changes = args["changes"]
+            if changes.get("status") == "cancelled":
+                flights.pop(args["item_id"])
+            elif "direction" in changes:
+                flight = flights[args["item_id"]]
+                flights[args["item_id"]] = flight.model_copy(
+                    update={"direction": changes["direction"]}
+                )
+    return list(flights.values())
+
+
+def _outbound_without_return(flights: Sequence[FlightFields]) -> list[FlightFields]:
+    """The outbound flights (in order) when no flight goes home, else []."""
+    if any(flight.direction == "return" for flight in flights):
+        return []
+    return sorted((f for f in flights if f.direction == "outbound"), key=lambda f: f.start)
+
+
+def _airport(place: Place) -> str:
+    return place.iata or place.name
+
+
+def return_flight_nudge(plan: TravelPlan, staged: Sequence[ProposedChange]) -> str | None:
+    """What to tell the model when this turn's proposal leaves the trip with a flight out
+    but none home, else None. Only a gap this turn opens counts: one already in the plan
+    was raised when it was proposed, and repeating it every turn would derail the talk
+    about hotels or dinners."""
+    if _outbound_without_return(_flights_after(plan.items, ())):
+        return None
+    outbound = _outbound_without_return(_flights_after(plan.items, staged))
+    if not outbound:
+        return None
+    # A connection is several outbound legs: home is where the first leaves, the
+    # destination where the last lands.
+    return RETURN_FLIGHT_NUDGE.format(
+        away=_airport(outbound[-1].to_place),
+        home=_airport(outbound[0].from_place),
+        when=f" on {plan.end_date.isoformat()}" if plan.end_date else "",
+    )
 
 
 # Item fields whose change re-runs the budget checks.

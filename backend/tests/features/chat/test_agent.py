@@ -4,7 +4,12 @@ from decimal import Decimal
 from typing import Any
 
 from features.chat.agent import MAX_TOOL_ROUNDS, run_agent
-from features.chat.prompts import AGENT_FINAL_ANSWER, ALREADY_STAGED, agent_system_prompt
+from features.chat.prompts import (
+    AGENT_FINAL_ANSWER,
+    ALREADY_STAGED,
+    RETURN_FLIGHT_NUDGE,
+    agent_system_prompt,
+)
 from features.chat.schemas import (
     ChatEvent,
     PlanUpdatedEvent,
@@ -15,6 +20,7 @@ from features.chat.schemas import (
 )
 from features.chat.tools import TOOL_SPECS, ToolContext
 from features.itinerary import service as itinerary_service
+from features.itinerary.schemas import FlightItemCreate
 from features.plans import service as plans_service
 from features.plans.schemas import PlanUpdate
 from shared.domain import Money
@@ -258,6 +264,102 @@ async def test_invented_plan_details_are_only_proposed(ctx: ToolContext) -> None
     assert change.summary == "Set trip origin, travelers"
     plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
     assert plan.origin is None and plan.travelers is None
+
+
+# ---------------------------------------------------------------------------
+# Return flight
+# ---------------------------------------------------------------------------
+
+
+def _flight(from_iata: str, to_iata: str, day: str, direction: str) -> dict[str, Any]:
+    return {
+        "title": f"{from_iata} to {to_iata}",
+        "carrier": "Japan Airlines",
+        "start": f"{day}T10:00:00",
+        "end": f"{day}T14:00:00",
+        "timezone": "Asia/Tokyo",
+        "from_place": {"iata": from_iata},
+        "to_place": {"iata": to_iata},
+        "direction": direction,
+    }
+
+
+OUTBOUND = _flight("PHL", "HND", "2027-05-01", "outbound")
+RETURN = _flight("HND", "PHL", "2027-05-08", "return")
+
+
+def _system_notes(llm: FakeLLM) -> list[str]:
+    """System messages after the prompt (the last request has every earlier message)."""
+    return [m.content for m in llm.requests[-1].messages[1:] if m.role == "system"]
+
+
+async def test_an_outbound_flight_alone_gets_a_return_flight_reminder(ctx: ToolContext) -> None:
+    llm = FakeLLM(
+        [
+            tool_calls(("add_flight", OUTBOUND)),
+            tool_calls(("add_flight", RETURN)),
+            text("I've proposed both flights."),
+        ]
+    )
+    staged: list[ProposedChange] = []
+
+    await _run(llm, ctx, "Fly me there and back", staged=staged)
+
+    # The reminder follows the outbound flight's result, so the model sees it next round.
+    after_outbound = llm.requests[1].messages
+    assert after_outbound[-1].role == "system"
+    assert after_outbound[-1].content == RETURN_FLIGHT_NUDGE.format(
+        away="HND", home="PHL", when=" on 2027-05-08"
+    )
+    assert [change.arguments["direction"] for change in staged] == ["outbound", "return"]
+    # Once the return is on the card there's nothing more to say.
+    assert len(_system_notes(llm)) == 1
+
+
+async def test_both_flights_on_one_card_need_no_reminder(ctx: ToolContext) -> None:
+    llm = FakeLLM([tool_calls(("add_flight", OUTBOUND), ("add_flight", RETURN)), text("Done.")])
+
+    await _run(llm, ctx, "Fly me there and back")
+
+    assert _system_notes(llm) == []
+
+
+async def test_the_return_flight_reminder_is_given_once_a_turn(ctx: ToolContext) -> None:
+    hotel = tool_calls(("add_lodging", HOTEL_ARGS))
+    llm = FakeLLM([tool_calls(("add_flight", OUTBOUND)), hotel, text("What time home?")])
+
+    await _run(llm, ctx, "Fly me there")
+
+    assert len(_system_notes(llm)) == 1
+
+
+async def test_a_trip_already_missing_its_return_flight_is_not_nagged(ctx: ToolContext) -> None:
+    # The gap was raised when the outbound flight was proposed; later turns about hotels
+    # shouldn't keep bringing it up.
+    flight = FlightItemCreate.model_validate({**OUTBOUND, "type": "flight"})
+    await itinerary_service.add_item(
+        ctx.session, ctx.user_id, ctx.plan_id, flight, created_by="assistant"
+    )
+    llm = FakeLLM([tool_calls(("add_lodging", HOTEL_ARGS)), text("Proposed the hotel.")])
+
+    await _run(llm, ctx)
+
+    assert _system_notes(llm) == []
+
+
+async def test_removing_the_return_flight_gets_a_reminder(ctx: ToolContext) -> None:
+    for args in (OUTBOUND, RETURN):
+        flight = FlightItemCreate.model_validate({**args, "type": "flight"})
+        await itinerary_service.add_item(
+            ctx.session, ctx.user_id, ctx.plan_id, flight, created_by="user"
+        )
+    items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    return_id = next(str(i.id) for i in items if i.type == "flight" and i.direction == "return")
+    llm = FakeLLM([tool_calls(("remove_item", {"item_id": return_id})), text("Removed it.")])
+
+    await _run(llm, ctx, "Drop the flight home")
+
+    assert len(_system_notes(llm)) == 1
 
 
 # ---------------------------------------------------------------------------

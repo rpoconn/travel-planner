@@ -211,6 +211,8 @@ meals, cars, trains) uses the destination's timezone, not their home one.
 takes many hours, so its end often falls on the next calendar day; it is never the same \
 instant as departure. Use a real airport code (HND or NRT, not the city code TYO). The \
 flight home is direction "return", not a second "outbound".
+- Every trip with a flight out needs a flight home. Propose the return flight together \
+with the outbound one when the user has said what they want for it; otherwise ask.
 - You plan trips; you cannot book anything. Never claim something is booked or reserved.
 - If a tool returns an error, correct the arguments and try again, or explain the problem.
 - Keep replies short and friendly."""
@@ -219,6 +221,13 @@ flight home is direction "return", not a second "outbound".
 AGENT_FINAL_ANSWER = (
     "You have used the maximum number of tool calls for this message. Do not call any more "
     "tools; reply to the user now with what you proposed and what is still open."
+)
+
+# Told to the model (once a turn) when its proposal has a flight out but none home.
+RETURN_FLIGHT_NUDGE = (
+    "Your proposal has a flight out but no flight home. If the user has said what they want "
+    'for the way back, propose the return flight now with add_flight (direction "return", '
+    "from {away} to {home}{when}) on the same card. Otherwise ask them about it in your reply."
 )
 
 # Tool result for a change that is already on this turn's proposal card.
