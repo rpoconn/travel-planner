@@ -72,6 +72,18 @@ def _tool_to_wire(tool: ToolSpec) -> dict[str, Any]:
     }
 
 
+def _log_usage(kind: str, response: ollama.ChatResponse) -> None:
+    # Only the final part of a response carries the counts. A prompt near `num_ctx` is the
+    # first sign of an overflow (Ollama silently truncates, and tool calls get garbled).
+    if response.prompt_eval_count is not None:
+        logger.debug(
+            "Ollama %s: prompt=%d tokens, output=%d tokens",
+            kind,
+            response.prompt_eval_count,
+            response.eval_count or 0,
+        )
+
+
 def _tool_calls(message: ollama.Message) -> list[LLMToolCall]:
     return [
         LLMToolCall(name=call.function.name, arguments=dict(call.function.arguments))
@@ -92,6 +104,8 @@ class OllamaClient:
         model: str,
         think: bool = False,
         timeout_seconds: float = 120.0,
+        context_tokens: int = 16384,
+        max_output_tokens: int = 2048,
         max_attempts: int = 3,
         retry_wait_seconds: float = 0.5,
         client: ollama.AsyncClient | None = None,
@@ -99,6 +113,7 @@ class OllamaClient:
         self._host = host
         self._model = model
         self._think = think
+        self._options = {"num_ctx": context_tokens, "num_predict": max_output_tokens}
         self._max_attempts = max_attempts
         self._retry_wait_seconds = retry_wait_seconds
         self._client = client or ollama.AsyncClient(host=host, timeout=timeout_seconds)
@@ -122,6 +137,7 @@ class OllamaClient:
             "messages": [_to_wire(message) for message in messages],
             "tools": [_tool_to_wire(tool) for tool in tools] if tools else None,
             "think": self._think,
+            "options": self._options,
         }
 
     async def chat(
@@ -141,6 +157,7 @@ class OllamaClient:
             logger.exception("Ollama chat call failed")
             raise LLMError(_describe(exc, self._model, self._host)) from exc
 
+        _log_usage("chat", response)
         return LLMMessage(
             role="assistant",
             content=response.message.content or "",
@@ -167,9 +184,11 @@ class OllamaClient:
 
         if first is None:
             return
+        _log_usage("stream", first)
         yield LLMChunk(content=first.message.content or "", tool_calls=_tool_calls(first.message))
         try:
             async for part in parts:
+                _log_usage("stream", part)
                 yield LLMChunk(
                     content=part.message.content or "", tool_calls=_tool_calls(part.message)
                 )

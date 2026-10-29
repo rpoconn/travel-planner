@@ -37,3 +37,16 @@ def test_money_amount_is_capped() -> None:
     assert Money(amount=Decimal(1_000_000_000)).amount == Decimal(1_000_000_000)
     with pytest.raises(ValidationError):
         Money(amount=Decimal("1000000000.01"))
+
+
+def test_place_with_only_an_iata_code_is_named_after_it() -> None:
+    assert Place.model_validate({"iata": "LIS"}) == Place(name="LIS", iata="LIS")
+
+
+def test_money_accepts_a_bare_amount() -> None:
+    assert Money.model_validate(742) == Money(amount=Decimal(742), currency="USD")
+
+
+def test_money_does_not_read_a_bool_as_an_amount() -> None:
+    with pytest.raises(ValidationError):
+        Money.model_validate(True)

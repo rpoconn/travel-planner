@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     llm_think: bool = False
     llm_timeout_seconds: float = Field(default=120.0, gt=0)
     llm_max_attempts: int = Field(default=3, ge=1, le=10)
+    # Ollama's default 4096-token window is too small once the plan JSON, tool schemas and
+    # web search results are in the prompt. When it overflows, llama.cpp drops the oldest
+    # tokens (the system prompt and tools) and the model rambles until the read times out.
+    llm_context_tokens: int = Field(default=16384, ge=2048)
+    # Cap on tokens per reply, so a runaway generation ends instead of stalling the stream.
+    llm_max_output_tokens: int = Field(default=2048, ge=128)
 
     # Web search: "tavily" needs TAVILY_API_KEY; "fake" returns placeholder results offline.
     search_provider: Literal["tavily", "fake"] = "tavily"

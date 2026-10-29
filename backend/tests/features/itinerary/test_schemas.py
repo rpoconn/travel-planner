@@ -74,6 +74,25 @@ def test_end_before_start_is_rejected() -> None:
         _CREATE.validate_python({**FLIGHT, "end_timezone": None, "end": "2027-05-01T10:00:00"})
 
 
+def test_cross_timezone_end_before_start_explains_the_comparison() -> None:
+    # PHL 10:25 EST is 15:25 in Lisbon, so a same-day 13:20 arrival is before departure.
+    flight = {
+        **FLIGHT,
+        "start": "2026-12-18T10:25:00",
+        "timezone": "America/New_York",
+        "end": "2026-12-18T13:20:00",
+        "end_timezone": "Europe/Lisbon",
+    }
+
+    with pytest.raises(ValidationError) as excinfo:
+        _CREATE.validate_python(flight)
+
+    message = str(excinfo.value)
+    assert "start 2026-12-18 10:25 EST is 2026-12-18 15:25 WET" in message
+    assert "end is 2026-12-18 13:20 WET" in message
+    assert "next day" in message
+
+
 def test_unknown_timezone_is_rejected() -> None:
     with pytest.raises(ValidationError, match="Unknown IANA timezone"):
         _CREATE.validate_python({**FLIGHT, "timezone": "Mars/Olympus_Mons"})

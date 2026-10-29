@@ -1,6 +1,8 @@
 import json
 from typing import Any
 
+import pytest
+
 from features.chat.tools import TOOL_SPECS, TOOLS, ToolContext, execute
 from features.itinerary import service as itinerary_service
 from features.plans import service as plans_service
@@ -50,6 +52,26 @@ def test_specs_are_self_contained_and_omit_type() -> None:
         assert "type" not in parameters["required"]
         # A property *named* "title" survives the title-stripping.
         assert "title" in parameters["properties"]
+
+
+def test_specs_hide_fields_the_model_should_not_fill() -> None:
+    for spec in TOOL_SPECS:
+        dumped = json.dumps(spec.parameters)
+        assert '{"type": "null"}' not in dumped and '"default": null' not in dumped, spec.name
+        assert '"lat"' not in dumped and '"lng"' not in dumped, spec.name
+        assert '"maxLength"' not in dumped and '"pattern"' not in dumped, spec.name
+    for name in ("add_flight", "add_lodging", "add_activity", "add_transfer"):
+        properties = TOOLS[name].spec.parameters["properties"]
+        assert "status" not in properties, name
+        assert "pickup_location" not in properties, name
+        assert "dropoff_location" not in properties, name
+    assert "end_timezone" in TOOLS["add_flight"].spec.parameters["properties"]
+    assert "end_timezone" in TOOLS["add_transfer"].spec.parameters["properties"]
+    assert "end_timezone" not in TOOLS["add_lodging"].spec.parameters["properties"]
+    assert "end_timezone" not in TOOLS["add_activity"].spec.parameters["properties"]
+    origin = TOOLS["set_plan_details"].spec.parameters["properties"]["origin"]
+    assert set(origin["properties"]) == {"name", "city", "iata", "address"}
+    assert origin["required"] == ["name"]
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +150,66 @@ async def test_set_plan_details_accepts_place_as_json_string(ctx: ToolContext) -
     plan = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
     assert plan.destination is not None
     assert (plan.destination.name, plan.destination.country) == ("Tokyo", "Japan")
+
+
+def _flight(from_iata: str, to_iata: str, day: str) -> dict[str, Any]:
+    # `add_flight` arguments with no `direction`, as small models often send them.
+    return {
+        "title": f"{from_iata} to {to_iata}",
+        "carrier": "ANA",
+        "start": f"{day}T10:00:00",
+        "end": f"{day}T12:00:00",
+        "timezone": "Asia/Tokyo",
+        "from_place": {"iata": from_iata},
+        "to_place": {"iata": to_iata},
+    }
+
+
+@pytest.mark.parametrize(
+    ("flight", "direction"),
+    [
+        # From / to the origin.
+        (_flight("SFO", "HND", "2027-05-03"), "outbound"),
+        (_flight("HND", "SFO", "2027-05-03"), "return"),
+        # Not touching the origin: decided by the trip's first / last day.
+        (_flight("LAX", "HND", "2027-05-01"), "outbound"),
+        (_flight("KIX", "LAX", "2027-05-08"), "return"),
+        (_flight("HND", "ITM", "2027-05-04"), "internal"),
+    ],
+)
+async def test_add_flight_infers_a_missing_direction(
+    ctx: ToolContext, flight: dict[str, Any], direction: str
+) -> None:
+    await _run(ctx, "set_plan_details", {"origin": {"name": "San Francisco", "iata": "SFO"}})
+
+    outcome = await _run(ctx, "add_flight", flight)
+
+    assert outcome.ok, outcome.content
+    (item,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    assert item.type == "flight" and item.direction == direction
+
+
+async def test_add_flight_matches_the_origin_by_city(ctx: ToolContext) -> None:
+    # The origin is often just a city name while the flight has airport codes.
+    await _run(ctx, "set_plan_details", {"origin": "Philadelphia"})
+    flight = _flight("PHL", "HND", "2027-05-03")
+    flight["from_place"] = {"name": "Philadelphia Intl", "city": "Philadelphia", "iata": "PHL"}
+
+    outcome = await _run(ctx, "add_flight", flight)
+
+    assert outcome.ok, outcome.content
+    (item,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    assert item.type == "flight" and item.direction == "outbound"
+
+
+async def test_add_flight_keeps_a_given_direction(ctx: ToolContext) -> None:
+    outcome = await _run(
+        ctx, "add_flight", {**_flight("HND", "ITM", "2027-05-01"), "direction": "internal"}
+    )
+
+    assert outcome.ok, outcome.content
+    (item,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    assert item.type == "flight" and item.direction == "internal"
 
 
 # ---------------------------------------------------------------------------

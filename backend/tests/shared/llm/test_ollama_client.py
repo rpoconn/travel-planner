@@ -1,6 +1,7 @@
 """OllamaClient against a mocked Ollama HTTP API (httpx.MockTransport)."""
 
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -58,6 +59,7 @@ async def test_chat_sends_request_and_parses_tool_calls() -> None:
     body = seen[0]
     assert body["model"] == "test-model"
     assert body["think"] is False
+    assert body["options"] == {"num_ctx": 16384, "num_predict": 2048}
     assert body["format"] == {"type": "object"}
     assert body["tools"][0]["function"]["name"] == "add_lodging"
     assert body["messages"] == [{"role": "user", "content": "Plan a trip to Tokyo"}]
@@ -128,6 +130,41 @@ async def test_stream_yields_tokens_then_tool_calls() -> None:
 
     assert "".join(chunk.content for chunk in chunks) == "Let me add that."
     assert [c.name for chunk in chunks for c in chunk.tool_calls] == ["add_lodging"]
+
+
+async def test_stream_sends_context_and_output_limits() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return _ndjson(_chat_part("hi"))
+
+    client = OllamaClient(
+        host="http://ollama.test",
+        model="test-model",
+        context_tokens=8192,
+        max_output_tokens=512,
+        client=ollama.AsyncClient(
+            host="http://ollama.test", transport=httpx.MockTransport(handler)
+        ),
+    )
+    _ = [chunk async for chunk in client.stream(MESSAGES)]
+
+    assert seen[0]["options"] == {"num_ctx": 8192, "num_predict": 512}
+
+
+async def test_stream_logs_token_usage_from_the_final_part(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    final = {**_chat_part("."), "prompt_eval_count": 1622, "eval_count": 40}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return _ndjson({**_chat_part("hi"), "done": False}, final)
+
+    with caplog.at_level(logging.DEBUG, logger="shared.llm.ollama_client"):
+        _ = [chunk async for chunk in _client(handler).stream(MESSAGES)]
+
+    assert "Ollama stream: prompt=1622 tokens, output=40 tokens" in caplog.messages
 
 
 async def test_stream_retries_before_the_first_chunk() -> None:

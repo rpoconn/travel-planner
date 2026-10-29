@@ -1,8 +1,8 @@
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from shared.domain import Place
+from shared.domain import Money, Place
 from shared.llm.schema import inline_schema
 
 
@@ -10,6 +10,13 @@ class _Args(BaseModel):
     title: str
     origin: Place
     stops: list[Place] = []
+
+
+class _Optionals(BaseModel):
+    note: str | None = Field(default=None, max_length=50, description="A short note")
+    cabin: Literal["economy", "business"] = "economy"
+    cost: Money | None = None
+    format: str = ""
 
 
 def _has_key(node: Any, key: str) -> bool:
@@ -25,7 +32,7 @@ def test_inlines_refs_and_drops_defs() -> None:
 
     assert not _has_key(schema, "$ref")
     assert "$defs" not in schema
-    assert schema["properties"]["origin"]["properties"]["iata"]["anyOf"][0]["pattern"]
+    assert schema["properties"]["origin"]["properties"]["iata"] == {"type": "string"}
     assert schema["properties"]["stops"]["items"]["required"] == ["name"]
 
 
@@ -36,3 +43,36 @@ def test_drops_title_keywords_but_keeps_a_property_named_title() -> None:
     assert "title" not in schema["properties"]["origin"]
     assert schema["properties"]["title"] == {"type": "string"}
     assert schema["required"] == ["title", "origin"]
+
+
+def test_optional_field_becomes_plain_type_and_keeps_description() -> None:
+    schema = inline_schema(_Optionals)
+
+    assert schema["properties"]["note"] == {"type": "string", "description": "A short note"}
+    assert not _has_key(schema, "anyOf")
+    assert "required" not in schema
+
+
+def test_keeps_meaningful_defaults_and_drops_empty_ones() -> None:
+    properties = inline_schema(_Optionals)["properties"]
+
+    assert properties["cabin"]["default"] == "economy"
+    assert properties["cabin"]["enum"] == ["economy", "business"]
+    assert properties["cost"]["properties"]["currency"]["default"] == "USD"
+    # A property *named* like a dropped keyword survives; its empty default doesn't.
+    assert properties["format"] == {"type": "string"}
+
+
+def test_decimal_amount_is_a_number() -> None:
+    cost = inline_schema(_Optionals)["properties"]["cost"]
+
+    assert cost["type"] == "object"
+    assert cost["properties"]["amount"] == {"type": "number"}
+    assert cost["required"] == ["amount"]
+
+
+def test_drops_validation_only_keywords() -> None:
+    schema = inline_schema(_Args)
+
+    for keyword in ("maxLength", "minLength", "maximum", "minimum", "pattern", "format"):
+        assert not _has_key(schema, keyword), keyword

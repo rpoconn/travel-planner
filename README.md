@@ -201,6 +201,12 @@ OLLAMA_MODEL=llama3.1:8b ./scripts/dev.sh      # or: ./scripts/dev.sh --model ll
   check that `ollama show <model>` lists `tools` under its capabilities.
 - `LLM_THINK=true` turns on reasoning for models that support it (slower to first token).
   `LLM_TIMEOUT_SECONDS` / `LLM_MAX_ATTEMPTS` tune retries; `OLLAMA_URL` points at a remote Ollama.
+- `LLM_CONTEXT_TOKENS` (default 16384) sets the model's context window; Ollama's own default
+  (4096) overflows once search results are in the prompt. Lower it if the model doesn't fit in
+  VRAM. `LLM_MAX_OUTPUT_TOKENS` (default 2048) caps each reply. Tool schemas are trimmed for the
+  prompt (`backend/src/shared/llm/schema.py`, plus hidden fields in `features/chat/tools.py`) to
+  ~1.6k tokens, so `LLM_CONTEXT_TOKENS=8192` is a workable floor on small GPUs. Set the
+  `shared.llm.ollama_client` logger to DEBUG to see prompt/output token counts per round.
 - `uv run pytest -m ollama` runs the real-model tests against whatever `OLLAMA_MODEL` is set to;
   it's the quickest way to see whether a new model follows the tool schemas.
 - **Another backend** (llama.cpp server, vLLM, a hosted API): implement the `LLMClient` protocol

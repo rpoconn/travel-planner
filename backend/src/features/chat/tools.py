@@ -25,9 +25,9 @@ from features.itinerary import service as itinerary_service
 from features.itinerary.schemas import (
     ActivityItemCreate,
     ActivityItemPatch,
+    FlightDirection,
     FlightItemCreate,
     FlightItemPatch,
-    ItemFields,
     ItemType,
     LodgingItemCreate,
     LodgingItemPatch,
@@ -184,7 +184,16 @@ def _add_handler(item_type: ItemType) -> Handler:
 
     async def handler(ctx: ToolContext, arguments: dict[str, Any]) -> ToolOutcome:
         # `type` is implied by the tool, so it's not in the schema; set it here.
-        data = model.model_validate({**_drop_nulls(arguments), "type": item_type})
+        fields = {**_drop_nulls(arguments), "type": item_type}
+        # Small models often leave out a flight's `direction`. Validate with a placeholder,
+        # then work out the real value from the plan rather than failing the call.
+        infer_direction = item_type == "flight" and "direction" not in fields
+        if infer_direction:
+            fields["direction"] = "internal"
+        data = model.model_validate(fields)
+        if infer_direction and isinstance(data, FlightItemCreate):
+            plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+            data = data.model_copy(update={"direction": _flight_direction(data, plan)})
         item = await itinerary_service.add_item(
             ctx.session, ctx.user_id, ctx.plan_id, data, created_by="assistant"
         )
@@ -196,6 +205,32 @@ def _add_handler(item_type: ItemType) -> Handler:
         )
 
     return handler
+
+
+def _same_place(place: Place, other: Place | None) -> bool:
+    if other is None:
+        return False
+    if place.iata and other.iata:
+        return place.iata == other.iata
+    names = {name.casefold() for name in (place.name, place.city) if name}
+    return any(name and name.casefold() in names for name in (other.name, other.city))
+
+
+def _flight_direction(flight: FlightItemCreate, plan: Plan) -> FlightDirection:
+    # Leaving the trip's origin is outbound and landing there is a return. When the places
+    # don't match (the origin is often a city, the flight just airport codes), fall back to
+    # the date: a flight on the first day is outbound, on the last day a return.
+    origin = Place.model_validate(plan.origin) if plan.origin else None
+    if _same_place(flight.from_place, origin):
+        return "outbound"
+    if _same_place(flight.to_place, origin):
+        return "return"
+    day = flight.start.date()
+    if plan.start_date is not None and day <= plan.start_date:
+        return "outbound"
+    if plan.end_date is not None and day >= plan.end_date:
+        return "return"
+    return "internal"
 
 
 async def _update_item(ctx: ToolContext, arguments: dict[str, Any]) -> ToolOutcome:
@@ -298,11 +333,45 @@ class Tool:
     run: Handler
 
 
-def _item_parameters(model: type[ItemFields]) -> dict[str, Any]:
-    schema = inline_schema(model)
-    schema["properties"].pop("type", None)
-    schema["required"] = [name for name in schema.get("required", []) if name != "type"]
-    return schema
+# Fields the model shouldn't fill, so they're left out of the prompt: it can't know
+# coordinates, status should stay "proposed" (update_item can change it later), and
+# pickup/dropoff duplicate from/to. `type` is implied by the add_* tool. The models still
+# accept these if sent; they just aren't advertised.
+_HIDDEN_PLACE_FIELDS = frozenset({"lat", "lng", "country"})
+_HIDDEN_ITEM_FIELDS = frozenset({"type", "status", "pickup_location", "dropoff_location"})
+_HIDDEN_BY_TYPE: dict[ItemType, frozenset[str]] = {
+    "lodging": frozenset({"end_timezone"}),
+    "activity": frozenset({"end_timezone"}),
+}
+
+
+def _hide_fields(schema: dict[str, Any], names: frozenset[str]) -> dict[str, Any]:
+    """`schema` without the `names` properties, and with places slimmed at any depth."""
+    if isinstance(schema.get("items"), dict):
+        schema = {**schema, "items": _hide_fields(schema["items"], frozenset())}
+    properties: dict[str, Any] | None = schema.get("properties")
+    if properties is None:
+        return schema
+    # A Place is the only object with an `iata` property.
+    if "iata" in properties:
+        names = names | _HIDDEN_PLACE_FIELDS
+    slimmed = {
+        name: _hide_fields(value, frozenset())
+        for name, value in properties.items()
+        if name not in names
+    }
+    required = [name for name in schema.get("required", []) if name not in names]
+    hidden = {**schema, "properties": slimmed}
+    if required:
+        hidden["required"] = required
+    else:
+        hidden.pop("required", None)
+    return hidden
+
+
+def _item_parameters(item_type: ItemType) -> dict[str, Any]:
+    hidden = _HIDDEN_ITEM_FIELDS | _HIDDEN_BY_TYPE.get(item_type, frozenset())
+    return _hide_fields(inline_schema(_CREATE_MODELS[item_type]), hidden)
 
 
 def _add_tool(item_type: ItemType, description: str) -> Tool:
@@ -310,7 +379,7 @@ def _add_tool(item_type: ItemType, description: str) -> Tool:
         spec=ToolSpec(
             name=f"add_{item_type}",
             description=description,
-            parameters=_item_parameters(_CREATE_MODELS[item_type]),
+            parameters=_item_parameters(item_type),
         ),
         run=_add_handler(item_type),
     )
@@ -326,14 +395,15 @@ TOOLS: dict[str, Tool] = {
                     "Set trip-level details: title, origin, destination, start/end dates, "
                     "travelers, budget. Send only the fields that change."
                 ),
-                parameters=inline_schema(SetPlanDetailsArgs),
+                parameters=_hide_fields(inline_schema(SetPlanDetailsArgs), frozenset()),
             ),
             run=_set_plan_details,
         ),
         _add_tool(
             "flight",
             "Add a flight. from_place/to_place need IATA codes. timezone = departure "
-            "airport's IANA zone, end_timezone = arrival airport's.",
+            "airport's IANA zone, end_timezone = arrival airport's. direction = outbound "
+            "(leaving home), return (going home) or internal.",
         ),
         _add_tool(
             "lodging",

@@ -95,8 +95,24 @@ class ItemFields(BaseModel):
         self.start = to_zone(self.start, self.timezone)
         self.end = to_zone(self.end, self.end_timezone or self.timezone)
         if self.end < self.start:
-            raise ValueError("end must be at or after start")
+            raise ValueError(_end_before_start_message(self.start, self.end))
         return self
+
+
+def _end_before_start_message(start: datetime, end: datetime) -> str:
+    # Across timezones a bare "end must be after start" is hard to act on: a model will
+    # keep nudging the arrival hour on the same date (PHL 10:25 → LIS 13:20 looks fine but
+    # is 2h before departure). Show both instants in the end's zone and suggest the fix.
+    message = "end must be at or after start"
+    if start.utcoffset() == end.utcoffset():
+        return message
+    zone = end.tzname()
+    return (
+        f"{message}: start {start:%Y-%m-%d %H:%M} {start.tzname()} is "
+        f"{start.astimezone(end.tzinfo):%Y-%m-%d %H:%M} {zone}, but end is "
+        f"{end:%Y-%m-%d %H:%M} {zone}. Times are local to each timezone; an overnight or "
+        "long-haul arrival usually needs the next day's date"
+    )
 
 
 class FlightItemCreate(ItemFields):

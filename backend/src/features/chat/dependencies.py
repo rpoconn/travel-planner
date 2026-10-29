@@ -22,6 +22,8 @@ def create_llm(settings: Settings) -> LLMClient:
         model=settings.ollama_model,
         think=settings.llm_think,
         timeout_seconds=settings.llm_timeout_seconds,
+        context_tokens=settings.llm_context_tokens,
+        max_output_tokens=settings.llm_max_output_tokens,
         max_attempts=settings.llm_max_attempts,
     )
 

@@ -25,19 +25,32 @@ class Place(BaseModel):
         # Small models often send a place as a bare string ("Tokyo"), or as the object
         # JSON-encoded into a string. Accept both. A "before" validator leaves the JSON
         # schema unchanged, so tool schemas and the OpenAPI spec still ask for an object.
-        if not isinstance(data, str):
-            return data
-        if data.lstrip().startswith("{"):
-            try:
-                return from_json(data)
-            except ValueError:
-                pass  # not actually JSON; treat it as a name
-        return {"name": data}
+        if isinstance(data, str):
+            if data.lstrip().startswith("{"):
+                try:
+                    data = from_json(data)
+                except ValueError:
+                    return {"name": data}  # not actually JSON; treat it as a name
+            else:
+                return {"name": data}
+        # They also send airports as just {"iata": "LIS"}; the code is a fine name.
+        if isinstance(data, dict) and not data.get("name") and data.get("iata"):
+            return {**data, "name": data["iata"]}
+        return data
 
 
 class Money(BaseModel):
     amount: Decimal = Field(ge=0, le=1_000_000_000)
     currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")  # ISO 4217
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_amount(cls, data: Any) -> Any:
+        # Small models send a bare number (`"cost": 742`); read it as an amount in USD.
+        # bool is excluded since it's an int subclass.
+        if isinstance(data, int | float | Decimal) and not isinstance(data, bool):
+            return {"amount": data}
+        return data
 
 
 class Travelers(BaseModel):
