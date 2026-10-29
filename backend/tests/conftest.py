@@ -21,6 +21,8 @@ def settings() -> Settings:
         jwt_secret="test-secret-at-least-32-bytes-long!",
         bcrypt_rounds=4,
         llm_provider="fake",
+        # Searches are metered; never let a developer's `.env` key reach SerpApi from tests.
+        flight_provider="fake",
     )
 
 

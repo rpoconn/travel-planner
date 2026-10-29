@@ -20,6 +20,7 @@ from features.itinerary.router import router as itinerary_router
 from features.plans.router import router as plans_router
 from shared.config import Settings, get_settings
 from shared.db import create_engine, create_sessionmaker
+from shared.flights.provider import create_flight_provider
 from shared.logging import configure_logging
 from shared.middleware import BodySizeLimitMiddleware
 from shared.migrations import run_migrations
@@ -53,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = create_engine(settings.database_url)
     llm = create_llm(settings)
     search = create_search_provider(settings)
+    flights = create_flight_provider(settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -60,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         await _app.state.llm.aclose()
         await _app.state.search.aclose()
+        await _app.state.flights.aclose()
         await engine.dispose()
 
     app = FastAPI(
@@ -76,6 +79,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.llm = llm
     # Read by the `SearchDep` dependency; tests replace it with a `FakeSearchProvider`.
     app.state.search = search
+    # Used by flight search; tests replace it with a `FakeFlightProvider`.
+    app.state.flights = flights
 
     # Read by `enforce_rate_limit`; buckets with a limit of 0 are left out (unlimited).
     app.state.rate_limiters = create_rate_limiters(

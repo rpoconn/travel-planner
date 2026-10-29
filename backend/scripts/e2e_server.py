@@ -34,6 +34,7 @@ def main() -> None:
             "DATABASE_URL": f"sqlite+aiosqlite:///{E2E_DB.as_posix()}",
             "LLM_PROVIDER": "fake",
             "SEARCH_PROVIDER": "fake",
+            "FLIGHT_PROVIDER": "fake",
             "CORS_ORIGINS": f'["{args.cors_origin}"]',
             "BCRYPT_ROUNDS": "4",
             "JWT_SECRET": "e2e-only-secret-that-is-at-least-32-bytes",

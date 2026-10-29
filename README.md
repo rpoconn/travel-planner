@@ -210,6 +210,13 @@ appears on the timeline (and opens in the detail sheet), and the off-topic redir
 - Short queries are filled in from the plan (`backend/src/shared/search/query.py`), e.g. "cheap"
   with kind `flights` becomes "cheap flights from San Francisco to Tokyo May 2027". Results are
   cached in the `search_cache` table for `SEARCH_CACHE_TTL_HOURS` (default 24).
+- Flight search uses Google Flights results from [SerpApi](https://serpapi.com): set
+  `SERPAPI_API_KEY` (250 free searches a month; a round trip takes two). Results are
+  structured, so flight times are copied from the search, never written by the model.
+  Each time is the airport's local time, made aware with the airport's IANA zone from the
+  `airportsdata` package (`backend/src/shared/flights/`). The key travels in the request
+  URL, so httpx's request logs are redacted (`shared/logging.py`). `FLIGHT_PROVIDER=fake`
+  makes up flights with no network access; tests and E2E always use it.
 
 ## Swapping the model
 

@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     search_timeout_seconds: float = Field(default=15.0, gt=0)
     search_cache_ttl_hours: float = Field(default=24.0, ge=0)
 
+    # Flight search: "serpapi" (Google Flights results; needs SERPAPI_API_KEY) or "fake"
+    # (made-up flights, no network). Google Flights pages take a few seconds to scrape.
+    flight_provider: Literal["serpapi", "fake"] = "serpapi"
+    serpapi_api_key: str | None = None
+    flight_search_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # HTTP
     cors_origins: list[str] = ["http://localhost:5173"]
     # Largest accepted request body; the biggest legitimate one (an item or plan with 5000
