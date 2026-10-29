@@ -4,7 +4,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.db import create_engine, create_sessionmaker, init_db
+from shared.db import create_engine, create_sessionmaker
+from shared.migrations import run_migrations
 from shared.search.cache import CachedProvider, cache_key
 from shared.search.fake import FakeSearchProvider
 from shared.search.models import SearchCacheEntry
@@ -25,7 +26,7 @@ class Clock:
 @pytest.fixture
 async def session() -> AsyncIterator[AsyncSession]:
     engine = create_engine("sqlite+aiosqlite:///:memory:")
-    await init_db(engine)
+    await run_migrations(engine)
     async with create_sessionmaker(engine)() as db:
         yield db
     await engine.dispose()

@@ -1,5 +1,7 @@
+from fastapi import FastAPI
 from httpx import AsyncClient
 
+from shared.rate_limit import AUTH_BUCKET, RateLimiter
 from tests.conftest import TEST_PASSWORD, RegisterUser
 
 # ---------------------------------------------------------------------------
@@ -108,3 +110,25 @@ async def test_me_requires_a_valid_token(client: AsyncClient) -> None:
     assert missing.status_code == 401
     assert missing.headers["www-authenticate"] == "Bearer"
     assert garbage.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Rate limit
+# ---------------------------------------------------------------------------
+
+
+async def test_login_and_register_share_a_per_ip_rate_limit(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    app.state.rate_limiters[AUTH_BUCKET] = RateLimiter(2)
+    login = {"email": "nobody@example.com", "password": "wrong password"}
+
+    assert (await client.post("/auth/login", json=login)).status_code == 401
+    assert (await client.post("/auth/login", json=login)).status_code == 401
+    limited = await client.post(
+        "/auth/register", json={"email": "ada@example.com", "password": TEST_PASSWORD}
+    )
+
+    assert limited.status_code == 429
+    assert limited.json()["detail"].startswith("Too many sign-in attempts.")
+    assert int(limited.headers["retry-after"]) > 0

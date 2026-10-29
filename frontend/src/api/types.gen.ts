@@ -1487,6 +1487,10 @@ export type RegisterErrors = {
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
 };
 
 export type RegisterError = RegisterErrors[keyof RegisterErrors];
@@ -1516,6 +1520,10 @@ export type LoginErrors = {
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
 };
 
 export type LoginError = LoginErrors[keyof LoginErrors];
@@ -2031,6 +2039,10 @@ export type SendMessageErrors = {
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
 };
 
 export type SendMessageError = SendMessageErrors[keyof SendMessageErrors];

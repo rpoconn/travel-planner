@@ -110,6 +110,26 @@ async def test_set_plan_details(ctx: ToolContext) -> None:
     assert plan.version == version + 1
 
 
+async def test_set_plan_details_accepts_place_as_string(ctx: ToolContext) -> None:
+    # Local models often send "destination": "Tokyo" instead of an object.
+    outcome = await _run(ctx, "set_plan_details", {"destination": "Tokyo"})
+
+    assert outcome.ok, outcome.content
+    plan = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
+    assert plan.destination is not None and plan.destination.name == "Tokyo"
+
+
+async def test_set_plan_details_accepts_place_as_json_string(ctx: ToolContext) -> None:
+    outcome = await _run(
+        ctx, "set_plan_details", {"destination": '{"name": "Tokyo", "country": "Japan"}'}
+    )
+
+    assert outcome.ok, outcome.content
+    plan = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
+    assert plan.destination is not None
+    assert (plan.destination.name, plan.destination.country) == ("Tokyo", "Japan")
+
+
 # ---------------------------------------------------------------------------
 # Failures are reported, never raised
 # ---------------------------------------------------------------------------

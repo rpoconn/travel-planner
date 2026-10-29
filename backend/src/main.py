@@ -19,8 +19,11 @@ from features.health.router import router as health_router
 from features.itinerary.router import router as itinerary_router
 from features.plans.router import router as plans_router
 from shared.config import Settings, get_settings
-from shared.db import create_engine, create_sessionmaker, init_db
+from shared.db import create_engine, create_sessionmaker
 from shared.logging import configure_logging
+from shared.middleware import BodySizeLimitMiddleware
+from shared.migrations import run_migrations
+from shared.rate_limit import AUTH_BUCKET, CHAT_BUCKET, create_rate_limiters
 from shared.search.provider import create_search_provider
 
 logger = logging.getLogger(__name__)
@@ -53,7 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        await init_db(engine)
+        await run_migrations(engine)
         yield
         await _app.state.llm.aclose()
         await _app.state.search.aclose()
@@ -74,12 +77,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Read by the `SearchDep` dependency; tests replace it with a `FakeSearchProvider`.
     app.state.search = search
 
+    # Read by `enforce_rate_limit`; buckets with a limit of 0 are left out (unlimited).
+    app.state.rate_limiters = create_rate_limiters(
+        {
+            CHAT_BUCKET: settings.chat_rate_limit_per_minute,
+            AUTH_BUCKET: settings.auth_rate_limit_per_minute,
+        }
+    )
+
+    # The last middleware added runs first: CORS wraps everything so even a 413 carries
+    # CORS headers and the browser can show its message.
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_bytes)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # Auth is a bearer header, not cookies, so credentialed requests aren't needed.
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        # Last-Event-ID: sent by the SDK's SSE client if it ever resumes a stream.
+        allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
+        max_age=600,
     )
 
     app.include_router(health_router)

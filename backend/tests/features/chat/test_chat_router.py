@@ -1,8 +1,9 @@
 from typing import Any
 
+from fastapi import FastAPI
 from httpx import AsyncClient
 
-from features.chat.offline import OFFLINE_AGENT_REPLY, OFFLINE_REDIRECT_REPLY
+from features.chat.offline import OFFLINE_ADDED_REPLY, OFFLINE_AGENT_REPLY, OFFLINE_REDIRECT_REPLY
 from features.chat.pipeline import EMPTY_REPLY_AFTER_TOOLS
 from features.chat.schemas import (
     DoneEvent,
@@ -16,6 +17,7 @@ from features.chat.schemas import (
 )
 from shared.llm.fake import FakeLLM, json_reply, text, tool_calls
 from shared.llm.types import LLMError
+from shared.rate_limit import CHAT_BUCKET, RateLimiter
 from shared.search.fake import FakeSearchProvider
 from tests.conftest import RegisterUser
 from tests.features.chat.conftest import HOTEL_ARGS, send
@@ -215,6 +217,34 @@ async def test_blank_or_huge_messages_are_rejected(
     assert await _messages(client, headers, plan["id"]) == []
 
 
+async def test_chat_is_rate_limited_per_user(
+    app: FastAPI,
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan: dict[str, Any],
+    register_user: RegisterUser,
+) -> None:
+    app.state.rate_limiters[CHAT_BUCKET] = RateLimiter(1)
+    await send(client, headers, plan["id"], "hi")
+
+    limited = await client.post(
+        f"/plans/{plan['id']}/chat", json={"content": "hi again"}, headers=headers
+    )
+
+    assert limited.status_code == 429
+    assert limited.json()["detail"].startswith("You're sending messages too quickly.")
+    assert "retry-after" in limited.headers
+    # Nothing was stored for the rejected message.
+    stored = await _messages(client, headers, plan["id"])
+    assert [(m["role"], m["content"]) for m in stored][:1] == [("user", "hi")]
+    assert len(stored) == 2
+
+    # Another user has their own budget.
+    other = await register_user("grace@example.com")
+    created = await client.post("/plans", json={"title": "Other"}, headers=other)
+    await send(client, other, created.json()["id"], "hi")
+
+
 # ---------------------------------------------------------------------------
 # Offline mode (LLM_PROVIDER=fake with the default canned replies)
 # ---------------------------------------------------------------------------
@@ -230,6 +260,22 @@ async def test_offline_mode_answers_without_ollama(
     assert isinstance(first, DoneEvent) and first.message.content == OFFLINE_AGENT_REPLY
     assert isinstance(second, DoneEvent) and second.message.content == OFFLINE_REDIRECT_REPLY
     assert second.message.kind == "redirect"
+
+
+async def test_offline_mode_add_command_edits_the_itinerary(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+) -> None:
+    events = await send(client, headers, plan["id"], "Add a visit to the Louvre!")
+
+    call = next(e for e in events if isinstance(e, ToolCallEvent))
+    result = next(e for e in events if isinstance(e, ToolResultEvent))
+    updated = next(e for e in events if isinstance(e, PlanUpdatedEvent))
+    done = events[-1]
+    assert call.name == "add_activity"
+    assert result.ok, result.summary
+    assert [item.title for item in updated.plan.items] == ["Visit to the Louvre"]
+    assert isinstance(done, DoneEvent) and done.message.content == OFFLINE_ADDED_REPLY
+    assert [trace.name for trace in done.message.tool_calls] == ["add_activity"]
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ from fastapi.sse import EventSourceResponse
 
 from features.auth.dependencies import CurrentUser
 from features.chat import pipeline, service
-from features.chat.dependencies import LLMDep
+from features.chat.dependencies import LLMDep, limit_chat_messages
 from features.chat.schemas import ChatEvent, ChatMessage, SendMessage
 from features.plans import service as plans_service
 from features.plans.models import Plan
@@ -54,7 +54,14 @@ async def list_messages(plan_id: UUID, user: CurrentUser, session: SessionDep) -
     return [ChatMessage.model_validate(message) for message in messages]
 
 
-@router.post("/chat", operation_id="sendMessage", response_class=EventSourceResponse)
+@router.post(
+    "/chat",
+    operation_id="sendMessage",
+    response_class=EventSourceResponse,
+    responses=error_responses(status.HTTP_429_TOO_MANY_REQUESTS),
+    # Checked before the stream opens, so going over is a plain 429 response.
+    dependencies=[Depends(limit_chat_messages)],
+)
 async def send_message(
     body: SendMessage,
     plan: OwnedPlan,

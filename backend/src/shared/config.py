@@ -1,15 +1,18 @@
 """Application settings loaded from environment variables / `.env`."""
 
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from fastapi import Depends, Request
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ---------------------------------------------------------------------------
 # Settings model
 # ---------------------------------------------------------------------------
+
+# 32+ bytes so PyJWT doesn't warn about a short HMAC key; refused in production anyway.
+_DEV_JWT_SECRET = "change-me-in-dev-only-not-a-real-secret"
 
 
 class Settings(BaseSettings):
@@ -28,7 +31,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./travel_planner.db"
 
     # Auth
-    jwt_secret: str = Field(default="change-me-in-dev-only", min_length=16)
+    jwt_secret: str = Field(default=_DEV_JWT_SECRET, min_length=16)
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24
     # Cost factor for password hashing; tests drop this to the minimum (4) for speed.
@@ -52,6 +55,23 @@ class Settings(BaseSettings):
 
     # HTTP
     cors_origins: list[str] = ["http://localhost:5173"]
+    # Largest accepted request body; the biggest legitimate one (an item or plan with 5000
+    # chars of notes) is a few KB.
+    max_request_bytes: int = Field(default=64 * 1024, ge=1024)
+    # Per-minute limits (0 disables). Chat is per user: each message runs the local model,
+    # so this mostly protects the machine. Auth (login + register) is per client IP.
+    chat_rate_limit_per_minute: int = Field(default=20, ge=0)
+    auth_rate_limit_per_minute: int = Field(default=10, ge=0)
+
+    @model_validator(mode="after")
+    def _check_production(self) -> Self:
+        # Dev defaults that would be unsafe if the app were ever exposed.
+        if self.environment == "production":
+            if self.jwt_secret == _DEV_JWT_SECRET or len(self.jwt_secret) < 32:
+                raise ValueError("Set JWT_SECRET to a random value of 32+ characters")
+            if "*" in self.cors_origins:
+                raise ValueError("CORS_ORIGINS must list explicit origins in production")
+        return self
 
 
 # ---------------------------------------------------------------------------

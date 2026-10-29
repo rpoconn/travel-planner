@@ -89,13 +89,6 @@ def create_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def init_db(engine: AsyncEngine) -> None:
-    """Create all tables that don't exist yet. Alembic migrations replace this in Phase 6."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database schema ensured (%s)", engine.url.render_as_string(hide_password=True))
-
-
 # ---------------------------------------------------------------------------
 # FastAPI dependency
 # ---------------------------------------------------------------------------

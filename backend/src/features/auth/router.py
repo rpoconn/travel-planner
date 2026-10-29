@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from features.auth import service
-from features.auth.dependencies import CurrentUser
+from features.auth.dependencies import CurrentUser, limit_auth_attempts
 from features.auth.schemas import LoginRequest, RegisterRequest, TokenResponse, UserRead
 from shared.config import SettingsDep
 from shared.db import SessionDep
@@ -14,7 +14,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     "/register",
     operation_id="register",
     status_code=status.HTTP_201_CREATED,
-    responses=error_responses(status.HTTP_409_CONFLICT),
+    responses=error_responses(status.HTTP_409_CONFLICT, status.HTTP_429_TOO_MANY_REQUESTS),
+    dependencies=[Depends(limit_auth_attempts)],
 )
 async def register(
     body: RegisterRequest, session: SessionDep, settings: SettingsDep
@@ -32,7 +33,8 @@ async def register(
 @router.post(
     "/login",
     operation_id="login",
-    responses=error_responses(status.HTTP_401_UNAUTHORIZED),
+    responses=error_responses(status.HTTP_401_UNAUTHORIZED, status.HTTP_429_TOO_MANY_REQUESTS),
+    dependencies=[Depends(limit_auth_attempts)],
 )
 async def login(body: LoginRequest, session: SessionDep, settings: SettingsDep) -> TokenResponse:
     """Exchange email + password for an access token."""

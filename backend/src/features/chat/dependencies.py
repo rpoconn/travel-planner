@@ -1,4 +1,4 @@
-"""LLM client construction and the `LLMDep` dependency."""
+"""LLM client construction, the `LLMDep` dependency, and the chat rate limit."""
 
 from typing import Annotated
 
@@ -9,6 +9,8 @@ from shared.config import Settings
 from shared.llm.fake import FakeLLM
 from shared.llm.ollama_client import OllamaClient
 from shared.llm.types import LLMClient
+from shared.rate_limit import CHAT_BUCKET, enforce_rate_limit
+from shared.security import CurrentUserId
 
 
 def create_llm(settings: Settings) -> LLMClient:
@@ -31,3 +33,8 @@ def get_llm(request: Request) -> LLMClient:
 
 
 LLMDep = Annotated[LLMClient, Depends(get_llm)]
+
+
+def limit_chat_messages(request: Request, user_id: CurrentUserId) -> None:
+    """Per-user cap on chat messages: each one runs the local model (often several times)."""
+    enforce_rate_limit(request, CHAT_BUCKET, str(user_id), "You're sending messages too quickly.")
