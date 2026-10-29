@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AddItemData, AddItemErrors, AddItemResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, SendMessageData, SendMessageErrors, SendMessageResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
+import type { AddItemData, AddItemErrors, AddItemResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DecideProposalData, DecideProposalErrors, DecideProposalResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, SendMessageData, SendMessageErrors, SendMessageResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -203,12 +203,35 @@ export const listMessages = <ThrowOnError extends boolean = false>(options: Opti
  * Send a message and stream the assistant's answer as server-sent events.
  *
  * Each event's `data` is a JSON `ChatEvent` discriminated by `type`: `guardrail` first,
- * then `token` / `tool_call` / `tool_result` / `plan_updated` as the answer is produced,
- * and finally `done` (with the stored reply) or `error`.
+ * then `token` / `tool_call` / `tool_result` as the answer is produced, and finally
+ * `done` (with the stored reply) or `error`. Plan changes the assistant makes are only
+ * staged (`tool_result.proposed`): they arrive as `done.message.proposal`, and are applied
+ * once the user approves them through `decideProposal`.
  */
 export const sendMessage = <ThrowOnError extends boolean = false>(options: Options<SendMessageData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<SendMessageResponses>> => (options.client ?? client).sse.post<SendMessageResponses, SendMessageErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/plans/{plan_id}/chat',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Decide Proposal
+ *
+ * Approve, deny or revise a pending proposal, streaming the outcome like `sendMessage`.
+ *
+ * - `approve`: every change is checked against the current plan, then applied in order
+ * (`tool_call` / `tool_result` per change, then one `plan_updated`); if any no longer
+ * fits, nothing is written and the proposal is `failed`. The assistant then confirms.
+ * - `deny`: nothing changes; a short stored reply, no model call.
+ * - `revise`: `message` goes to the assistant, which usually proposes again.
+ */
+export const decideProposal = <ThrowOnError extends boolean = false>(options: Options<DecideProposalData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<DecideProposalResponses>> => (options.client ?? client).sse.post<DecideProposalResponses, DecideProposalErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/chat/proposals/{proposal_id}/decision',
     ...options,
     headers: {
         'Content-Type': 'application/json',

@@ -44,9 +44,14 @@ flowchart LR
 One chat message: the user message is stored → the **guardrail** (one structured-output call)
 decides whether it's about trip planning → off-topic messages get a short **redirect** with no
 tools → on-topic ones go to the **agent**, which streams tokens and calls tools
-(`add_activity`, `web_search`, …) for up to 6 rounds. Every itinerary change emits a
-`plan_updated` event with the full plan, which the UI writes into its query cache, so the
-timeline redraws while the reply is still streaming.
+(`add_activity`, `web_search`, …) for up to 6 rounds. Tools that write to the plan only
+**validate and stage** the change: the reply ends with a **proposal card** listing every
+staged change, with **Approve / Deny / Other…** buttons, and nothing is written until the
+user approves. Approving (`POST /plans/{id}/chat/proposals/{proposal_id}/decision`) applies
+the whole card, emits a `plan_updated` event with the full plan (the UI writes it into its
+query cache, so the timeline redraws while the reply is still streaming), and lets the agent
+confirm and suggest the next step. See [Userflow.md](Userflow.md) for every decision along
+the way.
 
 ## Layout
 
@@ -174,12 +179,24 @@ appears on the timeline (and opens in the detail sheet), and the off-topic redir
 ## Chat & web search
 
 - `POST /plans/{id}/chat` streams server-sent events. Each message goes through a topic guardrail
-  (off-topic messages get a friendly redirect), then the planning agent, which edits the itinerary
-  with tools (`set_plan_details`, `add_flight` / `add_lodging` / `add_activity` / `add_transfer`,
-  `update_item`, `remove_item`) and looks things up with `web_search`.
+  (off-topic messages get a friendly redirect), then the planning agent, which proposes itinerary
+  changes with tools (`set_plan_details`, `add_flight` / `add_lodging` / `add_activity` /
+  `add_transfer`, `update_item`, `remove_item`) and looks things up with `web_search`.
+- Plan changes are human-in-the-loop: write tools validate with the same schemas as the REST API
+  but write nothing. A turn's staged changes are stored as one proposal (`chat_proposals`, shown
+  as `ChatMessage.proposal`), and only the newest pending one per plan stays open (older ones are
+  `superseded`). `POST /plans/{id}/chat/proposals/{proposal_id}/decision` (`decideProposal`)
+  takes `{action: "approve" | "deny" | "revise", message?}` and streams the outcome like a chat
+  message: approve re-validates every change against the current plan and applies all of them
+  or none (`failed`), deny changes nothing without calling the model, and revise hands the
+  user's text to the agent, which proposes again. A decided card returns `409`.
+- The agent asks before it proposes: the system prompt has a checklist (dates, number of
+  travelers, origin; flight, lodging and meal preferences), and a new plan's `travelers` is
+  unknown (`null`) rather than defaulting to one adult.
 - `LLM_PROVIDER=fake` runs without Ollama: a keyword guardrail and canned replies, plus one
-  scripted command, so you can see a full tool round trip offline: "Add a visit to the Louvre"
-  makes the fake agent call `add_activity` (`backend/src/features/chat/offline.py`).
+  scripted command, so you can see a full round trip offline: "Add a visit to the Louvre"
+  makes the fake agent propose `add_activity`, and Approve puts it on the timeline
+  (`backend/src/features/chat/offline.py`).
 - `web_search` uses [Tavily](https://tavily.com): set `TAVILY_API_KEY`. Without a key the tool
   reports that search is unavailable and the agent answers from general knowledge.
   `SEARCH_PROVIDER=fake` returns placeholder results with no network access.

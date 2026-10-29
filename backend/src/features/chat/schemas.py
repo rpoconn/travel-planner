@@ -1,12 +1,13 @@
-"""Chat API schemas: stored messages, the send-message request, the guardrail verdict, and
-the server-sent events streamed while the assistant answers."""
+"""Chat API schemas: stored messages and proposals, the send-message and decision requests,
+the guardrail verdict, and the server-sent events streamed while the assistant answers."""
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from features.itinerary.schemas import TimelineWarning
 from features.plans.schemas import TravelPlan
 
 # ---------------------------------------------------------------------------
@@ -16,7 +17,13 @@ from features.plans.schemas import TravelPlan
 MessageRole = Literal["user", "assistant", "system"]
 # "redirect": the guardrail judged the user's message off-topic and the assistant steered
 # back to trip planning. "error": a stored system notice that answering failed.
-MessageKind = Literal["message", "redirect", "error"]
+# "decision": the user's answer to a proposal card (approve / deny / free-text revision).
+MessageKind = Literal["message", "redirect", "error", "decision"]
+# pending: waiting for the user. approved / denied / revised: the user's decision.
+# superseded: a newer proposal replaced it before a decision. failed: approved, but a change
+# no longer validated against the plan, so nothing was applied.
+ProposalStatus = Literal["pending", "approved", "denied", "revised", "superseded", "failed"]
+ProposalAction = Literal["approve", "deny", "revise"]
 
 MAX_MESSAGE_CHARS = 4000
 MessageContent = Annotated[
@@ -39,6 +46,34 @@ class ToolTrace(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     ok: bool
     summary: str  # short human-readable outcome, e.g. "Added flight SFO → NRT"
+    # A plan change that was only staged into the message's proposal, not applied.
+    proposed: bool = False
+
+
+class ProposedChange(BaseModel):
+    """One staged plan change: a validated write-tool call waiting for the user."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    call_id: str
+    name: str  # the write tool, e.g. "add_flight"
+    arguments: dict[str, Any] = Field(default_factory=dict)  # normalised by the tool
+    summary: str  # imperative, e.g. 'Add flight “SFO → NRT” on 2027-05-01 11:00'
+
+
+class ChatProposal(BaseModel):
+    """The changes the assistant proposed in one reply, applied all-or-nothing on approval."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    plan_id: UUID
+    message_id: UUID  # the assistant message that proposed it
+    status: ProposalStatus
+    changes: list[ProposedChange]
+    plan_version: int  # the plan's version when proposed (informational)
+    created_at: datetime
+    decided_at: datetime | None
 
 
 class ChatMessage(BaseModel):
@@ -50,11 +85,34 @@ class ChatMessage(BaseModel):
     kind: MessageKind
     content: str
     tool_calls: list[ToolTrace]
+    proposal: ChatProposal | None  # assistant messages that staged plan changes
     created_at: datetime
+
+
+class WarningToFix(TimelineWarning):
+    """A timeline warning sent back by the client, as it received it. A subclass only so
+    it gets its own schema name: using `TimelineWarning` itself as input too would split
+    it into `TimelineWarningInput` / `TimelineWarningOutput` in the generated SDK."""
 
 
 class SendMessage(BaseModel):
     content: MessageContent
+    # Set by the itinerary's "Fix it" button: `content` is still the visible, stored text
+    # ("Fix: …"), and the warning is handed to the assistant to propose a fix for.
+    fix: WarningToFix | None = None
+
+
+class ProposalDecision(BaseModel):
+    """The user's answer to a proposal card. `message` is the free text of "Other…"."""
+
+    action: ProposalAction
+    message: MessageContent | None = None
+
+    @model_validator(mode="after")
+    def _message_only_to_revise(self) -> Self:
+        if (self.action == "revise") != (self.message is not None):
+            raise ValueError('"message" is required to revise, and only then')
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +165,7 @@ class ToolResultEvent(_Event):
     name: str
     ok: bool
     summary: str
+    proposed: bool = False  # staged into the reply's proposal rather than applied
 
 
 class PlanUpdatedEvent(_Event):

@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { CalendarRange, LogOut, MessagesSquare, Plane } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 
 import { getPlanOptions } from '@/api/@tanstack/react-query.gen'
-import { ChatPanel } from '@/components/ChatPanel/ChatPanel'
+import { ChatPanel, type ChatPanelHandle } from '@/components/ChatPanel/ChatPanel'
 import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
 import { ThemeToggle } from '@/components/ThemeToggle/ThemeToggle'
@@ -29,6 +29,10 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
         enabled: planId !== undefined,
     })
     const plan = planId === undefined ? undefined : planQuery.data
+    // The timeline's "Fix it" buttons send through the chat panel (a sibling), and are
+    // disabled while it streams a reply.
+    const chatRef = useRef<ChatPanelHandle>(null)
+    const [chatBusy, setChatBusy] = useState(false)
 
     // ----- event handlers -----
     function handleSelectPlan(id: string) {
@@ -63,7 +67,14 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 </p>
             )
         }
-        return <ChatPanel key={planQuery.data.id} plan={planQuery.data} />
+        return (
+            <ChatPanel
+                key={planQuery.data.id}
+                ref={chatRef}
+                plan={planQuery.data}
+                onBusyChange={setChatBusy}
+            />
+        )
     }
 
     function renderItineraryPane() {
@@ -74,7 +85,16 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 </EmptyPane>
             )
         }
-        return <ItineraryTimeline key={planId} planId={planId} />
+        return (
+            <ItineraryTimeline
+                key={planId}
+                planId={planId}
+                onRequestFix={(warning) => {
+                    chatRef.current?.sendFix(warning)
+                }}
+                fixDisabled={chatBusy}
+            />
+        )
     }
 
     return (

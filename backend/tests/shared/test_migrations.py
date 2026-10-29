@@ -14,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from shared.db import Base, create_engine
 from shared.migrations import BASELINE_REVISION, alembic_config, run_migrations
 
+_BASELINE_TABLES = frozenset(
+    {"users", "travel_plans", "itinerary_items", "chat_messages", "search_cache"}
+)
+
 
 @pytest.fixture
 async def engine() -> AsyncIterator[AsyncEngine]:
@@ -61,9 +65,11 @@ async def test_running_migrations_twice_is_a_no_op(engine: AsyncEngine) -> None:
 
 
 async def test_pre_migration_database_is_adopted(engine: AsyncEngine) -> None:
-    # What Phases 1-5 left behind: tables from create_all, no alembic_version.
+    # What Phases 1-5 left behind: the baseline tables from create_all, no alembic_version.
+    # (Tables added by later migrations didn't exist yet.)
+    baseline = [table for name, table in Base.metadata.tables.items() if name in _BASELINE_TABLES]
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+        await connection.run_sync(Base.metadata.create_all, tables=baseline)
 
     await run_migrations(engine)
 

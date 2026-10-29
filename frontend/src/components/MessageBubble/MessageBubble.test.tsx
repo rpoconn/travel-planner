@@ -39,6 +39,36 @@ describe('MessageBubble', () => {
         expect(screen.getByText('I added the hotel.')).toBeInTheDocument()
     })
 
+    it('shows a staged change as a neutral "proposed" chip', () => {
+        render(
+            <MessageBubble
+                role="assistant"
+                kind="message"
+                content="Here's my suggestion."
+                tools={[
+                    {
+                        callId: '1',
+                        name: 'add_lodging',
+                        status: 'proposed',
+                        summary: 'Proposed: Add lodging “Hotel Okura”',
+                    },
+                ]}
+            />,
+        )
+
+        expect(
+            screen.getByText('Proposed: Add lodging “Hotel Okura”').parentElement,
+        ).toHaveAttribute('data-status', 'proposed')
+    })
+
+    it('renders a decision on a proposal card as a user bubble', () => {
+        const { container } = render(
+            <MessageBubble role="user" kind="decision" content="Approved the proposed changes." />,
+        )
+
+        expect(container.firstChild).toHaveAttribute('data-role', 'user')
+    })
+
     it('shows a typing indicator while waiting for the first token', () => {
         render(<MessageBubble role="assistant" kind="message" content="" streaming />)
 

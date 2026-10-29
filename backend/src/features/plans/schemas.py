@@ -33,7 +33,7 @@ class PlanCreate(BaseModel):
     destination: Place | None = None
     start_date: date | None = None
     end_date: date | None = None
-    travelers: Travelers = Field(default_factory=Travelers)
+    travelers: Travelers | None = None
     budget: Money | None = None
     notes: PlanNotes = ""
 
@@ -44,7 +44,7 @@ class PlanCreate(BaseModel):
 
 
 # Fields that exist on every plan; a PATCH may omit them but may not null them out.
-_NON_NULLABLE_FIELDS = frozenset({"title", "status", "travelers", "notes"})
+_NON_NULLABLE_FIELDS = frozenset({"title", "status", "notes"})
 
 
 class PlanUpdate(BaseModel):
@@ -106,7 +106,7 @@ class PlanDetails(BaseModel):
     destination: Place | None
     start_date: date | None
     end_date: date | None
-    travelers: Travelers
+    travelers: Travelers | None
     budget: Money | None
     notes: str
     version: int

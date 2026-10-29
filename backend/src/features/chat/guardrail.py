@@ -1,5 +1,10 @@
-"""Topic guardrail: classify each user message before the agent sees it, and write the
-gentle redirect when it's off-topic."""
+"""The topic guardrail around the planning agent: a structured-output check by the same
+model classifies each user message before the agent sees it, and writes the gentle redirect
+when it's off-topic.
+
+(Invented details in plan changes are handled by the user instead: every change the agent
+makes is only a proposal until they approve it.)
+"""
 
 import logging
 from collections.abc import AsyncIterator

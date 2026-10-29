@@ -3,10 +3,11 @@ import { CalendarRange, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
 import { getTimelineOptions } from '@/api/@tanstack/react-query.gen'
-import type { Timeline } from '@/api/types.gen'
+import type { Timeline, TimelineWarning } from '@/api/types.gen'
 import { DayColumn } from '@/components/DayColumn/DayColumn'
 import { ItemDetailSheet } from '@/components/ItemDetailSheet/ItemDetailSheet'
 import { LodgingBar } from '@/components/LodgingBar/LodgingBar'
+import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/apiError'
 import type { ItineraryItem } from '@/lib/itemMeta'
 import {
@@ -26,13 +27,17 @@ import {
 
 interface ItineraryTimelineProps {
     planId: string
+    /** Hand a warning to the assistant; each warning gets a "Fix it" button when set. */
+    onRequestFix?: (warning: TimelineWarning) => void
+    /** Disables the "Fix it" buttons (e.g. while the assistant is replying). */
+    fixDisabled?: boolean
 }
 
 /** Width of one half-column; a day is two of these. */
 const HALF_COLUMN_WIDTH = '7.5rem'
 const LODGING_LANE_HEIGHT = '2.25rem'
 
-export function ItineraryTimeline({ planId }: ItineraryTimelineProps) {
+export function ItineraryTimeline({ planId, onRequestFix, fixDisabled }: ItineraryTimelineProps) {
     // ----- state -----
     const timelineQuery = useQuery(getTimelineOptions({ path: { plan_id: planId } }))
     // Store the id, not the item, so the sheet shows fresh data after the assistant edits it
@@ -63,7 +68,7 @@ export function ItineraryTimeline({ planId }: ItineraryTimelineProps) {
     const data = timelineQuery.data
     return (
         <div className="flex h-full flex-col">
-            <TimelineHeader timeline={data} />
+            <TimelineHeader timeline={data} onRequestFix={onRequestFix} fixDisabled={fixDisabled} />
             {data.days.length === 0 ? (
                 <EmptyTimeline />
             ) : (
@@ -81,7 +86,13 @@ export function ItineraryTimeline({ planId }: ItineraryTimelineProps) {
 
 // ----- subcomponents -----
 
-function TimelineHeader({ timeline }: { timeline: Timeline }) {
+interface TimelineHeaderProps {
+    timeline: Timeline
+    onRequestFix?: (warning: TimelineWarning) => void
+    fixDisabled?: boolean
+}
+
+function TimelineHeader({ timeline, onRequestFix, fixDisabled }: TimelineHeaderProps) {
     const itemCount =
         timeline.lodging.length +
         new Set(timeline.days.flatMap((day) => day.entries.map((entry) => entry.item.id))).size
@@ -108,7 +119,26 @@ function TimelineHeader({ timeline }: { timeline: Timeline }) {
                     <ul className="text-muted-foreground mt-2 flex list-disc flex-col gap-1 pl-5 text-xs">
                         {timeline.warnings.map((warning, index) => (
                             // Warnings have no id; their order is stable for a given version.
-                            <li key={`${warning.kind}-${String(index)}`}>{warning.message}</li>
+                            <li key={`${warning.kind}-${String(index)}`}>
+                                {/* The row is a flex wrapper inside the li, so the li keeps its
+                                    list marker. */}
+                                <div className="flex items-center justify-between gap-2">
+                                    <span>{warning.message}</span>
+                                    {onRequestFix && (
+                                        <Button
+                                            size="xs"
+                                            variant="ghost"
+                                            aria-label={`Fix it: ${warning.message}`}
+                                            disabled={fixDisabled}
+                                            onClick={() => {
+                                                onRequestFix(warning)
+                                            }}
+                                        >
+                                            Fix it
+                                        </Button>
+                                    )}
+                                </div>
+                            </li>
                         ))}
                     </ul>
                 </details>

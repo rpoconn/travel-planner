@@ -149,6 +149,33 @@ async def add_item(
     return _to_schema(row)
 
 
+def _merge(current: ItineraryItem, patch: ItineraryItemPatch) -> ItineraryItemCreate:
+    if patch.type != current.type:
+        raise InvalidItemError(f"Item is a {current.type}, not a {patch.type}")
+    merged = {
+        **current.model_dump(exclude=set(_IDENTITY_FIELDS)),
+        **patch.model_dump(exclude_unset=True),
+    }
+    try:
+        return _ITEM_CREATE.validate_python(merged)
+    except ValidationError as exc:
+        raise InvalidItemError(summarize_validation_error(exc)) from exc
+
+
+async def check_update(
+    session: AsyncSession,
+    user_id: UUID,
+    plan_id: UUID,
+    item_id: UUID,
+    patch: ItineraryItemPatch,
+) -> ItineraryItem:
+    """Raise like `update_item` would, but write nothing; returns the item as it is now."""
+    plan = await plans_service.get_plan(session, user_id, plan_id)
+    current = _to_schema(await _get_row(session, plan.id, item_id))
+    _merge(current, patch)
+    return current
+
+
 async def update_item(
     session: AsyncSession,
     user_id: UUID,
@@ -159,19 +186,7 @@ async def update_item(
     """Merge `patch` onto the stored item and re-validate the result as a whole."""
     plan = await plans_service.get_plan(session, user_id, plan_id)
     row = await _get_row(session, plan.id, item_id)
-    current = _to_schema(row)
-    if patch.type != current.type:
-        raise InvalidItemError(f"Item is a {current.type}, not a {patch.type}")
-
-    merged = {
-        **current.model_dump(exclude=set(_IDENTITY_FIELDS)),
-        **patch.model_dump(exclude_unset=True),
-    }
-    try:
-        validated = _ITEM_CREATE.validate_python(merged)
-    except ValidationError as exc:
-        raise InvalidItemError(summarize_validation_error(exc)) from exc
-
+    validated = _merge(_to_schema(row), patch)
     _write(row, validated)
     row.updated_at = utc_now()
     plans_service.mark_changed(plan)

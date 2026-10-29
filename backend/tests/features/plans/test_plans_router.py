@@ -38,7 +38,8 @@ async def test_create_plan_with_defaults(client: AsyncClient, headers: dict[str,
 
     assert plan["title"] == "Untitled trip"
     assert plan["status"] == "draft"
-    assert plan["travelers"] == {"adults": 1, "children": 0}
+    # Unknown until the user says, so the assistant asks instead of assuming one adult.
+    assert plan["travelers"] is None
     assert plan["version"] == 1
     assert plan["origin"] is None
 
@@ -120,6 +121,17 @@ async def test_patch_can_clear_optional_fields(
     assert response.status_code == 200
     assert response.json()["budget"] is None
     assert response.json()["end_date"] is None
+
+
+async def test_patch_can_clear_travelers(client: AsyncClient, headers: dict[str, str]) -> None:
+    created = await _create(client, headers, **TOKYO)
+
+    response = await client.patch(
+        f"/plans/{created['id']}", json={"travelers": None}, headers=headers
+    )
+
+    assert response.status_code == 200
+    assert response.json()["travelers"] is None
 
 
 async def test_patch_rejects_nulling_required_fields(

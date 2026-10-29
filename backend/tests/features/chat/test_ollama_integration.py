@@ -13,11 +13,11 @@ import pytest
 from httpx import AsyncClient
 
 from features.chat.guardrail import check_topic
-from features.chat.schemas import DoneEvent, ToolResultEvent
+from features.chat.schemas import DoneEvent, PlanUpdatedEvent, ToolResultEvent
 from shared.config import Settings, get_settings
 from shared.llm.ollama_client import OllamaClient
 from shared.search.fake import FakeSearchProvider
-from tests.features.chat.conftest import send
+from tests.features.chat.conftest import decide, done_message, send
 
 pytestmark = pytest.mark.ollama
 
@@ -72,21 +72,50 @@ async def test_guardrail_separates_travel_from_off_topic(llm: OllamaClient) -> N
     assert not off_topic.allowed
 
 
-async def test_agent_adds_a_hotel(
+async def test_agent_proposes_a_hotel_and_approval_adds_it(
     client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
 ) -> None:
     events = await send(
         client,
         headers,
         plan["id"],
-        "Add Hotel Okura in Tokyo to my plan: check in 2027-05-02 at 15:00, check out "
-        "2027-05-06 at 11:00.",
+        "Add Hotel Okura in Tokyo to my plan for 2 adults: check in 2027-05-02 at 15:00, "
+        "check out 2027-05-06 at 11:00.",
     )
 
     results = [e for e in events if isinstance(e, ToolResultEvent)]
-    assert any(e.name == "add_lodging" and e.ok for e in results), results
-    assert isinstance(events[-1], DoneEvent)
-    assert events[-1].message.content.strip()
+    assert any(e.name == "add_lodging" and e.ok and e.proposed for e in results), results
+    done = done_message(events)
+    assert done.message.content.strip()
+    assert done.message.proposal is not None
+
+    approved = await decide(client, headers, plan["id"], str(done.message.proposal.id), "approve")
+
+    updated = [e for e in approved if isinstance(e, PlanUpdatedEvent)]
+    assert updated and any(item.type == "lodging" for item in updated[-1].plan.items)
+    assert done_message(approved).message.content.strip()
+
+
+async def test_vague_request_gets_questions_not_a_proposal(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    # The reported bug: the suggestion chip on an empty plan recorded one adult (and more)
+    # instead of asking.
+    created = await client.post("/plans", json={}, headers=headers)
+    plan_id = created.json()["id"]
+
+    events = await send(client, headers, plan_id, "I want to spend a week in Tokyo in May")
+
+    done = done_message(events)
+    assert done.message.proposal is None, done.message.proposal
+    assert "?" in done.message.content
+
+    events = await send(client, headers, plan_id, "2 adults, May 1 to 8, flying from San Francisco")
+
+    second = done_message(events).message
+    proposal = second.proposal
+    assert proposal is not None, (second.content, second.tool_calls)
+    assert any(change.name == "set_plan_details" for change in proposal.changes)
 
 
 async def test_agent_searches_the_web_for_options(

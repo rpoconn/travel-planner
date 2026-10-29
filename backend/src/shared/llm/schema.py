@@ -10,8 +10,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
-# Keywords that only constrain values (the model rarely hits these limits, and validation
-# reports them if it does), so they cost prompt tokens without helping.
+# Keywords that only constrain sizes (the model rarely hits these limits, and validation
+# reports them if it does), so they cost prompt tokens without helping. `format` (date-time)
+# and `pattern` (an IATA code, a currency) are kept: they tell the model what shape a string
+# takes, and without them it guessed (dates as "next tuesday", prices as "1,380").
 _VALIDATION_ONLY = frozenset(
     {
         "maxLength",
@@ -20,10 +22,8 @@ _VALIDATION_ONLY = frozenset(
         "minimum",
         "exclusiveMaximum",
         "exclusiveMinimum",
-        "pattern",
         "maxItems",
         "minItems",
-        "format",
     }
 )
 _NULL = {"type": "null"}

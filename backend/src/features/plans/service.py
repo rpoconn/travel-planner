@@ -59,6 +59,16 @@ def mark_changed(plan: Plan) -> None:
     plan.updated_at = utc_now()
 
 
+def check_update(plan: Plan, patch: PlanUpdate) -> None:
+    """Raise `InvalidPlanError` if `patch` can't be applied to `plan` (writes nothing)."""
+    start = patch.start_date if "start_date" in patch.model_fields_set else plan.start_date
+    end = patch.end_date if "end_date" in patch.model_fields_set else plan.end_date
+    try:
+        check_date_range(start, end)
+    except ValueError as exc:
+        raise InvalidPlanError(str(exc)) from exc
+
+
 async def create_plan(session: AsyncSession, user_id: UUID, data: PlanCreate) -> Plan:
     plan = Plan(
         user_id=user_id,
@@ -74,14 +84,7 @@ async def update_plan(
     session: AsyncSession, user_id: UUID, plan_id: UUID, patch: PlanUpdate
 ) -> Plan:
     plan = await get_plan(session, user_id, plan_id)
-
-    start = patch.start_date if "start_date" in patch.model_fields_set else plan.start_date
-    end = patch.end_date if "end_date" in patch.model_fields_set else plan.end_date
-    try:
-        check_date_range(start, end)
-    except ValueError as exc:
-        raise InvalidPlanError(str(exc)) from exc
-
+    check_update(plan, patch)
     for name in patch.model_fields_set:
         setattr(plan, name, _column_value(getattr(patch, name)))
     mark_changed(plan)

@@ -25,7 +25,7 @@ class Plan(Base):
     destination: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     start_date: Mapped[date | None] = mapped_column(default=None)
     end_date: Mapped[date | None] = mapped_column(default=None)
-    travelers: Mapped[dict[str, Any]] = mapped_column(JSON)
+    travelers: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     budget: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     notes: Mapped[str] = mapped_column(Text, default="")
     # Bumped on every mutation (plan details and itinerary items) so the UI

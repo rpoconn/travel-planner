@@ -1,29 +1,47 @@
+from collections.abc import Sequence
 from datetime import date
 from typing import Any
 
 from features.chat.agent import MAX_TOOL_ROUNDS, run_agent
-from features.chat.prompts import AGENT_FINAL_ANSWER
+from features.chat.prompts import AGENT_FINAL_ANSWER, ALREADY_STAGED, agent_system_prompt
 from features.chat.schemas import (
     ChatEvent,
     PlanUpdatedEvent,
+    ProposedChange,
     TokenEvent,
     ToolCallEvent,
     ToolResultEvent,
 )
 from features.chat.tools import TOOL_SPECS, ToolContext
 from features.itinerary import service as itinerary_service
+from features.plans import service as plans_service
 from shared.llm.fake import FakeLLM, text, tool_calls
+from shared.llm.types import LLMMessage, ToolSpec
 from tests.features.chat.conftest import HOTEL_ARGS
 
 TODAY = date(2027, 1, 15)
 
 
-async def _run(llm: FakeLLM, ctx: ToolContext, latest: str = "Add Hotel Okura") -> list[ChatEvent]:
+async def _run(
+    llm: FakeLLM,
+    ctx: ToolContext,
+    latest: str = "Add Hotel Okura",
+    history: list[LLMMessage] | None = None,
+    tool_specs: Sequence[ToolSpec] = TOOL_SPECS,
+    staged: list[ProposedChange] | None = None,
+) -> list[ChatEvent]:
     plan = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
     return [
         event
         async for event in run_agent(
-            llm=llm, ctx=ctx, plan=plan, history=[], latest=latest, today=TODAY
+            llm=llm,
+            ctx=ctx,
+            plan=plan,
+            history=history or [],
+            latest=latest,
+            today=TODAY,
+            staged=[] if staged is None else staged,
+            tool_specs=tool_specs,
         )
     ]
 
@@ -52,43 +70,67 @@ async def test_text_reply_streams_tokens(ctx: ToolContext) -> None:
     (request,) = llm.requests
     assert request.streamed and request.tools == TOOL_SPECS
     system = request.messages[0].content
-    assert "Today is 2027-01-15" in system and '"Tokyo in May"' in system
+    assert "Today is 2027-01-15 (January 15, 2027)" in system and '"Tokyo in May"' in system
+    # Last month is the example: in January, "December" is this year's.
+    assert '"in December" means December 2027' in system
     assert request.messages[-1].content == "Plan my flights"
 
 
+async def test_tool_specs_narrow_the_offered_tools(ctx: ToolContext) -> None:
+    search_only = [spec for spec in TOOL_SPECS if spec.name == "web_search"]
+    llm = FakeLLM([text("Here's what I'd change.")])
+
+    await _run(llm, ctx, "Fix it", tool_specs=search_only)
+
+    (request,) = llm.requests
+    assert request.tools == search_only
+
+
+async def test_system_prompt_dates_an_earlier_month_next_year(ctx: ToolContext) -> None:
+    plan = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
+
+    system = agent_system_prompt(plan, date(2026, 10, 29))
+
+    assert '"in September" means September 2027' in system
+
+
 # ---------------------------------------------------------------------------
-# Tool calls
+# Tool calls: plan changes are staged, never applied
 # ---------------------------------------------------------------------------
 
 
-async def test_tool_call_adds_item_and_emits_plan_updated(ctx: ToolContext) -> None:
+async def test_tool_call_stages_a_change_without_writing(ctx: ToolContext) -> None:
     llm = FakeLLM(
         [
-            tool_calls(("add_lodging", HOTEL_ARGS), content="Adding it now."),
-            text("Done! Hotel Okura is on your plan."),
+            tool_calls(("add_lodging", HOTEL_ARGS), content="Let me propose it."),
+            text("I've proposed Hotel Okura, May 2 to 6."),
         ]
     )
+    staged: list[ProposedChange] = []
 
-    events = await _run(llm, ctx)
+    events = await _run(llm, ctx, staged=staged)
 
     (call,) = _of_type(events, ToolCallEvent)
     (result,) = _of_type(events, ToolResultEvent)
-    (updated,) = _of_type(events, PlanUpdatedEvent)
     assert call.name == "add_lodging" and call.arguments == HOTEL_ARGS
-    assert result.call_id == call.call_id and result.ok
-    assert [item.title for item in updated.plan.items] == ["Hotel Okura"]
-    assert events.index(call) < events.index(result) < events.index(updated)
-    assert _text(events) == "Adding it now.\n\nDone! Hotel Okura is on your plan."
+    assert result.call_id == call.call_id and result.ok and result.proposed
+    assert result.summary == "Proposed: Add lodging “Hotel Okura” on 2027-05-02 15:00"
+    assert _of_type(events, PlanUpdatedEvent) == []
+    assert await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id) == []
+    (change,) = staged
+    assert change.call_id == call.call_id and change.name == "add_lodging"
+    assert change.arguments["title"] == "Hotel Okura" and "type" not in change.arguments
+    assert _text(events) == "Let me propose it.\n\nI've proposed Hotel Okura, May 2 to 6."
 
-    # Second round: the tool result is fed back and the system prompt shows the new item.
+    # No auditor call in between: two streamed rounds, and the model was told it's staged.
+    assert len(llm.requests) == 2 and all(r.streamed for r in llm.requests)
     second = llm.requests[1].messages
     assert second[-2].role == "assistant" and second[-2].tool_calls[0].name == "add_lodging"
     assert second[-1].role == "tool" and second[-1].tool_name == "add_lodging"
-    assert second[-1].content.startswith('Added lodging "Hotel Okura"')
-    assert str(updated.plan.items[0].id) in second[0].content
+    assert second[-1].content.startswith("Staged for the user's approval: Add lodging")
 
 
-async def test_several_calls_in_one_round_run_in_order(ctx: ToolContext) -> None:
+async def test_several_calls_are_staged_in_order(ctx: ToolContext) -> None:
     second_hotel: dict[str, Any] = {
         **HOTEL_ARGS,
         "title": "Ryokan Sawanoya",
@@ -98,15 +140,53 @@ async def test_several_calls_in_one_round_run_in_order(ctx: ToolContext) -> None
     llm = FakeLLM(
         [
             tool_calls(("add_lodging", HOTEL_ARGS), ("add_lodging", second_hotel)),
-            text("Both added."),
+            text("Both proposed."),
         ]
     )
+    staged: list[ProposedChange] = []
 
-    events = await _run(llm, ctx)
+    events = await _run(llm, ctx, staged=staged)
 
-    assert [e.ok for e in _of_type(events, ToolResultEvent)] == [True, True]
-    last = _of_type(events, PlanUpdatedEvent)[-1]
-    assert [item.title for item in last.plan.items] == ["Hotel Okura", "Ryokan Sawanoya"]
+    assert [e.proposed for e in _of_type(events, ToolResultEvent)] == [True, True]
+    assert [change.arguments["title"] for change in staged] == ["Hotel Okura", "Ryokan Sawanoya"]
+
+
+async def test_a_repeated_change_is_staged_once(ctx: ToolContext) -> None:
+    # The repeat differs only in a null the tool drops, so it normalises to the same change.
+    repeat = {**HOTEL_ARGS, "notes": None}
+    llm = FakeLLM(
+        [
+            tool_calls(("add_lodging", HOTEL_ARGS)),
+            tool_calls(("add_lodging", repeat)),
+            text("Proposed."),
+        ]
+    )
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged)
+
+    assert len(staged) == 1
+    first, second = _of_type(events, ToolResultEvent)
+    assert first.proposed and not second.proposed and second.ok
+    assert second.summary.startswith("Already proposed: Add lodging")
+    assert llm.requests[2].messages[-1].content == ALREADY_STAGED
+
+
+async def test_web_search_runs_and_is_not_staged(ctx: ToolContext) -> None:
+    llm = FakeLLM(
+        [
+            tool_calls(("web_search", {"query": "ryokan in Hakone", "kind": "hotels"})),
+            text("Here are a few ryokan."),
+        ]
+    )
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, "Find a ryokan", staged=staged)
+
+    (result,) = _of_type(events, ToolResultEvent)
+    assert result.ok and not result.proposed
+    assert staged == []
+    assert llm.requests[1].messages[-1].content.startswith("Web results for")
 
 
 async def test_malformed_arguments_are_reported_then_corrected(ctx: ToolContext) -> None:
@@ -114,14 +194,15 @@ async def test_malformed_arguments_are_reported_then_corrected(ctx: ToolContext)
         [
             tool_calls(("add_lodging", {**HOTEL_ARGS, "start": "next tuesday"})),
             tool_calls(("add_lodging", HOTEL_ARGS)),
-            text("Added."),
+            text("Proposed."),
         ]
     )
+    staged: list[ProposedChange] = []
 
-    events = await _run(llm, ctx)
+    events = await _run(llm, ctx, staged=staged)
 
     assert [e.ok for e in _of_type(events, ToolResultEvent)] == [False, True]
-    assert len(_of_type(events, PlanUpdatedEvent)) == 1
+    assert len(staged) == 1
     # The model saw the validation error before retrying.
     feedback = llm.requests[1].messages[-1]
     assert feedback.role == "tool"
@@ -131,14 +212,30 @@ async def test_malformed_arguments_are_reported_then_corrected(ctx: ToolContext)
 async def test_malformed_arguments_that_are_never_fixed_are_reported(ctx: ToolContext) -> None:
     bad = tool_calls(("remove_item", {"item_id": "not-a-uuid"}))
     llm = FakeLLM([bad, bad, text("Sorry, I couldn't find that item.")])
+    staged: list[ProposedChange] = []
 
-    events = await _run(llm, ctx, "Remove the hotel")
+    events = await _run(llm, ctx, "Remove the hotel", staged=staged)
 
     results = _of_type(events, ToolResultEvent)
     assert [e.ok for e in results] == [False, False]
     assert results[0].summary.startswith("Invalid arguments for remove_item: item_id")
-    assert _of_type(events, PlanUpdatedEvent) == []
+    assert staged == []
     assert _text(events) == "Sorry, I couldn't find that item."
+
+
+async def test_invented_plan_details_are_only_proposed(ctx: ToolContext) -> None:
+    # The old failure mode: details the user never gave. They can't reach the plan now;
+    # the worst case is a proposal card the user denies.
+    invented: dict[str, Any] = {"origin": {"name": "New York"}, "travelers": {"adults": 1}}
+    llm = FakeLLM([tool_calls(("set_plan_details", invented)), text("Proposed.")])
+    staged: list[ProposedChange] = []
+
+    await _run(llm, ctx, "I want to spend a week in Tokyo in May", staged=staged)
+
+    (change,) = staged
+    assert change.summary == "Set trip origin, travelers"
+    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+    assert plan.origin is None and plan.travelers is None
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +248,9 @@ async def test_round_limit_forces_a_text_answer(ctx: ToolContext) -> None:
     llm = FakeLLM([looping] * MAX_TOOL_ROUNDS)
     # The final round ignores any tool calls the model still makes.
     llm.queue(tool_calls(("add_lodging", HOTEL_ARGS), content="I couldn't do that."))
+    staged: list[ProposedChange] = []
 
-    events = await _run(llm, ctx)
+    events = await _run(llm, ctx, staged=staged)
 
     assert llm.pending == 0
     assert len(llm.requests) == MAX_TOOL_ROUNDS + 1
@@ -162,4 +260,4 @@ async def test_round_limit_forces_a_text_answer(ctx: ToolContext) -> None:
     assert final.messages[-1].role == "system"
     assert final.messages[-1].content == AGENT_FINAL_ANSWER
     assert _text(events) == "I couldn't do that."
-    assert await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id) == []
+    assert staged == []

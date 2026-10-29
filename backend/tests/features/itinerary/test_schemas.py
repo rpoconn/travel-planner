@@ -6,6 +6,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from features.itinerary.schemas import (
     ActivityItemCreate,
+    FlightItem,
     FlightItemCreate,
     ItineraryItemCreate,
     LodgingItemCreate,
@@ -91,6 +92,62 @@ def test_cross_timezone_end_before_start_explains_the_comparison() -> None:
     assert "start 2026-12-18 10:25 EST is 2026-12-18 15:25 WET" in message
     assert "end is 2026-12-18 13:20 WET" in message
     assert "next day" in message
+
+
+def test_flight_with_no_duration_is_rejected() -> None:
+    # 10:00 EST and 00:00 JST next day are the same instant.
+    flight = {
+        **FLIGHT,
+        "start": "2026-12-15T10:00:00",
+        "timezone": "America/New_York",
+        "end": "2026-12-16T00:00:00",
+    }
+
+    with pytest.raises(ValidationError) as excinfo:
+        _CREATE.validate_python(flight)
+
+    message = str(excinfo.value)
+    assert "a flight must take at least 15 minute(s)" in message
+    assert "departs 2026-12-15 10:00 EST (2026-12-16 00:00 JST)" in message
+    assert "0 minute(s) later" in message
+
+
+def test_transfer_with_no_duration_is_rejected() -> None:
+    transfer = {
+        "type": "transfer",
+        "title": "Narita Express",
+        "start": "2027-05-02T15:00:00",
+        "end": "2027-05-02T15:00:00",
+        "timezone": "Asia/Tokyo",
+        "mode": "train",
+        "from_place": {"name": "Narita", "iata": "NRT"},
+        "to_place": {"name": "Tokyo Station"},
+    }
+
+    with pytest.raises(ValidationError, match="a transfer must take at least 1 minute"):
+        _CREATE.validate_python(transfer)
+
+
+@pytest.mark.parametrize("field", ["from_place", "to_place"])
+def test_flight_rejects_a_city_code(field: str) -> None:
+    with pytest.raises(ValidationError, match=r"TYO is a city code.*HND, NRT"):
+        _CREATE.validate_python({**FLIGHT, field: {"name": "Tokyo", "iata": "TYO"}})
+
+
+def test_stored_flight_from_before_the_rules_still_loads() -> None:
+    # Rows saved before these input rules existed must keep loading (and stay deletable).
+    stored = {
+        **FLIGHT,
+        "id": "b48086f9-97b4-422d-9367-b59c4a3e2e06",
+        "plan_id": "de2f666f-0e25-4f2d-91d2-7930c4561308",
+        "created_by": "assistant",
+        "end": "2027-05-02T03:00:00",
+        "to_place": {"name": "TYO", "iata": "TYO"},
+    }
+
+    item = FlightItem.model_validate(stored)
+
+    assert item.end == item.start
 
 
 def test_unknown_timezone_is_rejected() -> None:

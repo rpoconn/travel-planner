@@ -7,9 +7,12 @@ import { expect, type Page } from '@playwright/test'
 
 export const PASSWORD = 'correct horse battery'
 
-/** Canned replies from backend/src/features/chat/offline.py. */
+/** Canned replies (prefixes) from backend/src/features/chat/offline.py and pipeline.py. */
+export const OFFLINE_PROPOSED_REPLY = "Here's my suggestion"
 export const OFFLINE_ADDED_REPLY = "Done! It's on your itinerary."
+export const DENIED_REPLY = 'No problem — nothing was changed.'
 export const OFFLINE_REDIRECT_REPLY = "That's outside what I can help with"
+export const OFFLINE_FIX_REPLY = "Here's what I'd change to fix that"
 
 // ----- steps -----
 
@@ -46,4 +49,26 @@ export async function createTrip(page: Page, title: string): Promise<void> {
 export async function sendChatMessage(page: Page, text: string): Promise<void> {
     await page.getByRole('textbox', { name: 'Message' }).fill(text)
     await page.getByRole('button', { name: 'Send message' }).click()
+}
+
+/** The newest proposal card in the conversation. */
+export function latestProposal(page: Page) {
+    return page
+        .getByRole('log', { name: 'Conversation' })
+        .getByRole('region', { name: 'Proposed changes' })
+        .last()
+}
+
+/** Approve the newest proposal card and wait for the assistant's confirmation. */
+export async function approveProposal(page: Page): Promise<void> {
+    const card = latestProposal(page)
+    await card.getByRole('button', { name: 'Approve' }).click()
+    await expect(card.getByText('Approved', { exact: true })).toBeVisible()
+}
+
+/** "add <what>" in offline mode: send it, then approve the proposed activity. */
+export async function addViaChat(page: Page, what: string): Promise<void> {
+    await sendChatMessage(page, `Add ${what}`)
+    await expect(latestProposal(page).getByRole('button', { name: 'Approve' })).toBeEnabled()
+    await approveProposal(page)
 }

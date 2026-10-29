@@ -9,7 +9,8 @@ from fastapi.sse import EventSourceResponse
 from features.auth.dependencies import CurrentUser
 from features.chat import pipeline, service
 from features.chat.dependencies import LLMDep, limit_chat_messages
-from features.chat.schemas import ChatEvent, ChatMessage, SendMessage
+from features.chat.models import Proposal
+from features.chat.schemas import ChatEvent, ChatMessage, ProposalDecision, SendMessage
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from shared.db import SessionDep
@@ -37,6 +38,26 @@ async def get_owned_plan(plan_id: UUID, user: CurrentUser, session: SessionDep) 
 
 
 OwnedPlan = Annotated[Plan, Depends(get_owned_plan)]
+
+
+async def get_pending_proposal(proposal_id: UUID, plan: OwnedPlan, session: SessionDep) -> Proposal:
+    # Also checked before the stream opens: a stale card (decided in another tab, or
+    # superseded by a newer proposal) is a plain 409.
+    try:
+        proposal = await service.get_proposal(session, plan.id, proposal_id)
+    except service.ProposalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found"
+        ) from exc
+    if proposal.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This proposal was already {proposal.status}",
+        )
+    return proposal
+
+
+PendingProposal = Annotated[Proposal, Depends(get_pending_proposal)]
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +94,10 @@ async def send_message(
     """Send a message and stream the assistant's answer as server-sent events.
 
     Each event's `data` is a JSON `ChatEvent` discriminated by `type`: `guardrail` first,
-    then `token` / `tool_call` / `tool_result` / `plan_updated` as the answer is produced,
-    and finally `done` (with the stored reply) or `error`.
+    then `token` / `tool_call` / `tool_result` as the answer is produced, and finally
+    `done` (with the stored reply) or `error`. Plan changes the assistant makes are only
+    staged (`tool_result.proposed`): they arrive as `done.message.proposal`, and are applied
+    once the user approves them through `decideProposal`.
     """
     async for event in pipeline.answer_message(
         session=session,
@@ -83,6 +106,44 @@ async def send_message(
         user_id=user.id,
         plan=plan,
         content=body.content,
+        today=date.today(),
+        fix=body.fix,
+    ):
+        yield event
+
+
+@router.post(
+    "/chat/proposals/{proposal_id}/decision",
+    operation_id="decideProposal",
+    response_class=EventSourceResponse,
+    responses=error_responses(status.HTTP_409_CONFLICT, status.HTTP_429_TOO_MANY_REQUESTS),
+    dependencies=[Depends(limit_chat_messages)],
+)
+async def decide_proposal(
+    body: ProposalDecision,
+    plan: OwnedPlan,
+    proposal: PendingProposal,
+    user: CurrentUser,
+    session: SessionDep,
+    llm: LLMDep,
+    search: SearchDep,
+) -> AsyncIterator[ChatEvent]:
+    """Approve, deny or revise a pending proposal, streaming the outcome like `sendMessage`.
+
+    - `approve`: every change is checked against the current plan, then applied in order
+      (`tool_call` / `tool_result` per change, then one `plan_updated`); if any no longer
+      fits, nothing is written and the proposal is `failed`. The assistant then confirms.
+    - `deny`: nothing changes; a short stored reply, no model call.
+    - `revise`: `message` goes to the assistant, which usually proposes again.
+    """
+    async for event in pipeline.decide_proposal(
+        session=session,
+        llm=llm,
+        search=search,
+        user_id=user.id,
+        plan=plan,
+        proposal=proposal,
+        decision=body,
         today=date.today(),
     ):
         yield event

@@ -1,17 +1,20 @@
-import { sendMessage } from '@/api/sdk.gen'
+import { decideProposal, sendMessage } from '@/api/sdk.gen'
 import type {
     DoneEvent,
     ErrorEvent,
     GuardrailEvent,
     PlanUpdatedEvent,
+    ProposalDecision,
     TokenEvent,
     ToolCallEvent,
     ToolResultEvent,
+    WarningToFix,
 } from '@/api/types.gen'
 import { errorMessage } from '@/lib/apiError'
 import { clearSession } from '@/lib/auth'
 
-// Chat streaming over the generated SDK's SSE client. hey-api types each stream item as
+// Chat streaming over the generated SDK's SSE client: sending a message and answering a
+// proposal card both stream the same events. hey-api types each stream item as
 // `unknown` (it ignores OpenAPI 3.2 `itemSchema`), so the event union is rebuilt here from
 // the generated event types and every item is narrowed on its `type` tag.
 
@@ -84,29 +87,32 @@ const checkedFetch: typeof fetch = async (input, init) => {
     )
 }
 
-export interface StreamChatOptions {
+/** What the generated SDK's SSE functions take beyond their path and body. */
+interface SseRequestOptions {
     signal?: AbortSignal
+    fetch: typeof fetch
+    sseMaxRetryAttempts: number
+    onSseError: (error: unknown) => void
 }
 
+/** Starts one SSE request with the given transport options; returns its event stream. */
+type StartStream = (options: SseRequestOptions) => Promise<{ stream: AsyncIterable<unknown> }>
+
 /**
- * Send `content` to the plan's chat and yield its events as they stream in. Throws a
- * ChatRequestError (or a fetch TypeError when offline) if the request fails; ends quietly
- * when `signal` aborts.
+ * Run `start` and yield its events as they stream in. Throws a ChatRequestError (or a fetch
+ * TypeError when offline) if the request fails; ends quietly when `signal` aborts.
  */
-export async function* streamChat(
-    planId: string,
-    content: string,
-    { signal }: StreamChatOptions = {},
+async function* streamEvents(
+    start: StartStream,
+    signal: AbortSignal | undefined,
 ): AsyncGenerator<ChatEvent, void, undefined> {
     // The SSE client reports connection failures through this callback instead of throwing.
     let failure: unknown = null
 
-    const { stream } = await sendMessage({
-        path: { plan_id: planId },
-        body: { content },
+    const { stream } = await start({
         signal,
         fetch: checkedFetch,
-        // Never retry: re-POSTing would store the user's message a second time.
+        // Never retry: re-POSTing would store the user's message (or decision) a second time.
         sseMaxRetryAttempts: 1,
         onSseError: (error) => {
             failure = error
@@ -120,4 +126,49 @@ export async function* streamChat(
 
     if (failure === null || signal?.aborted) return
     throw failure instanceof Error ? failure : new ChatRequestError(errorMessage(failure))
+}
+
+export interface StreamChatOptions {
+    signal?: AbortSignal
+    /** A timeline warning to ask the assistant to propose a fix for ("Fix it" button). */
+    fix?: WarningToFix
+}
+
+/** Send `content` to the plan's chat and yield the reply's events (see streamEvents). */
+export function streamChat(
+    planId: string,
+    content: string,
+    { signal, fix }: StreamChatOptions = {},
+): AsyncGenerator<ChatEvent, void, undefined> {
+    return streamEvents(
+        (options) =>
+            sendMessage({
+                path: { plan_id: planId },
+                // An undefined `fix` is dropped when the body is serialised.
+                body: { content, fix },
+                ...options,
+            }),
+        signal,
+    )
+}
+
+/**
+ * Approve, deny or revise a proposal card and yield the outcome's events: the applied
+ * changes (on approve) and the assistant's reply, ending with `done` or `error`.
+ */
+export function streamDecision(
+    planId: string,
+    proposalId: string,
+    decision: ProposalDecision,
+    { signal }: { signal?: AbortSignal } = {},
+): AsyncGenerator<ChatEvent, void, undefined> {
+    return streamEvents(
+        (options) =>
+            decideProposal({
+                path: { plan_id: planId, proposal_id: proposalId },
+                body: decision,
+                ...options,
+            }),
+        signal,
+    )
 }

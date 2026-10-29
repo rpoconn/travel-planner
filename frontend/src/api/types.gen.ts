@@ -22,28 +22,41 @@ export type ActivityItem = {
     created_by: 'user' | 'assistant';
     /**
      * Title
+     *
+     * Short name, e.g. 'Flight PHL to HND'
      */
     title: string;
     /**
      * Start
+     *
+     * Local wall-clock start, YYYY-MM-DDTHH:MM:SS (departure / check-in)
      */
     start: string;
     /**
      * End
+     *
+     * Local wall-clock end, YYYY-MM-DDTHH:MM:SS: arrival for flights and transfers, check-out for lodging, finish time for activities
      */
     end: string;
     /**
      * Timezone
+     *
+     * IANA timezone of `start`, e.g. Asia/Tokyo
      */
     timezone: string;
     /**
      * End Timezone
+     *
+     * IANA timezone of `end` when it differs (arrival airport)
      */
     end_timezone: string | null;
     /**
      * Status
      */
     status: 'proposed' | 'confirmed' | 'cancelled';
+    /**
+     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     */
     cost: MoneyOutput | null;
     /**
      * Booking Ref
@@ -51,6 +64,8 @@ export type ActivityItem = {
     booking_ref: string | null;
     /**
      * Source Url
+     *
+     * URL of the web_search result this came from
      */
     source_url: string | null;
     /**
@@ -78,28 +93,41 @@ export type ActivityItem = {
 export type ActivityItemCreate = {
     /**
      * Title
+     *
+     * Short name, e.g. 'Flight PHL to HND'
      */
     title: string;
     /**
      * Start
+     *
+     * Local wall-clock start, YYYY-MM-DDTHH:MM:SS (departure / check-in)
      */
     start: string;
     /**
      * End
+     *
+     * Local wall-clock end, YYYY-MM-DDTHH:MM:SS: arrival for flights and transfers, check-out for lodging, finish time for activities
      */
     end: string;
     /**
      * Timezone
+     *
+     * IANA timezone of `start`, e.g. Asia/Tokyo
      */
     timezone: string;
     /**
      * End Timezone
+     *
+     * IANA timezone of `end` when it differs (arrival airport)
      */
     end_timezone?: string | null;
     /**
      * Status
      */
     status?: 'proposed' | 'confirmed' | 'cancelled';
+    /**
+     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     */
     cost?: MoneyInput | null;
     /**
      * Booking Ref
@@ -107,6 +135,8 @@ export type ActivityItemCreate = {
     booking_ref?: string | null;
     /**
      * Source Url
+     *
+     * URL of the web_search result this came from
      */
     source_url?: string | null;
     /**
@@ -203,7 +233,7 @@ export type ChatMessage = {
     /**
      * Kind
      */
-    kind: 'message' | 'redirect' | 'error';
+    kind: 'message' | 'redirect' | 'error' | 'decision';
     /**
      * Content
      */
@@ -212,10 +242,51 @@ export type ChatMessage = {
      * Tool Calls
      */
     tool_calls: Array<ToolTrace>;
+    proposal: ChatProposal | null;
     /**
      * Created At
      */
     created_at: string;
+};
+
+/**
+ * ChatProposal
+ *
+ * The changes the assistant proposed in one reply, applied all-or-nothing on approval.
+ */
+export type ChatProposal = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Plan Id
+     */
+    plan_id: string;
+    /**
+     * Message Id
+     */
+    message_id: string;
+    /**
+     * Status
+     */
+    status: 'pending' | 'approved' | 'denied' | 'revised' | 'superseded' | 'failed';
+    /**
+     * Changes
+     */
+    changes: Array<ProposedChange>;
+    /**
+     * Plan Version
+     */
+    plan_version: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Decided At
+     */
+    decided_at: string | null;
 };
 
 /**
@@ -278,28 +349,41 @@ export type FlightItem = {
     created_by: 'user' | 'assistant';
     /**
      * Title
+     *
+     * Short name, e.g. 'Flight PHL to HND'
      */
     title: string;
     /**
      * Start
+     *
+     * Local wall-clock start, YYYY-MM-DDTHH:MM:SS (departure / check-in)
      */
     start: string;
     /**
      * End
+     *
+     * Local wall-clock end, YYYY-MM-DDTHH:MM:SS: arrival for flights and transfers, check-out for lodging, finish time for activities
      */
     end: string;
     /**
      * Timezone
+     *
+     * IANA timezone of `start`, e.g. Asia/Tokyo
      */
     timezone: string;
     /**
      * End Timezone
+     *
+     * IANA timezone of `end` when it differs (arrival airport)
      */
     end_timezone: string | null;
     /**
      * Status
      */
     status: 'proposed' | 'confirmed' | 'cancelled';
+    /**
+     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     */
     cost: MoneyOutput | null;
     /**
      * Booking Ref
@@ -307,6 +391,8 @@ export type FlightItem = {
     booking_ref: string | null;
     /**
      * Source Url
+     *
+     * URL of the web_search result this came from
      */
     source_url: string | null;
     /**
@@ -319,13 +405,23 @@ export type FlightItem = {
     type: 'flight';
     /**
      * Carrier
+     *
+     * Airline name
      */
     carrier: string;
     /**
      * Flight Number
+     *
+     * e.g. AA 167
      */
     flight_number: string | null;
+    /**
+     * Departure airport; `iata` is required
+     */
     from_place: Place;
+    /**
+     * Arrival airport; `iata` is required
+     */
     to_place: Place;
     /**
      * Cabin
@@ -333,6 +429,8 @@ export type FlightItem = {
     cabin: 'economy' | 'premium' | 'business' | 'first';
     /**
      * Direction
+     *
+     * outbound = leaving home, return = going home, internal = within the trip
      */
     direction: 'outbound' | 'return' | 'internal';
     /**
@@ -347,28 +445,41 @@ export type FlightItem = {
 export type FlightItemCreate = {
     /**
      * Title
+     *
+     * Short name, e.g. 'Flight PHL to HND'
      */
     title: string;
     /**
      * Start
+     *
+     * Local wall-clock start, YYYY-MM-DDTHH:MM:SS (departure / check-in)
      */
     start: string;
     /**
      * End
+     *
+     * Local wall-clock end, YYYY-MM-DDTHH:MM:SS: arrival for flights and transfers, check-out for lodging, finish time for activities
      */
     end: string;
     /**
      * Timezone
+     *
+     * IANA timezone of `start`, e.g. Asia/Tokyo
      */
     timezone: string;
     /**
      * End Timezone
+     *
+     * IANA timezone of `end` when it differs (arrival airport)
      */
     end_timezone?: string | null;
     /**
      * Status
      */
     status?: 'proposed' | 'confirmed' | 'cancelled';
+    /**
+     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     */
     cost?: MoneyInput | null;
     /**
      * Booking Ref
@@ -376,6 +487,8 @@ export type FlightItemCreate = {
     booking_ref?: string | null;
     /**
      * Source Url
+     *
+     * URL of the web_search result this came from
      */
     source_url?: string | null;
     /**
@@ -388,13 +501,23 @@ export type FlightItemCreate = {
     type: 'flight';
     /**
      * Carrier
+     *
+     * Airline name
      */
     carrier: string;
     /**
      * Flight Number
+     *
+     * e.g. AA 167
      */
     flight_number?: string | null;
+    /**
+     * Departure airport; `iata` is required
+     */
     from_place: Place;
+    /**
+     * Arrival airport; `iata` is required
+     */
     to_place: Place;
     /**
      * Cabin
@@ -402,6 +525,8 @@ export type FlightItemCreate = {
     cabin?: 'economy' | 'premium' | 'business' | 'first';
     /**
      * Direction
+     *
+     * outbound = leaving home, return = going home, internal = within the trip
      */
     direction: 'outbound' | 'return' | 'internal';
     /**
@@ -539,28 +664,41 @@ export type LodgingItem = {
     created_by: 'user' | 'assistant';
     /**
      * Title
+     *
+     * Short name, e.g. 'Flight PHL to HND'
      */
     title: string;
     /**
      * Start
+     *
+     * Local wall-clock start, YYYY-MM-DDTHH:MM:SS (departure / check-in)
      */
     start: string;
     /**
      * End
+     *
+     * Local wall-clock end, YYYY-MM-DDTHH:MM:SS: arrival for flights and transfers, check-out for lodging, finish time for activities
      */
     end: string;
     /**
      * Timezone
+     *
+     * IANA timezone of `start`, e.g. Asia/Tokyo
      */
     timezone: string;
     /**
      * End Timezone
+     *
+     * IANA timezone of `end` when it differs (arrival airport)
      */
     end_timezone: string | null;
     /**
      * Status
      */
     status: 'proposed' | 'confirmed' | 'cancelled';
+    /**
+     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     */
     cost: MoneyOutput | null;
     /**
      * Booking Ref
@@ -568,6 +706,8 @@ export type LodgingItem = {
     booking_ref: string | null;
     /**
      * Source Url
+     *
+     * URL of the web_search result this came from
      */
     source_url: string | null;
     /**
@@ -598,28 +738,41 @@ export type LodgingItem = {
 export type LodgingItemCreate = {
     /**
      * Title
+     *
+     * Short name, e.g. 'Flight PHL to HND'
      */
     title: string;
     /**
      * Start
+     *
+     * Local wall-clock start, YYYY-MM-DDTHH:MM:SS (departure / check-in)
      */
     start: string;
     /**
      * End
+     *
+     * Local wall-clock end, YYYY-MM-DDTHH:MM:SS: arrival for flights and transfers, check-out for lodging, finish time for activities
      */
     end: string;
     /**
      * Timezone
+     *
+     * IANA timezone of `start`, e.g. Asia/Tokyo
      */
     timezone: string;
     /**
      * End Timezone
+     *
+     * IANA timezone of `end` when it differs (arrival airport)
      */
     end_timezone?: string | null;
     /**
      * Status
      */
     status?: 'proposed' | 'confirmed' | 'cancelled';
+    /**
+     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     */
     cost?: MoneyInput | null;
     /**
      * Booking Ref
@@ -627,6 +780,8 @@ export type LodgingItemCreate = {
     booking_ref?: string | null;
     /**
      * Source Url
+     *
+     * URL of the web_search result this came from
      */
     source_url?: string | null;
     /**
@@ -743,10 +898,14 @@ export type LoginRequest = {
 export type MoneyInput = {
     /**
      * Amount
+     *
+     * A plain number such as 1380.50 (no commas, symbols or text)
      */
     amount: number | string;
     /**
      * Currency
+     *
+     * ISO 4217 code: USD, EUR, JPY...
      */
     currency?: string;
 };
@@ -757,10 +916,14 @@ export type MoneyInput = {
 export type MoneyOutput = {
     /**
      * Amount
+     *
+     * A plain number such as 1380.50 (no commas, symbols or text)
      */
     amount: string;
     /**
      * Currency
+     *
+     * ISO 4217 code: USD, EUR, JPY...
      */
     currency?: string;
 };
@@ -783,6 +946,8 @@ export type Place = {
     country?: string | null;
     /**
      * Iata
+     *
+     * 3-letter airport code (airports only)
      */
     iata?: string | null;
     /**
@@ -821,7 +986,7 @@ export type PlanCreate = {
      * End Date
      */
     end_date?: string | null;
-    travelers?: Travelers;
+    travelers?: Travelers | null;
     budget?: MoneyInput | null;
     /**
      * Notes
@@ -913,6 +1078,48 @@ export type PlanUpdatedEvent = {
 };
 
 /**
+ * ProposalDecision
+ *
+ * The user's answer to a proposal card. `message` is the free text of "Other…".
+ */
+export type ProposalDecision = {
+    /**
+     * Action
+     */
+    action: 'approve' | 'deny' | 'revise';
+    /**
+     * Message
+     */
+    message?: string | null;
+};
+
+/**
+ * ProposedChange
+ *
+ * One staged plan change: a validated write-tool call waiting for the user.
+ */
+export type ProposedChange = {
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Arguments
+     */
+    arguments: {
+        [key: string]: unknown;
+    };
+    /**
+     * Summary
+     */
+    summary: string;
+};
+
+/**
  * RegisterRequest
  */
 export type RegisterRequest = {
@@ -938,6 +1145,7 @@ export type SendMessage = {
      * Content
      */
     content: string;
+    fix?: WarningToFix | null;
 };
 
 /**
@@ -1113,6 +1321,10 @@ export type ToolResultEvent = {
      * Summary
      */
     summary: string;
+    /**
+     * Proposed
+     */
+    proposed: boolean;
 };
 
 /**
@@ -1143,6 +1355,10 @@ export type ToolTrace = {
      * Summary
      */
     summary: string;
+    /**
+     * Proposed
+     */
+    proposed: boolean;
 };
 
 /**
@@ -1163,28 +1379,41 @@ export type TransferItem = {
     created_by: 'user' | 'assistant';
     /**
      * Title
+     *
+     * Short name, e.g. 'Flight PHL to HND'
      */
     title: string;
     /**
      * Start
+     *
+     * Local wall-clock start, YYYY-MM-DDTHH:MM:SS (departure / check-in)
      */
     start: string;
     /**
      * End
+     *
+     * Local wall-clock end, YYYY-MM-DDTHH:MM:SS: arrival for flights and transfers, check-out for lodging, finish time for activities
      */
     end: string;
     /**
      * Timezone
+     *
+     * IANA timezone of `start`, e.g. Asia/Tokyo
      */
     timezone: string;
     /**
      * End Timezone
+     *
+     * IANA timezone of `end` when it differs (arrival airport)
      */
     end_timezone: string | null;
     /**
      * Status
      */
     status: 'proposed' | 'confirmed' | 'cancelled';
+    /**
+     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     */
     cost: MoneyOutput | null;
     /**
      * Booking Ref
@@ -1192,6 +1421,8 @@ export type TransferItem = {
     booking_ref: string | null;
     /**
      * Source Url
+     *
+     * URL of the web_search result this came from
      */
     source_url: string | null;
     /**
@@ -1222,28 +1453,41 @@ export type TransferItem = {
 export type TransferItemCreate = {
     /**
      * Title
+     *
+     * Short name, e.g. 'Flight PHL to HND'
      */
     title: string;
     /**
      * Start
+     *
+     * Local wall-clock start, YYYY-MM-DDTHH:MM:SS (departure / check-in)
      */
     start: string;
     /**
      * End
+     *
+     * Local wall-clock end, YYYY-MM-DDTHH:MM:SS: arrival for flights and transfers, check-out for lodging, finish time for activities
      */
     end: string;
     /**
      * Timezone
+     *
+     * IANA timezone of `start`, e.g. Asia/Tokyo
      */
     timezone: string;
     /**
      * End Timezone
+     *
+     * IANA timezone of `end` when it differs (arrival airport)
      */
     end_timezone?: string | null;
     /**
      * Status
      */
     status?: 'proposed' | 'confirmed' | 'cancelled';
+    /**
+     * Price as {"amount": 1380, "currency": "USD"}; amount is a plain number
+     */
     cost?: MoneyInput | null;
     /**
      * Booking Ref
@@ -1251,6 +1495,8 @@ export type TransferItemCreate = {
     booking_ref?: string | null;
     /**
      * Source Url
+     *
+     * URL of the web_search result this came from
      */
     source_url?: string | null;
     /**
@@ -1367,7 +1613,7 @@ export type TravelPlan = {
      * End Date
      */
     end_date: string | null;
-    travelers: Travelers;
+    travelers: Travelers | null;
     budget: MoneyOutput | null;
     /**
      * Notes
@@ -1398,7 +1644,7 @@ export type Travelers = {
     /**
      * Adults
      */
-    adults?: number;
+    adults: number;
     /**
      * Children
      */
@@ -1453,6 +1699,32 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
+};
+
+/**
+ * WarningToFix
+ *
+ * A timeline warning sent back by the client, as it received it. A subclass only so
+ * it gets its own schema name: using `TimelineWarning` itself as input too would split
+ * it into `TimelineWarningInput` / `TimelineWarningOutput` in the generated SDK.
+ */
+export type WarningToFix = {
+    /**
+     * Kind
+     */
+    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip';
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Date
+     */
+    date?: string | null;
+    /**
+     * Item Ids
+     */
+    item_ids?: Array<string>;
 };
 
 export type GetHealthData = {
@@ -2048,6 +2320,54 @@ export type SendMessageErrors = {
 export type SendMessageError = SendMessageErrors[keyof SendMessageErrors];
 
 export type SendMessageResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type DecideProposalData = {
+    body: ProposalDecision;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+        /**
+         * Proposal Id
+         */
+        proposal_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/chat/proposals/{proposal_id}/decision';
+};
+
+export type DecideProposalErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
+};
+
+export type DecideProposalError = DecideProposalErrors[keyof DecideProposalErrors];
+
+export type DecideProposalResponses = {
     /**
      * Successful Response
      */

@@ -1,23 +1,27 @@
 """The planning agent: stream the model's reply, run the tools it calls, feed the results
-back, and repeat until it answers in plain text (or the round limit is hit)."""
+back, and repeat until it answers in plain text (or the round limit is hit).
+
+Read tools (web_search) run immediately. Write tools only validate: each change is staged
+into the caller's `staged` list, which becomes the reply's proposal card. Nothing in the
+plan changes during a turn, so the plan JSON in the system prompt stays current.
+"""
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import date
 from uuid import uuid4
 
 from features.chat import tools
-from features.chat.prompts import AGENT_FINAL_ANSWER, agent_system_prompt
+from features.chat.prompts import AGENT_FINAL_ANSWER, ALREADY_STAGED, agent_system_prompt
 from features.chat.schemas import (
     ChatEvent,
-    PlanUpdatedEvent,
+    ProposedChange,
     TokenEvent,
     ToolCallEvent,
     ToolResultEvent,
 )
-from features.itinerary import service as itinerary_service
 from features.plans.schemas import TravelPlan
-from shared.llm.types import LLMClient, LLMMessage, LLMToolCall
+from shared.llm.types import LLMClient, LLMMessage, LLMToolCall, ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +33,32 @@ MAX_TOOL_ROUNDS = 6
 _ROUND_SEPARATOR = "\n\n"
 
 
-def _call_id() -> str:
+def new_call_id() -> str:
     # Ollama doesn't assign ids to tool calls; these only pair tool_call/tool_result events.
     return f"call_{uuid4().hex[:12]}"
+
+
+def _stage(
+    outcome: tools.ToolOutcome, staged: list[ProposedChange], call_id: str
+) -> tools.ToolOutcome:
+    """Add a prepared change to `staged`, or tell the model it's already there. (Small
+    models often re-send a change; arguments are normalised, so a repeat compares equal.)"""
+    prepared = outcome.prepared
+    if prepared is None:
+        return outcome
+    if any(c.name == prepared.name and c.arguments == prepared.arguments for c in staged):
+        return tools.ToolOutcome(
+            ok=True, content=ALREADY_STAGED, summary=f"Already proposed: {prepared.summary}"
+        )
+    staged.append(
+        ProposedChange(
+            call_id=call_id,
+            name=prepared.name,
+            arguments=prepared.arguments,
+            summary=prepared.summary,
+        )
+    )
+    return outcome
 
 
 async def run_agent(
@@ -42,10 +69,14 @@ async def run_agent(
     history: list[LLMMessage],
     latest: str,
     today: date,
+    staged: list[ProposedChange],
+    tool_specs: Sequence[ToolSpec] = tools.TOOL_SPECS,
 ) -> AsyncIterator[ChatEvent]:
-    """Yield `token`, `tool_call`, `tool_result` and `plan_updated` events for one turn.
+    """Yield `token`, `tool_call` and `tool_result` events for one turn.
 
-    Raises `LLMError` if the model fails; tool failures are reported to the model instead.
+    Validated plan changes are appended to `staged` (an out-parameter, in call order);
+    their `tool_result` events have `proposed=True`. Raises `LLMError` if the model fails;
+    tool failures are reported to the model instead.
     """
     messages = [
         LLMMessage(role="system", content=agent_system_prompt(plan, today)),
@@ -63,7 +94,7 @@ async def run_agent(
         # ---- stream this round's reply ----
         content = ""
         calls: list[LLMToolCall] = []
-        async for chunk in llm.stream(messages, tools=None if final_round else tools.TOOL_SPECS):
+        async for chunk in llm.stream(messages, tools=None if final_round else tool_specs):
             if chunk.content:
                 if not content and wrote_text:
                     yield TokenEvent(text=_ROUND_SEPARATOR)
@@ -75,24 +106,17 @@ async def run_agent(
         if not calls or final_round:
             return
 
-        # ---- run the requested tools and feed the results back ----
+        # ---- run (or stage) the requested tools and feed the results back ----
         messages.append(LLMMessage(role="assistant", content=content, tool_calls=calls))
-        plan_changed = False
         for call in calls:
-            call_id = _call_id()
+            call_id = new_call_id()
             yield ToolCallEvent(call_id=call_id, name=call.name, arguments=call.arguments)
-            outcome = await tools.execute(ctx, call)
+            outcome = _stage(await tools.execute(ctx, call), staged, call_id)
             yield ToolResultEvent(
-                call_id=call_id, name=call.name, ok=outcome.ok, summary=outcome.summary
+                call_id=call_id,
+                name=call.name,
+                ok=outcome.ok,
+                summary=outcome.summary,
+                proposed=outcome.prepared is not None,
             )
-            if outcome.plan_changed:
-                plan = await itinerary_service.get_plan_snapshot(
-                    ctx.session, ctx.user_id, ctx.plan_id
-                )
-                plan_changed = True
-                yield PlanUpdatedEvent(plan=plan)
             messages.append(LLMMessage(role="tool", tool_name=call.name, content=outcome.content))
-
-        if plan_changed:
-            # Keep the plan JSON in the system prompt current for the next round.
-            messages[0] = LLMMessage(role="system", content=agent_system_prompt(plan, today))

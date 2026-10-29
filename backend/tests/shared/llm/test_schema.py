@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -32,7 +33,8 @@ def test_inlines_refs_and_drops_defs() -> None:
 
     assert not _has_key(schema, "$ref")
     assert "$defs" not in schema
-    assert schema["properties"]["origin"]["properties"]["iata"] == {"type": "string"}
+    iata = schema["properties"]["origin"]["properties"]["iata"]
+    assert iata["type"] == "string" and "anyOf" not in iata
     assert schema["properties"]["stops"]["items"]["required"] == ["name"]
 
 
@@ -67,12 +69,25 @@ def test_decimal_amount_is_a_number() -> None:
     cost = inline_schema(_Optionals)["properties"]["cost"]
 
     assert cost["type"] == "object"
-    assert cost["properties"]["amount"] == {"type": "number"}
+    assert cost["properties"]["amount"]["type"] == "number"
+    assert "anyOf" not in cost["properties"]["amount"]
     assert cost["required"] == ["amount"]
 
 
-def test_drops_validation_only_keywords() -> None:
+def test_drops_size_limits_but_keeps_shape_hints() -> None:
     schema = inline_schema(_Args)
 
-    for keyword in ("maxLength", "minLength", "maximum", "minimum", "pattern", "format"):
+    for keyword in ("maxLength", "minLength", "maximum", "minimum"):
         assert not _has_key(schema, keyword), keyword
+    # `pattern` and `format` tell the model what a string looks like, so they stay.
+    assert schema["properties"]["origin"]["properties"]["iata"]["pattern"] == "^[A-Z]{3}$"
+
+
+def test_keeps_date_time_format() -> None:
+    class _Timed(BaseModel):
+        start: datetime
+
+    assert inline_schema(_Timed)["properties"]["start"] == {
+        "type": "string",
+        "format": "date-time",
+    }

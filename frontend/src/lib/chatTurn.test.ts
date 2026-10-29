@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { chatMessage, travelPlan } from '@/test/fixtures'
+import { chatMessage, chatProposal, travelPlan } from '@/test/fixtures'
 
 import {
     applyChatEvent,
@@ -25,6 +25,7 @@ describe('applyChatEvent', () => {
             status: 'streaming',
             error: null,
             replyId: null,
+            proposal: null,
         })
     })
 
@@ -60,7 +61,7 @@ describe('applyChatEvent', () => {
                 callId: 'c2',
                 name: 'add_lodging',
                 status: 'running',
-                summary: 'Adding a place to stay…',
+                summary: 'Preparing a place to stay…',
             },
         ])
 
@@ -72,6 +73,7 @@ describe('applyChatEvent', () => {
                     name: 'add_lodging',
                     ok: false,
                     summary: 'Bad dates',
+                    proposed: false,
                 },
                 {
                     type: 'tool_result',
@@ -79,6 +81,7 @@ describe('applyChatEvent', () => {
                     name: 'web_search',
                     ok: true,
                     summary: 'Searched',
+                    proposed: false,
                 },
             ],
             running,
@@ -103,6 +106,25 @@ describe('applyChatEvent', () => {
         expect(turn).toMatchObject({ status: 'done', text: 'Final answer', replyId: 'm9' })
     })
 
+    it('marks staged changes as proposed and keeps the stored proposal', () => {
+        const proposal = chatProposal()
+        const turn = fold([
+            { type: 'tool_call', call_id: 'c1', name: 'add_lodging', arguments: {} },
+            {
+                type: 'tool_result',
+                call_id: 'c1',
+                name: 'add_lodging',
+                ok: true,
+                summary: 'Proposed: Add lodging “Hotel Okura”',
+                proposed: true,
+            },
+            { type: 'done', message: chatMessage({ id: 'm9', proposal }) },
+        ])
+
+        expect(turn.tools[0]?.status).toBe('proposed')
+        expect(turn.proposal).toEqual(proposal)
+    })
+
     it('ends with an error, keeping the stored notice id when there is one', () => {
         const stored = fold([
             {
@@ -125,7 +147,7 @@ describe('applyChatEvent', () => {
 describe('labels', () => {
     it('describes running tools', () => {
         expect(toolRunningLabel('web_search', {})).toBe('Searching the web…')
-        expect(toolRunningLabel('remove_item', { item_id: 'x' })).toBe('Removing an item…')
+        expect(toolRunningLabel('remove_item', { item_id: 'x' })).toBe('Preparing a removal…')
         expect(toolRunningLabel('something_new', {})).toBe('Working…')
     })
 
@@ -138,8 +160,19 @@ describe('labels', () => {
                     arguments: {},
                     ok: true,
                     summary: 'Added flight',
+                    proposed: false,
                 },
             ]),
         ).toEqual([{ callId: 'c1', name: 'add_flight', status: 'ok', summary: 'Added flight' }])
+    })
+
+    it('maps stored proposed and failed traces to their chip status', () => {
+        const trace = { call_id: 'c1', name: 'add_flight', arguments: {}, summary: 'x' }
+        const statuses = toolsFromTraces([
+            { ...trace, ok: true, proposed: true },
+            { ...trace, call_id: 'c2', ok: false, proposed: false },
+        ]).map((tool) => tool.status)
+
+        expect(statuses).toEqual(['proposed', 'failed'])
     })
 })
