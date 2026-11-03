@@ -100,8 +100,15 @@ async def run_agent(
     tool failures are reported to the model instead.
     """
     # The tools see the card as it grows (the same list), so its changes count towards the
-    # budget: three dinners proposed together can't each fit on their own.
-    ctx = replace(ctx, staged=staged)
+    # budget: three dinners proposed together can't each fit on their own. Likewise the
+    # evidence list collects this turn's web results, which a cited source_url must be one
+    # of (or one known from before, or a link in the user's message).
+    ctx = replace(
+        ctx,
+        staged=staged,
+        evidence=[],
+        known_sources=ctx.known_sources | tools.urls_in(latest),
+    )
     messages = [
         LLMMessage(role="system", content=agent_system_prompt(plan, today)),
         *history,

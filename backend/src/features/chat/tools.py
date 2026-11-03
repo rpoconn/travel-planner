@@ -30,9 +30,10 @@ import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
@@ -149,6 +150,13 @@ class ToolContext:
     # The plan's workflow stage: `execute` refuses tools that belong to another stage.
     # None is ungated (applying an approved card, which may predate a stage change).
     stage: PlanStage | None = None
+    # This turn's web_search results (web_search appends to the list), so a cited
+    # source_url or an "exact" price can be checked against what was really found. None is
+    # ungated, as when an approved card is applied: it was checked when it was staged.
+    evidence: list[SearchResult] | None = None
+    # Source URLs from before this turn (the plan's items, recent proposals, links the user
+    # pasted), normalised with `normalise_url`: citing one needs no new search.
+    known_sources: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -386,8 +394,9 @@ async def _apply_plan_details(ctx: ToolContext, prepared: Prepared) -> ToolOutco
 # Appended to a budget rule's message to tell the model what to do about it.
 _NO_COST_HELP = (
     "This plan has a budget or spending limits, so every item needs a cost in the budget's "
-    'currency: the price from the user or a web_search result (basis "exact"), or your best '
-    'estimate (basis "estimate"). Use 0 for something free'
+    'currency: the price from the user or a web_search result (basis "exact"; for a '
+    'result, also set source_url to its URL), or your best estimate (basis "estimate"). '
+    "Use 0 for something free"
 )
 _OVER_LIMIT_HELP = "Choose a cheaper option, or ask the user whether to raise that limit"
 _OVER_BUDGET_HELP = (
@@ -536,6 +545,85 @@ async def _check_route(
     raise ToolError(f"{problem.message}. {help_text}")
 
 
+# ---------------------------------------------------------------------------
+# Plausibility checks (overnight stays, cited sources)
+# ---------------------------------------------------------------------------
+
+# A stay shorter than this isn't a night's sleep, even when it crosses midnight (a small
+# model once proposed a dinner as lodging, 19:00 to 00:30).
+_MIN_STAY = timedelta(hours=8)
+
+_NOT_OVERNIGHT = (
+    "lodging is for overnight stays (check-out on a later day, at least 8 hours after "
+    "check-in), but this one is {start:%Y-%m-%d %H:%M} to {end:%Y-%m-%d %H:%M}. A meal, "
+    "show or tour is an activity (activities stage), not lodging"
+)
+
+# Hosts reserved for documentation and testing: a URL on one is made up.
+_PLACEHOLDER_HOST = re.compile(r"(?:^|\.)(?:example\.(?:com|org|net)|localhost)$", re.IGNORECASE)
+_URL = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
+
+
+def normalise_url(url: str) -> str:
+    """`url` as compared against the evidence: whitespace and a trailing "/" don't count."""
+    return url.strip().rstrip("/")
+
+
+def urls_in(text: str) -> frozenset[str]:
+    """The links in `text` (a user message), normalised. Trailing punctuation is dropped."""
+    return frozenset(normalise_url(match.rstrip(".,;:!?")) for match in _URL.findall(text))
+
+
+def _is_placeholder(url: str) -> bool:
+    host = urlsplit(url.strip()).hostname or ""
+    return _PLACEHOLDER_HOST.search(host) is not None
+
+
+def _check_overnight(item: ItemFields) -> None:
+    """Raise a ToolError if `item` is lodging that isn't an overnight stay. Times are
+    zone-aware (`ItemFields._normalize_times`), so the dates are the local ones."""
+    if not isinstance(item, LodgingItemCreate):
+        return
+    if item.end.date() > item.start.date() and item.end - item.start >= _MIN_STAY:
+        return
+    raise ToolError(_NOT_OVERNIGHT.format(start=item.start, end=item.end))
+
+
+def _check_evidence(ctx: ToolContext, item: ItemFields) -> None:
+    """Raise a ToolError if `item` cites a source this turn never found, or calls a price
+    "exact" without citing the search result that gave it. Ungated (no evidence) on
+    approval, and for choose_flights, whose flights come from a real search."""
+    if ctx.evidence is None:
+        return
+    found = [normalise_url(result.url) for result in ctx.evidence]
+    url = item.source_url
+    if url is not None:
+        if normalise_url(url) in found or normalise_url(url) in ctx.known_sources:
+            # Even a placeholder host: the offline search provider's results use one.
+            return
+        if _is_placeholder(url):
+            raise ToolError(
+                f"source_url {url} is made up. Never invent a URL: use one from a web_search "
+                "result, or leave source_url out"
+            )
+        if found:
+            listed = ", ".join(dict.fromkeys(found))
+            raise ToolError(
+                f"source_url {url} is not from a web_search result. Use one of {listed}, "
+                "or leave source_url out"
+            )
+        raise ToolError(
+            f"source_url {url} is not from a web_search result (none ran this turn). Leave "
+            "source_url out, or search first and use a result's URL"
+        )
+    # Without a search this turn, an exact price is one the user quoted: allowed.
+    if found and item.cost is not None and item.cost.basis == "exact":
+        raise ToolError(
+            'cost is marked "exact" but has no source_url. Set source_url to the URL of the '
+            'web_search result that gave the price, or mark the cost basis "estimate"'
+        )
+
+
 def _flight_title(fields: dict[str, Any]) -> str | None:
     """'Flight PHL to HND' from a flight's airports, or None if they don't validate (the
     model's own validation then reports them)."""
@@ -565,6 +653,8 @@ def _prepare_add(item_type: ItemType) -> PrepareHandler:
         if item_type == "flight" and not has_direction:
             fields["direction"] = "internal"
         data = model.model_validate(fields)
+        _check_overnight(data)
+        _check_evidence(ctx, data)
         _reject_past(data.start.date(), "start", ctx.today)
         # Also fails a deleted plan here rather than on approval.
         plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
@@ -751,6 +841,9 @@ def _choice_note(
 
 
 async def _prepare_chosen_flights(ctx: ToolContext, arguments: dict[str, Any]) -> Bundle:
+    # The legs come from a real flight search (exact prices, no source_url), so they skip
+    # the checks against this turn's web results, even after a web_search.
+    ctx = replace(ctx, evidence=None)
     args = ChooseFlightsArgs.model_validate(_drop_nulls(arguments))
     plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
     query = _flight_query(args, plan, ctx.today)
@@ -953,6 +1046,8 @@ def return_flight_nudge(plan: TravelPlan, staged: Sequence[ProposedChange]) -> s
 # Item fields whose change re-runs the budget checks.
 _BUDGET_FIELDS = frozenset({"cost", "category", "status"})
 _TIME_FIELDS = frozenset({"start", "end", "timezone", "end_timezone"})
+# Item fields whose change re-runs the source checks (a cited URL, an "exact" price).
+_EVIDENCE_FIELDS = frozenset({"source_url", "cost"})
 # Item fields whose change re-runs the route check (a flight's times, airports, status).
 _ROUTE_FIELDS = _TIME_FIELDS | {"from_place", "to_place", "status"}
 
@@ -992,7 +1087,10 @@ async def _prepare_update(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
     # Only changes that affect what the item costs are checked: moving an item that had no
     # cost before the budget was set is fine (the timeline flags it instead).
     if patch.model_fields_set & _TIME_FIELDS:
+        _check_overnight(merged)
         await _check_zone(ctx, merged, "update_item", arguments, item_id=args.item_id)
+    if patch.model_fields_set & _EVIDENCE_FIELDS:
+        _check_evidence(ctx, merged)
     if isinstance(merged, FlightFields) and patch.model_fields_set & _ROUTE_FIELDS:
         await _check_route(ctx, merged, "update_item", arguments, item_id=args.item_id)
     if patch.model_fields_set & _BUDGET_FIELDS:
@@ -1083,6 +1181,8 @@ async def _web_search(ctx: ToolContext, arguments: dict[str, Any]) -> ToolOutcom
             ),
             summary=str(exc),
         )
+    if ctx.evidence is not None:
+        ctx.evidence.extend(results)
     if not results:
         return ToolOutcome(
             ok=True,

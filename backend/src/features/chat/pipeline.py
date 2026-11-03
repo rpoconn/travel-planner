@@ -101,6 +101,27 @@ def _llm_history(rows: Sequence[Message]) -> list[LLMMessage]:
     ]
 
 
+def _recent_sources(rows: Sequence[Message]) -> frozenset[str]:
+    """Source URLs the recent conversation already established: those on its proposals'
+    changes, and links the user pasted. A re-proposal ("the second one", a revision) may
+    cite them without searching again. Web results only listed in an earlier reply's text
+    aren't stored anywhere, so citing one of those still needs a new search."""
+    urls: set[str] = set()
+    for row in rows:
+        if row.role == "user":
+            urls |= tools.urls_in(row.content)
+        if row.proposal is None:
+            continue
+        for change in row.proposal.changes:
+            arguments = change.get("arguments") or {}
+            # An add_* change has the item's fields; an update_item change nests them.
+            for fields in (arguments, arguments.get("changes")):
+                url = fields.get("source_url") if isinstance(fields, dict) else None
+                if isinstance(url, str):
+                    urls.add(tools.normalise_url(url))
+    return frozenset(urls)
+
+
 @dataclass
 class _Reply:
     """Accumulates the assistant message from the events streamed to the client."""
@@ -191,16 +212,19 @@ async def _agent_turn(
     history: list[LLMMessage],
     latest: str,
     reply: _Reply,
+    sources: frozenset[str] = frozenset(),
 ) -> AsyncIterator[ChatEvent]:
     """Run the agent on `latest` and store its reply; the changes it stages become the
-    reply's proposal."""
+    reply's proposal. `sources` are source URLs the agent may cite without searching
+    again (see `_recent_sources`); the plan's own items' sources are added here."""
     snapshot = await itinerary_service.snapshot(session, plan)
     staged: list[ProposedChange] = []
+    item_sources = {tools.normalise_url(i.source_url) for i in snapshot.items if i.source_url}
     # Hard gate: the agent is offered only the current stage's tools, and `execute`
     # refuses any other it names anyway.
     async for event in agent.run_agent(
         llm=llm,
-        ctx=replace(ctx, stage=snapshot.stage),
+        ctx=replace(ctx, stage=snapshot.stage, known_sources=sources | item_sources),
         plan=snapshot,
         history=history,
         latest=latest,
@@ -240,9 +264,8 @@ async def answer_message(
     # Read once: after a rollback the ORM object is expired, and reloading `plan.id`
     # lazily would need sync IO (MissingGreenlet) right when we're reporting an error.
     plan_id = plan.id
-    history = _llm_history(
-        await service.recent_messages(session, plan_id, limit=AGENT_HISTORY_MESSAGES)
-    )
+    rows = await service.recent_messages(session, plan_id, limit=AGENT_HISTORY_MESSAGES)
+    history = _llm_history(rows)
     user_message = await service.add_message(session, plan_id, "user", content)
     ctx = ToolContext(
         session=session,
@@ -280,6 +303,7 @@ async def answer_message(
                 history=history,
                 latest=latest,
                 reply=reply,
+                sources=_recent_sources(rows),
             )
         else:
             # Marks the exchange so it's left out of the agent's future context.
@@ -433,6 +457,7 @@ async def decide_proposal(
             history=_llm_history(rows),
             latest=latest,
             reply=reply,
+            sources=_recent_sources(rows),
         ):
             yield event
 

@@ -268,6 +268,41 @@ async def test_invented_plan_details_are_only_proposed(ctx: ToolContext) -> None
 
 
 # ---------------------------------------------------------------------------
+# Cited sources (every agent turn checks them against its own web results)
+# ---------------------------------------------------------------------------
+
+
+async def test_an_invented_source_url_is_refused_and_retried(ctx: ToolContext) -> None:
+    invented = {**HOTEL_ARGS, "source_url": "https://www.example.com/okura"}
+    llm = FakeLLM(
+        [
+            tool_calls(("add_lodging", invented)),
+            tool_calls(("add_lodging", HOTEL_ARGS)),
+            text("I've proposed Hotel Okura."),
+        ]
+    )
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged)
+
+    assert [e.ok for e in _of_type(events, ToolResultEvent)] == [False, True]
+    assert "Never invent a URL" in llm.requests[1].messages[-1].content
+    (change,) = staged
+    assert "source_url" not in change.arguments
+
+
+async def test_a_link_the_user_pasted_may_be_cited(ctx: ToolContext) -> None:
+    url = "https://www.hotelokura.co.jp/tokyo"
+    llm = FakeLLM([tool_calls(("add_lodging", {**HOTEL_ARGS, "source_url": url})), text("Done.")])
+    staged: list[ProposedChange] = []
+
+    await _run(llm, ctx, f"Add this hotel: {url}/.", staged=staged)
+
+    (change,) = staged
+    assert change.arguments["source_url"] == url
+
+
+# ---------------------------------------------------------------------------
 # Return flight
 # ---------------------------------------------------------------------------
 

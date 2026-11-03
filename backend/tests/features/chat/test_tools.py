@@ -17,6 +17,7 @@ from features.chat.tools import (
     check_change,
     execute,
     specs_for_stage,
+    urls_in,
 )
 from features.itinerary import service as itinerary_service
 from features.plans import service as plans_service
@@ -1293,3 +1294,185 @@ async def test_an_approved_change_applies_whatever_the_stage(ctx: ToolContext) -
     outcome = await apply_change(replace(ctx, stage="flights"), _change(staged))
 
     assert outcome.ok, outcome.content
+
+
+# ---------------------------------------------------------------------------
+# Plausibility checks: overnight stays and cited sources
+# ---------------------------------------------------------------------------
+
+_OKURA_URL = "https://www.hotelokura.co.jp/tokyo/"
+_RESULTS = [
+    SearchResult(title="The Okura Tokyo", url=_OKURA_URL, snippet="From $400 a night"),
+    SearchResult(title="Park Hyatt Tokyo", url="https://www.hyatt.com/park-hyatt/tokyo"),
+]
+_EXACT = {"amount": 1600, "currency": "USD", "basis": "exact"}
+
+
+def _gated(ctx: ToolContext) -> ToolContext:
+    """The context an agent turn runs with: its own (empty) list of web results."""
+    return replace(ctx, evidence=[])
+
+
+async def _searched(ctx: ToolContext, fake_search: FakeSearchProvider) -> ToolContext:
+    gated = _gated(ctx)
+    fake_search.queue(_RESULTS)
+    assert (await _stage(gated, "web_search", {"query": "hotels", "kind": "hotels"})).ok
+    return gated
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        ("2027-05-03T19:00:00", "2027-05-04T00:30:00"),  # a dinner across midnight
+        ("2027-05-03T09:00:00", "2027-05-03T22:00:00"),  # a day room
+    ],
+)
+async def test_lodging_must_be_an_overnight_stay(ctx: ToolContext, start: str, end: str) -> None:
+    outcome = await _stage(ctx, "add_lodging", {**HOTEL_ARGS, "start": start, "end": end})
+
+    assert not outcome.ok and not outcome.prepared
+    assert "lodging is for overnight stays" in outcome.content
+    assert "activity (activities stage)" in outcome.content
+
+
+async def test_moving_lodging_so_it_is_not_overnight_is_rejected(ctx: ToolContext) -> None:
+    hotel_id = await _add_hotel(ctx)
+
+    outcome = await _stage(
+        ctx, "update_item", {"item_id": hotel_id, "changes": {"end": "2027-05-02T20:00:00"}}
+    )
+
+    assert not outcome.ok
+    assert "overnight stays" in outcome.content
+
+
+async def test_a_placeholder_url_is_rejected_even_without_a_search(ctx: ToolContext) -> None:
+    arguments = {**HOTEL_ARGS, "source_url": "https://www.example.com/hotel-okura"}
+
+    outcome = await _stage(_gated(ctx), "add_lodging", arguments)
+
+    assert not outcome.ok
+    assert "is made up. Never invent a URL" in outcome.content
+
+
+async def test_a_url_no_search_found_is_rejected(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    gated = await _searched(ctx, fake_search)
+
+    outcome = await _stage(
+        gated, "add_lodging", {**HOTEL_ARGS, "source_url": "https://okura.jp/booking"}
+    )
+
+    assert not outcome.ok
+    assert "is not from a web_search result" in outcome.content
+    assert _OKURA_URL.rstrip("/") in outcome.content  # the URLs it could cite
+
+
+async def test_a_url_without_any_search_this_turn_is_rejected(ctx: ToolContext) -> None:
+    outcome = await _stage(
+        _gated(ctx), "add_lodging", {**HOTEL_ARGS, "source_url": "https://okura.jp/booking"}
+    )
+
+    assert not outcome.ok
+    assert "none ran this turn" in outcome.content
+
+
+async def test_a_url_from_the_search_is_accepted(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    gated = await _searched(ctx, fake_search)
+
+    # Without the trailing slash, as models often copy it.
+    arguments = {**HOTEL_ARGS, "source_url": f" {_OKURA_URL.rstrip('/')}", "cost": _EXACT}
+    outcome = await _stage(gated, "add_lodging", arguments)
+
+    assert outcome.ok, outcome.content
+
+
+async def test_a_known_source_needs_no_new_search(ctx: ToolContext) -> None:
+    known = replace(_gated(ctx), known_sources=frozenset({_OKURA_URL.rstrip("/")}))
+
+    outcome = await _stage(known, "add_lodging", {**HOTEL_ARGS, "source_url": _OKURA_URL})
+
+    assert outcome.ok, outcome.content
+
+
+async def test_an_offline_search_result_may_be_cited(ctx: ToolContext) -> None:
+    # The fake search provider's canned results are on example.com.
+    gated = _gated(ctx)
+    assert (await _stage(gated, "web_search", {"query": "hotels", "kind": "hotels"})).ok
+    url = gated.evidence[0].url if gated.evidence else ""
+
+    outcome = await _stage(gated, "add_lodging", {**HOTEL_ARGS, "source_url": url})
+
+    assert url.startswith("https://example.com/")
+    assert outcome.ok, outcome.content
+
+
+async def test_an_exact_price_after_a_search_must_cite_it(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    gated = await _searched(ctx, fake_search)
+
+    outcome = await _stage(gated, "add_lodging", {**HOTEL_ARGS, "cost": _EXACT})
+
+    assert not outcome.ok
+    assert 'cost is marked "exact" but has no source_url' in outcome.content
+    estimate = {**_EXACT, "basis": "estimate"}
+    assert (await _stage(gated, "add_lodging", {**HOTEL_ARGS, "cost": estimate})).ok
+
+
+async def test_an_exact_price_without_a_search_is_the_users(ctx: ToolContext) -> None:
+    outcome = await _stage(_gated(ctx), "add_lodging", {**HOTEL_ARGS, "cost": _EXACT})
+
+    assert outcome.ok, outcome.content
+
+
+async def test_an_update_citing_an_unfound_url_is_rejected(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    hotel_id = await _add_hotel(ctx)
+    gated = await _searched(ctx, fake_search)
+
+    outcome = await _stage(
+        gated,
+        "update_item",
+        {"item_id": hotel_id, "changes": {"source_url": "https://okura.jp/booking"}},
+    )
+
+    assert not outcome.ok
+    assert "is not from a web_search result" in outcome.content
+
+
+async def test_choose_flights_skips_the_source_checks_after_a_web_search(
+    ctx: ToolContext, fake_search: FakeSearchProvider, fake_flights: FakeFlightProvider
+) -> None:
+    await _ready_for_flights(ctx)
+    gated = await _searched(ctx, fake_search)
+    fake_flights.queue([_FAST], [_HOME])
+
+    # The legs have exact prices from the flight search and no source_url.
+    outcome = await _stage(gated, "choose_flights", {"to_airports": ["HND"]})
+
+    assert outcome.ok, outcome.content
+    assert len(outcome.prepared) == 2
+
+
+async def test_approving_skips_the_source_checks(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    gated = await _searched(ctx, fake_search)
+    staged = await _stage(gated, "add_lodging", {**HOTEL_ARGS, "source_url": _OKURA_URL})
+
+    # On approval there is no evidence (a new request): the change was checked when staged.
+    outcome = await check_change(ctx, _change(staged))
+
+    assert ctx.evidence is None
+    assert outcome.ok, outcome.content
+
+
+def test_urls_in_finds_pasted_links() -> None:
+    text = "Book https://okura.jp/rooms/, or (https://hyatt.com/tokyo). Not www.x.com"
+
+    assert urls_in(text) == {"https://okura.jp/rooms", "https://hyatt.com/tokyo"}
