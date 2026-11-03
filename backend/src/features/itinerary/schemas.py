@@ -430,7 +430,30 @@ class TimelineWarning(BaseModel):
     item_ids: list[UUID] = Field(default_factory=list)
 
 
+class Gap(BaseModel):
+    """A change of place with no transfer to cover it (found by `itinerary.gaps`).
+
+    `None` item ids mean the traveller's home: `after_item_id=None` is the trip's start
+    (home → first stop) and `before_item_id=None` is its end (last stop → home).
+    """
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    from_place: Place
+    to_place: Place
+    after_item_id: UUID | None = None
+    before_item_id: UUID | None = None
+    # The window a transfer has to fit in. Open-ended at home: the trip doesn't say when
+    # the traveller leaves the house or gets back to it.
+    leave_after: datetime | None = None
+    arrive_before: datetime | None = None
+    # IANA zone the transfer happens in (where it leaves from).
+    timezone: str
+
+
 class Timeline(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
     plan_id: UUID
     version: int
     # Covers the plan's dates, widened to include any items outside them (or derived from
@@ -438,3 +461,8 @@ class Timeline(BaseModel):
     days: list[TimelineDay]
     lodging: list[LodgingSpan]
     warnings: list[TimelineWarning]
+    # Every unbridged change of place, home to home; each is also a `missing_transfer`
+    # warning. The UI draws them as connectors.
+    gaps: list[Gap] = Field(default_factory=list)
+    # The plan's origin, i.e. where the trip starts and ends; None when it isn't known.
+    home: Place | None = None

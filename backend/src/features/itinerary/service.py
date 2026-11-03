@@ -27,6 +27,7 @@ from features.itinerary.timeline import build_timeline
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import PlanDetails, TravelPlan
+from features.plans.stages import plan_progress
 from shared.db import utc_now
 from shared.validation import summarize_validation_error
 
@@ -106,9 +107,14 @@ async def get_item(
 
 
 async def snapshot(session: AsyncSession, plan: Plan) -> TravelPlan:
-    """Full `TravelPlan` (details + items) for a plan the caller has already resolved."""
+    """Full `TravelPlan` (details, items and stage progress) for a plan the caller has
+    already resolved."""
     details = PlanDetails.model_validate(plan)
-    return TravelPlan.model_validate({**dict(details), "items": await _items_for(session, plan.id)})
+    items = await _items_for(session, plan.id)
+    progress = plan_progress(details, items)
+    return TravelPlan.model_validate(
+        {**dict(details), "items": items, "stages": progress.stages, "gaps": progress.gaps}
+    )
 
 
 async def get_plan_snapshot(session: AsyncSession, user_id: UUID, plan_id: UUID) -> TravelPlan:
@@ -128,6 +134,7 @@ async def get_timeline(session: AsyncSession, user_id: UUID, plan_id: UUID) -> T
         budget=details.budget,
         limits=details.limits,
         travelers=details.travelers,
+        origin=details.origin,
     )
 
 

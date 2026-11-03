@@ -30,6 +30,8 @@ def _plan(*items: ActivityItem) -> TravelPlan:
             "user_id": uuid4(),
             "title": "Tokyo in May",
             "status": "draft",
+            "stage": "basics",
+            "flights_skipped": False,
             "origin": None,
             "destination": None,
             "start_date": None,
@@ -42,6 +44,8 @@ def _plan(*items: ActivityItem) -> TravelPlan:
             "created_at": CREATED,
             "updated_at": CREATED,
             "items": list(items),
+            "stages": [],
+            "gaps": [],
         }
     )
 

@@ -251,3 +251,126 @@ async def test_users_cannot_see_or_modify_each_others_plans(
     assert deleted.status_code == 404
     still_there = await client.get(url, headers=headers)
     assert still_there.json()["title"] == "Tokyo in May"
+
+
+# ---------------------------------------------------------------------------
+# Home and stages
+# ---------------------------------------------------------------------------
+
+HOME: dict[str, Any] = {"name": "12 Pine St", "city": "Philadelphia", "iata": "PHL"}
+
+
+async def _set_home(client: AsyncClient, headers: dict[str, str]) -> None:
+    response = await client.patch("/auth/me", json={"home": HOME}, headers=headers)
+    assert response.status_code == 200, response.text
+
+
+async def test_a_new_plan_starts_from_the_users_home(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    await _set_home(client, headers)
+
+    plan = await _create(client, headers)
+
+    assert plan["origin"]["city"] == "Philadelphia"
+    assert plan["origin"]["iata"] == "PHL"
+
+
+async def test_an_explicit_origin_wins_over_home(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    await _set_home(client, headers)
+
+    plan = await _create(client, headers, **TOKYO)
+
+    assert plan["origin"]["iata"] == "SFO"
+
+
+async def test_a_new_plan_is_at_the_basics_stage_with_its_checklist(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    plan = await _create(client, headers)
+
+    assert plan["stage"] == "basics"
+    assert plan["flights_skipped"] is False
+    assert [status["stage"] for status in plan["stages"]] == [
+        "basics",
+        "flights",
+        "lodging",
+        "activities",
+        "ground",
+        "review",
+    ]
+    assert plan["stages"][0]["ready"] is False
+    assert plan["gaps"] == []
+
+
+async def test_next_moves_a_ready_plan_on_and_back_returns(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    created = await _create(client, headers, **TOKYO)
+
+    response = await client.post(
+        f"/plans/{created['id']}/stage", json={"action": "next"}, headers=headers
+    )
+
+    assert response.status_code == 200, response.text
+    moved = response.json()
+    assert moved["stage"] == "flights"
+    assert moved["version"] == created["version"] + 1
+    listed = (await client.get("/plans", headers=headers)).json()
+    assert listed[0]["stage"] == "flights"
+
+    response = await client.post(
+        f"/plans/{created['id']}/stage", json={"action": "back"}, headers=headers
+    )
+    assert response.json()["stage"] == "basics"
+
+
+async def test_next_is_refused_until_the_stage_is_ready(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    created = await _create(client, headers)
+
+    response = await client.post(
+        f"/plans/{created['id']}/stage", json={"action": "next"}, headers=headers
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"].startswith("Finish the basics stage first: trip dates")
+
+
+async def test_skip_flights_marks_the_plan(client: AsyncClient, headers: dict[str, str]) -> None:
+    created = await _create(client, headers, **TOKYO)
+    url = f"/plans/{created['id']}/stage"
+    await client.post(url, json={"action": "next"}, headers=headers)
+
+    response = await client.post(url, json={"action": "skip_flights"}, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert (response.json()["stage"], response.json()["flights_skipped"]) == ("lodging", True)
+
+
+async def test_stage_change_validates_the_body(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    created = await _create(client, headers)
+
+    response = await client.post(
+        f"/plans/{created['id']}/stage", json={"action": "go_to"}, headers=headers
+    )
+
+    assert response.status_code == 422
+
+
+async def test_stage_of_another_users_plan_is_404(
+    client: AsyncClient, headers: dict[str, str], register_user: RegisterUser
+) -> None:
+    created = await _create(client, headers, **TOKYO)
+    other = await register_user("eve@example.com")
+
+    response = await client.post(
+        f"/plans/{created['id']}/stage", json={"action": "next"}, headers=other
+    )
+
+    assert response.status_code == 404

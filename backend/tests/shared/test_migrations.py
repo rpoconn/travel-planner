@@ -19,7 +19,10 @@ _BASELINE_TABLES = frozenset(
 )
 # Columns later migrations added to the baseline tables: create_all builds today's models,
 # so these are dropped again to get the pre-migration schema.
-_LATER_COLUMNS = {"travel_plans": ("limits",)}
+_LATER_COLUMNS = {
+    "travel_plans": ("limits", "stage", "flights_skipped"),
+    "users": ("home",),
+}
 
 
 @pytest.fixture

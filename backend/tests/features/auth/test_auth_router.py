@@ -132,3 +132,41 @@ async def test_login_and_register_share_a_per_ip_rate_limit(
     assert limited.status_code == 429
     assert limited.json()["detail"].startswith("Too many sign-in attempts.")
     assert int(limited.headers["retry-after"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Profile
+# ---------------------------------------------------------------------------
+
+
+async def test_home_can_be_set_read_and_cleared(
+    client: AsyncClient, register_user: RegisterUser
+) -> None:
+    headers = await register_user("ada@example.com")
+    home = {"name": "12 Pine St", "city": "Philadelphia", "iata": "PHL"}
+
+    response = await client.patch("/auth/me", json={"home": home}, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["home"]["city"] == "Philadelphia"
+    me = (await client.get("/auth/me", headers=headers)).json()
+    assert me["home"]["iata"] == "PHL"
+
+    response = await client.patch("/auth/me", json={"home": None}, headers=headers)
+    assert response.json()["home"] is None
+
+
+async def test_home_is_validated(client: AsyncClient, register_user: RegisterUser) -> None:
+    headers = await register_user("ada@example.com")
+
+    response = await client.patch(
+        "/auth/me", json={"home": {"name": "Home", "iata": "phl"}}, headers=headers
+    )
+
+    assert response.status_code == 422
+
+
+async def test_updating_the_profile_requires_auth(client: AsyncClient) -> None:
+    response = await client.patch("/auth/me", json={"home": None})
+
+    assert response.status_code == 401

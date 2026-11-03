@@ -26,6 +26,7 @@ SYD = Place(name="Sydney Airport", iata="SYD", city="Sydney")
 OKURA = Place(name="Hotel Okura", city="Tokyo")
 SENSOJI = Place(name="Senso-ji", city="Tokyo")
 TSUKIJI = Place(name="Tsukiji Outer Market", city="Tokyo")
+HOME = Place(name="12 Pine St", city="San Francisco", address="12 Pine St, San Francisco")
 
 TOKYO_TZ = "Asia/Tokyo"
 LA_TZ = "America/Los_Angeles"
@@ -113,13 +114,14 @@ def transfer(
     from_place: Place = NRT,
     to_place: Place = OKURA,
     title: str = "Narita Express",
+    timezone: str = TOKYO_TZ,
     status: ItemStatus = "proposed",
 ) -> TransferItem:
     return TransferItem.model_validate(
         {
             **_common(title, start, end, status),
             "type": "transfer",
-            "timezone": TOKYO_TZ,
+            "timezone": timezone,
             "mode": "train",
             "from_place": from_place,
             "to_place": to_place,

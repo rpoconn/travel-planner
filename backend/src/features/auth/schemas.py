@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
+from shared.domain import Place
 from shared.security import BCRYPT_MAX_PASSWORD_BYTES
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,17 @@ class LoginRequest(BaseModel):
     ]
 
 
+class UserUpdate(BaseModel):
+    """Profile changes; `home` replaces the stored home (null clears it)."""
+
+    home: Place | None = Field(
+        description=(
+            "Where trips start and end: the city or address, plus the nearest airport's "
+            "`iata` code for flight searches"
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Responses
 # ---------------------------------------------------------------------------
@@ -57,6 +69,7 @@ class UserRead(BaseModel):
     id: UUID
     email: str
     display_name: str
+    home: Place | None = None
     created_at: datetime
 
 

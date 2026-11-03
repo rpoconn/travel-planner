@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.auth.models import User
-from features.auth.schemas import RegisterRequest, TokenResponse, UserRead
+from features.auth.schemas import RegisterRequest, TokenResponse, UserRead, UserUpdate
 from shared.config import Settings
 from shared.security import create_access_token, hash_password, verify_password
 
@@ -61,6 +61,13 @@ async def register_user(session: AsyncSession, data: RegisterRequest, bcrypt_rou
         raise EmailAlreadyRegisteredError(email) from exc
 
     logger.info("Registered user %s", user.id)
+    return user
+
+
+async def update_user(session: AsyncSession, user: User, data: UserUpdate) -> User:
+    user.home = data.home.model_dump(mode="json") if data.home is not None else None
+    await session.commit()
+    logger.info("Updated profile of user %s", user.id)
     return user
 
 

@@ -1,15 +1,11 @@
 """Timeline derivation: turns a plan's items into day columns, lodging bars and warnings.
 
 Pure functions over validated schemas (no database), so the layout rules are unit-tested
-directly. Days are *local* calendar days: an item's first day is the date of `start` in its
-timezone and its last day is the date of `end` in its end timezone, which is what the
-traveller sees on their watch (an overnight LAX→SYD flight touches three days).
+directly. Days are local calendar days (see `itinerary.days`).
 """
 
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
-from itertools import pairwise
+from collections.abc import Sequence
+from datetime import date
 from uuid import UUID
 
 from features.itinerary.budget import (
@@ -18,10 +14,12 @@ from features.itinerary.budget import (
     needs_cost,
     total_error,
 )
+from features.itinerary.days import date_range, item_days, uncovered_nights
+from features.itinerary.gaps import describe_place, find_gaps
 from features.itinerary.routes import departure_problem
 from features.itinerary.schemas import (
-    ActivityItem,
     FlightItem,
+    Gap,
     ItineraryItem,
     LodgingItem,
     LodgingSpan,
@@ -31,31 +29,16 @@ from features.itinerary.schemas import (
     TimelineDay,
     TimelineEntry,
     TimelineWarning,
-    TransferItem,
 )
 from features.itinerary.zones import arrival_zone, legs, zone_error
 from shared.domain import Money, Place, Travelers
 
+# Re-exported: tests and callers have always imported it from here.
+__all__ = ["build_timeline", "item_days", "warnings_from_gaps"]
+
 # ---------------------------------------------------------------------------
 # Day helpers
 # ---------------------------------------------------------------------------
-
-
-def item_days(item: ItineraryItem) -> tuple[date, date]:
-    """First and last local day an item touches (inclusive)."""
-    first = item.start.date()
-    last = item.end.date()
-    # An end of exactly midnight belongs to the previous day (an activity until 00:00).
-    if item.end > item.start and item.end.time() == time(0):
-        last -= timedelta(days=1)
-    # Flying east across the date line can land on an earlier local date than takeoff;
-    # keep such items on their departure day.
-    return first, max(first, last)
-
-
-def _date_range(first: date, last: date) -> Iterator[date]:
-    for offset in range((last - first).days + 1):
-        yield first + timedelta(days=offset)
 
 
 def _label(day: date) -> str:
@@ -76,85 +59,26 @@ def _day_zones(days: Sequence[date], items: Sequence[ItineraryItem]) -> list[str
 
 
 # ---------------------------------------------------------------------------
-# Transfer-gap detection
+# Transfer gaps
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class _Stop:
-    """A located stretch of one item on one day, used to spot missing transfers."""
-
-    item_id: UUID
-    start: datetime
-    end: datetime
-    start_place: Place
-    end_place: Place
-    is_transfer: bool
-
-
-def _same_place(a: Place, b: Place) -> bool:
-    if a.iata is not None and b.iata is not None:
-        return a.iata == b.iata
-    return a.name.strip().casefold() == b.name.strip().casefold()
-
-
-def _stops_on(day: date, items: Sequence[ItineraryItem]) -> list[_Stop]:
-    stops: list[_Stop] = []
-    for item in items:
-        first, last = item_days(item)
-        if not first <= day <= last:
-            continue
-        match item:
-            case LodgingItem():
-                # A stay is only "located" on its check-in and check-out days; on the
-                # days in between the traveller starts and ends at the hotel implicitly.
-                if day == first:
-                    stops.append(
-                        _Stop(item.id, item.start, item.start, item.place, item.place, False)
-                    )
-                if day == last:
-                    stops.append(_Stop(item.id, item.end, item.end, item.place, item.place, False))
-            case ActivityItem():
-                stops.append(_Stop(item.id, item.start, item.end, item.place, item.place, False))
-            case FlightItem() | TransferItem():
-                stops.append(
-                    _Stop(
-                        item.id,
-                        item.start,
-                        item.end,
-                        item.from_place,
-                        item.to_place,
-                        isinstance(item, TransferItem),
-                    )
-                )
-    return sorted(stops, key=lambda s: (s.start, s.end))
-
-
-def _missing_transfers(
-    days: Sequence[date], items: Sequence[ItineraryItem]
-) -> list[TimelineWarning]:
+def warnings_from_gaps(gaps: Sequence[Gap]) -> list[TimelineWarning]:
+    """One `missing_transfer` warning per gap, dated by when the traveller must arrive."""
     warnings: list[TimelineWarning] = []
-    seen: set[tuple[UUID, UUID]] = set()
-    for day in days:
-        stops = _stops_on(day, items)
-        for prev, nxt in pairwise(stops):
-            if prev.is_transfer or nxt.is_transfer or prev.item_id == nxt.item_id:
-                continue
-            if _same_place(prev.end_place, nxt.start_place):
-                continue
-            # Items spanning several days would otherwise be reported once per day.
-            pair = (prev.item_id, nxt.item_id)
-            if pair in seen:
-                continue
-            seen.add(pair)
-            warnings.append(
-                TimelineWarning(
-                    kind="missing_transfer",
-                    message=(f"No transfer from {prev.end_place.name} to {nxt.start_place.name}"),
-                    date=day,
-                    item_ids=[prev.item_id, nxt.item_id],
-                )
+    for gap in gaps:
+        moment = gap.arrive_before or gap.leave_after
+        warnings.append(
+            TimelineWarning(
+                kind="missing_transfer",
+                message=(
+                    f"No transfer from {describe_place(gap.from_place, gap.after_item_id)} "
+                    f"to {describe_place(gap.to_place, gap.before_item_id)}"
+                ),
+                date=moment.date() if moment is not None else None,
+                item_ids=[i for i in (gap.after_item_id, gap.before_item_id) if i is not None],
             )
+        )
     return warnings
 
 
@@ -184,21 +108,11 @@ def _overlaps(items: Sequence[ItineraryItem]) -> list[TimelineWarning]:
 def _nights_without_lodging(
     days: Sequence[date], items: Sequence[ItineraryItem]
 ) -> list[TimelineWarning]:
-    covered: set[date] = set()
-    for item in items:
-        if item.type == "activity":
-            continue
-        first, last = item_days(item)
-        # Lodging covers each night from check-in to the night before check-out; a
-        # flight/transfer running past midnight (red-eye, sleeper train) covers its nights.
-        covered.update(_date_range(first, last - timedelta(days=1)) if last > first else ())
-    # The last day is the trip's end, so it has no night to cover.
     return [
         TimelineWarning(
             kind="no_lodging", message=f"No lodging for the night of {_label(night)}", date=night
         )
-        for night in days[:-1]
-        if night not in covered
+        for night in uncovered_nights(days, items)
     ]
 
 
@@ -304,6 +218,7 @@ def build_timeline(
     budget: Money | None = None,
     limits: Sequence[SpendingLimit] = (),
     travelers: Travelers | None = None,
+    origin: Place | None = None,
 ) -> Timeline:
     spans_by_item = {item.id: item_days(item) for item in items}
 
@@ -312,9 +227,11 @@ def build_timeline(
     lows = plan_dates + [first for first, _ in spans_by_item.values()]
     highs = plan_dates + [last for _, last in spans_by_item.values()]
     if not lows:
-        return Timeline(plan_id=plan_id, version=version, days=[], lodging=[], warnings=[])
+        return Timeline(
+            plan_id=plan_id, version=version, days=[], lodging=[], warnings=[], home=origin
+        )
     range_first, range_last = min(lows), max(highs)
-    dates = list(_date_range(range_first, range_last))
+    dates = list(date_range(range_first, range_last))
 
     # Cards per day (everything except lodging, which is drawn as spans).
     ordered = sorted(items, key=lambda i: (i.start, i.end, i.title))
@@ -349,16 +266,25 @@ def build_timeline(
 
     # Cancelled items stay visible (the UI greys them out) but don't count for warnings.
     active = [item for item in ordered if item.status != "cancelled"]
+    gaps = find_gaps(active, origin)
     warnings = [
         *_outside_trip(start_date, end_date, active),
         *_nights_without_lodging(dates, active),
         *_overlaps([i for i in active if i.type != "lodging"]),
         *_overlaps([i for i in active if i.type == "lodging"]),
-        *_missing_transfers(dates, active),
+        *warnings_from_gaps(gaps),
         *_zone_warnings(active),
         *_route_warnings(active),
         *_budget_warnings(budget, limits, travelers, active),
     ]
     warnings.sort(key=lambda w: w.date or range_first)
 
-    return Timeline(plan_id=plan_id, version=version, days=days, lodging=lodging, warnings=warnings)
+    return Timeline(
+        plan_id=plan_id,
+        version=version,
+        days=days,
+        lodging=lodging,
+        warnings=warnings,
+        gaps=gaps,
+        home=origin,
+    )

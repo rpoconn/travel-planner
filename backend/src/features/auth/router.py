@@ -2,7 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from features.auth import service
 from features.auth.dependencies import CurrentUser, limit_auth_attempts
-from features.auth.schemas import LoginRequest, RegisterRequest, TokenResponse, UserRead
+from features.auth.schemas import (
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserRead,
+    UserUpdate,
+)
 from shared.config import SettingsDep
 from shared.db import SessionDep
 from shared.errors import error_responses
@@ -54,3 +60,13 @@ async def login(body: LoginRequest, session: SessionDep, settings: SettingsDep) 
 async def get_me(user: CurrentUser) -> UserRead:
     """The currently authenticated user."""
     return UserRead.model_validate(user)
+
+
+@router.patch(
+    "/me",
+    operation_id="updateMe",
+    responses=error_responses(status.HTTP_401_UNAUTHORIZED),
+)
+async def update_me(body: UserUpdate, user: CurrentUser, session: SessionDep) -> UserRead:
+    """Update the current user's profile (their home)."""
+    return UserRead.model_validate(await service.update_user(session, user, body))

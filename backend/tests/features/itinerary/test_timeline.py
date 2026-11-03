@@ -6,6 +6,7 @@ from features.itinerary.schemas import ItineraryItem, SpendingLimit, Timeline, W
 from features.itinerary.timeline import build_timeline, item_days
 from shared.domain import Cost, Money, Travelers
 from tests.features.itinerary.factories import (
+    HOME,
     JFK,
     LA_TZ,
     LAX,
@@ -248,6 +249,48 @@ def test_missing_transfer_from_airport_to_hotel() -> None:
             "No transfer from Narita International Airport to Hotel Okura",
         )
     ]
+
+
+def test_a_late_landing_and_the_next_days_check_in_need_a_transfer() -> None:
+    # Gaps are found across the whole trip, not one day at a time.
+    late = flight("2027-05-01T17:00", "2027-05-02T23:30")
+    stay = lodging("2027-05-03T15:00", "2027-05-06T11:00")
+
+    timeline = _timeline([late, stay])
+
+    assert _warnings(timeline, "missing_transfer") == [date(2027, 5, 3)]
+    assert [(g.after_item_id, g.before_item_id) for g in timeline.gaps] == [(late.id, stay.id)]
+
+
+def test_home_gaps_are_warned_with_home_named() -> None:
+    stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
+
+    timeline = build_timeline(
+        plan_id=PLAN_ID,
+        version=3,
+        start_date=date(2027, 5, 1),
+        end_date=date(2027, 5, 8),
+        items=[stay],
+        origin=HOME,
+    )
+
+    assert timeline.home == HOME
+    missing = [w for w in timeline.warnings if w.kind == "missing_transfer"]
+    assert [(w.message, w.item_ids) for w in missing] == [
+        ("No transfer from Home (San Francisco) to Hotel Okura", [stay.id]),
+        ("No transfer from Hotel Okura to Home (San Francisco)", [stay.id]),
+    ]
+    assert [(g.after_item_id, g.before_item_id) for g in timeline.gaps] == [
+        (None, stay.id),
+        (stay.id, None),
+    ]
+
+
+def test_without_an_origin_the_timeline_has_no_home() -> None:
+    timeline = _timeline([lodging("2027-05-02T15:00", "2027-05-06T11:00")])
+
+    assert timeline.home is None
+    assert timeline.gaps == []
 
 
 def test_a_transfer_between_places_clears_the_warning() -> None:

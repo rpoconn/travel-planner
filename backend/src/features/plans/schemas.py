@@ -11,14 +11,22 @@ from pydantic import (
     model_validator,
 )
 
-from features.itinerary.schemas import ItineraryItem, SpendingLimit
+from features.itinerary.schemas import Gap, ItineraryItem, SpendingLimit
 from shared.domain import Money, Place, Travelers
 
 # ---------------------------------------------------------------------------
 # Field types
 # ---------------------------------------------------------------------------
 
+# `status` is the user's own label for the trip; `stage` (below) is where the planning
+# workflow is. Nothing reads `status` to gate anything.
 PlanStatus = Literal["draft", "planned", "booked"]
+
+# The planning workflow, in order. The chat agent only gets the current stage's tools, and
+# only the user moves between stages (POST /plans/{id}/stage).
+PlanStage = Literal["basics", "flights", "lodging", "activities", "ground", "review"]
+STAGES: tuple[PlanStage, ...] = ("basics", "flights", "lodging", "activities", "ground", "review")
+StageAction = Literal["next", "back", "skip_flights", "go_to"]
 PlanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 PlanNotes = Annotated[str, Field(max_length=5000)]
 
@@ -106,9 +114,34 @@ class PlanUpdate(BaseModel):
         return self
 
 
+class StageChange(BaseModel):
+    """Move the plan through the workflow: `next` (only when the current stage is ready),
+    `back`, `skip_flights` (from the flights stage, for a trip without flying) or `go_to`
+    an earlier `stage`."""
+
+    action: StageAction
+    stage: PlanStage | None = None
+
+    @model_validator(mode="after")
+    def _stage_only_for_go_to(self) -> Self:
+        if self.action == "go_to" and self.stage is None:
+            raise ValueError("go_to needs a stage")
+        if self.action != "go_to" and self.stage is not None:
+            raise ValueError(f"{self.action} takes no stage")
+        return self
+
+
 # ---------------------------------------------------------------------------
 # Responses
 # ---------------------------------------------------------------------------
+
+
+class StageStatus(BaseModel):
+    """Whether a stage's checklist is complete, and what is still missing if not."""
+
+    stage: PlanStage
+    ready: bool
+    missing: list[str]
 
 
 class PlanSummary(BaseModel):
@@ -119,6 +152,7 @@ class PlanSummary(BaseModel):
     id: UUID
     title: str
     status: PlanStatus
+    stage: PlanStage
     destination: Place | None
     start_date: date | None
     end_date: date | None
@@ -135,6 +169,8 @@ class PlanDetails(BaseModel):
     user_id: UUID
     title: str
     status: PlanStatus
+    stage: PlanStage
+    flights_skipped: bool
     origin: Place | None
     destination: Place | None
     start_date: date | None
@@ -153,3 +189,7 @@ class TravelPlan(PlanDetails):
     which owns the items."""
 
     items: list[ItineraryItem]  # sorted by start
+    # Derived on every read (`plans.stages.plan_progress`), one per stage in order.
+    stages: list[StageStatus]
+    # Unbridged changes of place, home to home; the ground stage is done when it's empty.
+    gaps: list[Gap]

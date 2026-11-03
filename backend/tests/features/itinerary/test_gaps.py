@@ -1,0 +1,153 @@
+"""The whole-trip gap finder: every change of place, home to home, without a transfer."""
+
+from datetime import datetime
+from uuid import UUID
+from zoneinfo import ZoneInfo
+
+from features.itinerary.gaps import find_gaps
+from features.itinerary.schemas import FlightItem, Gap
+from tests.features.itinerary.factories import (
+    HOME,
+    LA_TZ,
+    NRT,
+    OKURA,
+    SENSOJI,
+    SFO,
+    TOKYO_TZ,
+    TSUKIJI,
+    activity,
+    flight,
+    lodging,
+    transfer,
+)
+
+
+def _pairs(gaps: list[Gap]) -> list[tuple[UUID | None, UUID | None]]:
+    return [(gap.after_item_id, gap.before_item_id) for gap in gaps]
+
+
+def _round_trip() -> tuple[FlightItem, FlightItem]:
+    out = flight("2027-05-01T11:00", "2027-05-02T14:30")
+    home = flight(
+        "2027-05-08T17:00",
+        "2027-05-08T10:00",
+        from_place=NRT,
+        to_place=SFO,
+        timezone=TOKYO_TZ,
+        end_timezone=LA_TZ,
+    )
+    return out, home
+
+
+# ---------------------------------------------------------------------------
+# Home
+# ---------------------------------------------------------------------------
+
+
+def test_leaving_home_and_getting_back_are_gaps() -> None:
+    out, back = _round_trip()
+
+    gaps = find_gaps([out, back], HOME)
+
+    # NRT → NRT between the two flights is the same airport, so no gap there.
+    assert _pairs(gaps) == [(None, out.id), (back.id, None)]
+    leave, arrive = gaps
+    assert (leave.from_place, leave.to_place) == (HOME, SFO)
+    assert leave.leave_after is None
+    assert leave.arrive_before == out.start
+    assert leave.timezone == LA_TZ
+    assert (arrive.from_place, arrive.to_place) == (SFO, HOME)
+    assert arrive.leave_after == back.end
+    assert arrive.arrive_before is None
+    assert arrive.timezone == LA_TZ
+
+
+def test_a_transfer_at_each_end_closes_the_home_gaps() -> None:
+    out, back = _round_trip()
+    to_airport = transfer(
+        "2027-05-01T08:00", "2027-05-01T09:00", from_place=HOME, to_place=SFO, timezone=LA_TZ
+    )
+    from_airport = transfer(
+        "2027-05-08T11:00", "2027-05-08T12:00", from_place=SFO, to_place=HOME, timezone=LA_TZ
+    )
+
+    assert find_gaps([to_airport, out, back, from_airport], HOME) == []
+
+
+def test_home_is_never_the_same_place_as_the_first_stop() -> None:
+    # Even when it carries the same name and code, getting there takes a transfer.
+    out, back = _round_trip()
+
+    assert len(find_gaps([out, back], SFO)) == 2
+
+
+def test_without_an_origin_there_are_no_home_gaps() -> None:
+    out, back = _round_trip()
+
+    assert find_gaps([out, back], None) == []
+
+
+def test_a_trip_without_flights_still_needs_getting_there() -> None:
+    stay = lodging("2027-05-02T15:00", "2027-05-04T11:00")
+
+    gaps = find_gaps([stay], HOME)
+
+    assert _pairs(gaps) == [(None, stay.id), (stay.id, None)]
+    assert (gaps[0].from_place, gaps[0].to_place) == (HOME, OKURA)
+
+
+def test_no_items_means_no_gaps() -> None:
+    assert find_gaps([], HOME) == []
+
+
+# ---------------------------------------------------------------------------
+# Within the trip
+# ---------------------------------------------------------------------------
+
+
+def test_a_late_landing_is_compared_with_the_next_days_check_in() -> None:
+    late = flight("2027-05-01T17:00", "2027-05-02T23:30")
+    stay = lodging("2027-05-03T15:00", "2027-05-06T11:00")
+
+    gaps = find_gaps([late, stay], None)
+
+    assert _pairs(gaps) == [(late.id, stay.id)]
+    assert (gaps[0].from_place, gaps[0].to_place) == (NRT, OKURA)
+    assert gaps[0].leave_after == late.end
+    assert gaps[0].arrive_before == stay.start
+
+
+def test_an_outing_on_a_middle_day_is_a_gap_both_ways() -> None:
+    stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
+    temple = activity("2027-05-04T10:00", "2027-05-04T12:00", place=SENSOJI)
+
+    gaps = find_gaps([stay, temple], None)
+
+    assert _pairs(gaps) == [(stay.id, temple.id), (temple.id, stay.id)]
+    # Leaving after the night before ends; due back by the next midnight.
+    assert gaps[0].leave_after == datetime(2027, 5, 4, tzinfo=ZoneInfo(TOKYO_TZ))
+    assert gaps[1].arrive_before == datetime(2027, 5, 5, tzinfo=ZoneInfo(TOKYO_TZ))
+
+
+def test_transfers_around_an_outing_close_it() -> None:
+    stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
+    there = transfer("2027-05-04T09:30", "2027-05-04T10:00", from_place=OKURA, to_place=SENSOJI)
+    temple = activity("2027-05-04T10:00", "2027-05-04T12:00", place=SENSOJI)
+    back = transfer("2027-05-04T12:00", "2027-05-04T12:30", from_place=SENSOJI, to_place=OKURA)
+
+    assert find_gaps([stay, there, temple, back], None) == []
+
+
+def test_consecutive_stops_at_the_same_place_need_no_transfer() -> None:
+    temple = activity("2027-05-03T09:00", "2027-05-03T10:00", place=SENSOJI)
+    gardens = activity("2027-05-03T10:00", "2027-05-03T11:00", place=SENSOJI, title="Gardens")
+    market = activity("2027-05-03T12:00", "2027-05-03T13:00", place=TSUKIJI)
+
+    assert _pairs(find_gaps([temple, gardens, market], None)) == [(gardens.id, market.id)]
+
+
+def test_cancelled_items_are_ignored() -> None:
+    stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
+    dropped = activity("2027-05-04T10:00", "2027-05-04T12:00", status="cancelled")
+
+    assert find_gaps([stay, dropped], None) == []

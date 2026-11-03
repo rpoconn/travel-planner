@@ -9,8 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.plans.models import Plan
-from features.plans.schemas import PlanCreate, PlanUpdate, check_date_range
+from features.plans.schemas import PlanCreate, PlanStage, PlanUpdate, check_date_range
 from shared.db import utc_now
+from shared.domain import Place
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,12 @@ def check_update(plan: Plan, patch: PlanUpdate) -> None:
         raise InvalidPlanError(str(exc)) from exc
 
 
-async def create_plan(session: AsyncSession, user_id: UUID, data: PlanCreate) -> Plan:
+async def create_plan(
+    session: AsyncSession, user_id: UUID, data: PlanCreate, home: Place | None = None
+) -> Plan:
+    """Create a plan; it starts from the user's `home` unless the request names an origin."""
+    if data.origin is None and home is not None:
+        data = data.model_copy(update={"origin": home})
     plan = Plan(
         user_id=user_id,
         **{name: _column_value(getattr(data, name)) for name in PlanCreate.model_fields},
@@ -92,6 +98,23 @@ async def update_plan(
         setattr(plan, name, _column_value(getattr(patch, name)))
     mark_changed(plan)
     await session.commit()
+    return plan
+
+
+async def set_stage(
+    session: AsyncSession,
+    user_id: UUID,
+    plan_id: UUID,
+    stage: PlanStage,
+    flights_skipped: bool,
+) -> Plan:
+    """Store a workflow position already checked by `plans.stages.apply_stage_change`."""
+    plan = await get_plan(session, user_id, plan_id)
+    plan.stage = stage
+    plan.flights_skipped = flights_skipped
+    mark_changed(plan)
+    await session.commit()
+    logger.info("Plan %s moved to stage %s", plan_id, stage)
     return plan
 
 
