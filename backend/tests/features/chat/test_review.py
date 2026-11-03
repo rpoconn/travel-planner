@@ -2,6 +2,7 @@
 
 from features.chat.prompts import (
     LATEST_MESSAGE_MARKER,
+    PREVIOUS_REPLY_MARKER,
     REVIEW_CHANGES_MARKER,
     REVIEW_SYSTEM,
 )
@@ -197,3 +198,25 @@ async def test_a_long_reason_is_cut_rather_than_failing_the_verdict() -> None:
 
     assert position == 0
     assert len(reason) <= MAX_REASON_LENGTH and reason.endswith("…")
+
+
+async def test_the_reply_the_user_answers_comes_before_the_changes() -> None:
+    # "add #1" means nothing without the list it picks from.
+    listing = "1. Granbell Hotel Shinjuku\n2. Shinjuku Washington Hotel Annex"
+    llm = FakeLLM([json_reply(ReviewVerdict(verdicts=[]))])
+    review = reviewer(llm, "lodging", listing)
+
+    await review("add #1", [HOTEL])
+
+    user = llm.requests[0].messages[1].content
+    assert f"{PREVIOUS_REPLY_MARKER}\n{listing}\n\n{REVIEW_CHANGES_MARKER}\n1. " in user
+    assert user.endswith(f"{LATEST_MESSAGE_MARKER}\nadd #1")
+    assert "the change fits only when it is that option, by name" in REVIEW_SYSTEM
+
+
+async def test_without_a_previous_reply_the_request_has_no_section_for_it() -> None:
+    llm = FakeLLM([json_reply(ReviewVerdict(verdicts=[]))])
+
+    await check_changes(llm, "Hotel Okura please", [HOTEL], stage="lodging", previous_reply="")
+
+    assert PREVIOUS_REPLY_MARKER not in llm.requests[0].messages[1].content

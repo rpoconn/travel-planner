@@ -1,9 +1,11 @@
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from features.chat import service as chat_service
 from features.chat.offline import (
     OFFLINE_ADDED_REPLY,
     OFFLINE_AGENT_REPLY,
@@ -12,6 +14,7 @@ from features.chat.offline import (
     OFFLINE_REDIRECT_REPLY,
     OFFLINE_STAGE_DONE_REPLY,
     OFFLINE_WITHDRAWN_REPLY,
+    OFFLINE_WRONG_PICK_REPLY,
 )
 from features.chat.pipeline import (
     APPROVED_TEXT,
@@ -19,7 +22,13 @@ from features.chat.pipeline import (
     DENIED_TEXT,
     EMPTY_REPLY_AFTER_PROPOSAL,
 )
-from features.chat.prompts import APPROVAL_MARKER, FIX_REQUEST_MARKER, REVISE_MARKER
+from features.chat.prompts import (
+    APPROVAL_MARKER,
+    FIX_REQUEST_MARKER,
+    LATEST_MESSAGE_MARKER,
+    PREVIOUS_REPLY_MARKER,
+    REVISE_MARKER,
+)
 from features.chat.schemas import (
     DoneEvent,
     ErrorEvent,
@@ -925,3 +934,51 @@ async def test_an_approval_that_leaves_the_stage_unfinished_has_no_nudge(
     await decide(client, headers, plan["id"], str(proposal.id), "approve")
 
     assert "stage is now complete" not in fake_llm.requests[-1].messages[-1].content
+
+
+# ---------------------------------------------------------------------------
+# Picking from an earlier list
+# ---------------------------------------------------------------------------
+
+
+async def test_the_reviewer_sees_the_reply_the_user_picked_from(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
+) -> None:
+    # "add #1" means nothing to the reviewer without the list it answers.
+    listing = "1. Granbell Hotel Shinjuku\n2. Shinjuku Washington Hotel Annex"
+    fake_llm.queue(ON_TOPIC, text(listing))
+    fake_llm.queue(
+        ON_TOPIC, tool_calls(("add_lodging", HOTEL_ARGS)), text("Proposed."), APPROVE_ALL
+    )
+
+    await send(client, headers, plan["id"], "Which hotels in Shinjuku?")
+    await send(client, headers, plan["id"], "add #1")
+
+    review_request = fake_llm.requests[-1]
+    assert review_request.format is not None and "verdicts" in review_request.format["properties"]
+    content = review_request.messages[-1].content
+    assert f"{PREVIOUS_REPLY_MARKER}\n{listing}" in content
+    assert content.endswith(f"{LATEST_MESSAGE_MARKER}\nadd #1")
+
+
+async def test_offline_mode_withdraws_a_hotel_that_is_not_the_one_picked(
+    session: AsyncSession, client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+) -> None:
+    # The fake always proposes Hotel du Louvre; the seeded list puts another hotel first.
+    listing = "Two options:\n1. **Granbell Hotel Shinjuku** \u2013 3 stars\n2. Hotel du Louvre"
+    await chat_service.add_message(session, UUID(plan["id"]), "user", "Which hotels?")
+    await chat_service.add_message(session, UUID(plan["id"]), "assistant", listing)
+
+    events = await send(client, headers, plan["id"], "Add hotel #1")
+
+    proposed, withdrawn = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert proposed.proposed and not withdrawn.ok
+    assert withdrawn.summary.startswith("Withdrawn: Add lodging “Hotel du Louvre”")
+    assert withdrawn.summary.endswith("the user picked #1, Granbell Hotel Shinjuku")
+    done = done_message(events)
+    assert done.message.proposal is None
+    assert OFFLINE_WRONG_PICK_REPLY in done.message.content
+
+    # Picking the hotel the fake proposes anyway goes through.
+    events = await send(client, headers, plan["id"], "Add hotel #2")
+    assert done_message(events).message.proposal is not None

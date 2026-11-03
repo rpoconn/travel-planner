@@ -73,14 +73,21 @@ def _rejected(verdict: ReviewVerdict, count: int) -> list[tuple[int, str]]:
 
 
 async def check_changes(
-    llm: LLMClient, latest: str, changes: Sequence[ProposedChange], *, stage: PlanStage
+    llm: LLMClient,
+    latest: str,
+    changes: Sequence[ProposedChange],
+    *,
+    stage: PlanStage,
+    previous_reply: str | None = None,
 ) -> list[tuple[int, str]]:
     """The changes in `changes` that don't fit `latest` or `stage`, as (position, reason).
-    Fails open (rejects nothing) when the model's output stays malformed or the model is
-    unreachable: the user still approves every change on the card."""
+    `previous_reply` is the assistant reply `latest` answers, so a pick from a list in it
+    ("add #1") can be checked against what was listed. Fails open (rejects nothing) when
+    the model's output stays malformed or the model is unreachable: the user still
+    approves every change on the card."""
     if not changes:
         return []
-    messages = review_messages(stage, latest, changes)
+    messages = review_messages(stage, latest, changes, previous_reply)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             reply = await llm.chat(messages, format=_VERDICT_SCHEMA, think=REVIEW_THINK)
@@ -106,10 +113,11 @@ async def check_changes(
     return []
 
 
-def reviewer(llm: LLMClient, stage: PlanStage) -> ReviewFn:
-    """`check_changes` bound to a model and the plan's stage, as the agent calls it."""
+def reviewer(llm: LLMClient, stage: PlanStage, previous_reply: str | None = None) -> ReviewFn:
+    """`check_changes` bound to a model, the plan's stage and the reply the turn answers,
+    as the agent calls it."""
 
     async def review(latest: str, changes: Sequence[ProposedChange]) -> list[tuple[int, str]]:
-        return await check_changes(llm, latest, changes, stage=stage)
+        return await check_changes(llm, latest, changes, stage=stage, previous_reply=previous_reply)
 
     return review

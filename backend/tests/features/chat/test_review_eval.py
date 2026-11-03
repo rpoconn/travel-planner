@@ -55,6 +55,8 @@ class Case:
     stage: PlanStage
     latest: str
     changes: tuple[Change, ...]
+    # The assistant reply `latest` answers, when it picks from a list in it.
+    previous_reply: str | None = None
 
     def proposed(self) -> list[ProposedChange]:
         # Bundles share a base call id ("call_1", "call_1-2"), as the tools stage them.
@@ -163,6 +165,14 @@ _HOME = _flight(
     offsets=("+01:00", "-04:00"),
 )
 _AVENIDA = _lodging("Hotel Avenida Palace", "2027-05-02T15:00", "2027-05-09T11:00")
+
+_SHINJUKU_LIST = (
+    "Here are three hotels in Shinjuku that fit a 3-star, about $150 a night budget:\n"
+    "1. **Granbell Hotel Shinjuku** - modern rooms near Kabukicho, about $140 a night\n"
+    "2. **Hotel Gracery Shinjuku** - the Godzilla hotel, about $160 a night\n"
+    "3. **Shinjuku Washington Hotel Annex** - close to the station, about $120 a night\n"
+    "Which one would you like?"
+)
 
 CASES: tuple[Case, ...] = (
     # --- The two smoke-test failures (lodging stage, a dinner request) ---
@@ -512,6 +522,42 @@ CASES: tuple[Case, ...] = (
             ),
         ),
     ),
+    # --- A pick from the assistant's own list: "add #1" is that hotel, not another ---
+    Case(
+        "pick #1 but a different hotel from a new search",
+        "lodging",
+        "add #1",
+        (
+            _lodging(
+                "Shinjuku Washington Hotel Annex",
+                "2027-05-02T15:00",
+                "2027-05-09T11:00",
+                fits=False,
+            ),
+        ),
+        previous_reply=_SHINJUKU_LIST,
+    ),
+    Case(
+        "pick #1 and it is that hotel",
+        "lodging",
+        "add #1",
+        (_lodging("Granbell Hotel Shinjuku", "2027-05-02T15:00", "2027-05-09T11:00"),),
+        previous_reply=_SHINJUKU_LIST,
+    ),
+    Case(
+        "pick the second one and it is that hotel",
+        "lodging",
+        "the second one please",
+        (_lodging("Hotel Gracery Shinjuku", "2027-05-02T15:00", "2027-05-09T11:00"),),
+        previous_reply=_SHINJUKU_LIST,
+    ),
+    Case(
+        "pick the second one but the first is proposed",
+        "lodging",
+        "the second one please",
+        (_lodging("Granbell Hotel Shinjuku", "2027-05-02T15:00", "2027-05-09T11:00", fits=False),),
+        previous_reply=_SHINJUKU_LIST,
+    ),
 )
 
 
@@ -545,7 +591,15 @@ async def test_reviewer_catches_misfits_and_passes_good_changes(llm: OllamaClien
     caught = missed = passed = false_rejections = 0
     misses: list[str] = []
     for case in CASES:
-        rejected = dict(await check_changes(llm, case.latest, case.proposed(), stage=case.stage))
+        rejected = dict(
+            await check_changes(
+                llm,
+                case.latest,
+                case.proposed(),
+                stage=case.stage,
+                previous_reply=case.previous_reply,
+            )
+        )
         for index, change in enumerate(case.changes):
             verdict = rejected.get(index)
             if not change.fits and verdict is not None:

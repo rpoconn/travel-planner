@@ -11,7 +11,10 @@ lodging → activities → ground → review) works with no model:
   times, so the tools accept it), which the fake reviewer withdraws.
 
 The fake calls the tool whatever stage the plan is in, so the stage gate's refusal shows.
-Its reviewer approves everything except lodging proposed for a meal.
+Its reviewer approves everything except lodging proposed for a meal, and a change that
+isn't the option the user picked ("add hotel #1") from a numbered list in the previous
+reply (the fake always proposes Hotel du Louvre, so a list that puts another hotel first
+shows the withdrawal).
 """
 
 import re
@@ -23,6 +26,7 @@ from features.chat.prompts import (
     FIX_REQUEST_MARKER,
     GAPS_MARKER,
     LATEST_MESSAGE_MARKER,
+    PREVIOUS_REPLY_MARKER,
     REVIEW_CHANGES_MARKER,
     REVIEW_FEEDBACK_MARKER,
     REVISE_MARKER,
@@ -69,8 +73,16 @@ OFFLINE_WITHDRAWN_REPLY = (
     "Sorry, scratch that: a dinner isn't somewhere to stay, so I withdrew it. Meals and "
     "restaurants belong to the activities stage."
 )
+# Worded so the agent's claim check ("I proposed …") and promised-search check ("I'll look
+# it up") don't fire on it.
+OFFLINE_WRONG_PICK_REPLY = (
+    "Sorry, scratch that: the place on the card wasn't the one you picked, so I withdrew "
+    "it. Tell me its name and I'll propose that one."
+)
 # Why the fake reviewer rejects lodging proposed for a meal.
 OFFLINE_REVIEW_REASON = "the user asked for a meal, not somewhere to stay"
+# Why it rejects a change that isn't the option the user picked ("… #1, Hotel Granbell").
+OFFLINE_PICK_REASON = "the user picked"
 
 # "Add a visit to the Louvre" -> "visit to the Louvre"
 _ADD_COMMAND = re.compile(r"^\s*add\s+(?:an?\s+|the\s+)?(?P<what>\S.*?)[\s.!]*$", re.IGNORECASE)
@@ -82,7 +94,19 @@ _DINNER_COMMAND = re.compile(r"^\s*book\s+(?:a\s+)?dinner\b(?P<rest>.*?)[\s.!]*$
 # What the fake reviewer takes for a request for a meal.
 _MEAL_WORDS = re.compile(r"\b(?:dinner|restaurant|meal|lunch|breakfast)\b", re.IGNORECASE)
 # A change line in the review request: "1. add_lodging: Add lodging …".
-_REVIEW_LINE = re.compile(r"^(?P<number>\d+)\. (?P<tool>\w+):", re.MULTILINE)
+_REVIEW_LINE = re.compile(r"^(?P<number>\d+)\. (?P<tool>\w+):(?P<rest>.*)$", re.MULTILINE)
+# A pick from a numbered list in the previous reply: "#1", "number 2", "the second one".
+_PICK = re.compile(
+    r"(?:#|\b(?:number|option|no\.?)\s*)(?P<digit>\d+)"
+    r"|\b(?P<word>first|second|third|fourth|fifth)\b",
+    re.IGNORECASE,
+)
+_ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
+# An entry of that list: "1. **Hotel Granbell** - 3 stars" -> "Hotel Granbell". The name
+# ends at the first dash, colon, bracket or markdown emphasis.
+_LIST_ITEM = re.compile(
+    r"^\s*(?:\*\*)?(?P<number>\d+)[.)]\s*\**(?P<name>[^*\n(:\u2013\u2014-]+)", re.MULTILINE
+)
 
 # The plan JSON in the system prompt is compact (`"start_date":"2027-05-01"`).
 _PLAN_DATE = re.compile(r'"(?P<field>start_date|end_date)":"(?P<day>\d{4}-\d{2}-\d{2})"')
@@ -166,21 +190,40 @@ def offline_dinner(rest: str, day: date) -> dict[str, Any]:
     }
 
 
+def _picked_option(latest: str, previous_reply: str) -> tuple[int, str] | None:
+    """The (number, name) the user picked from the numbered list in `previous_reply`
+    ("add #1", "the second one"), or None when the message picks nothing or the reply
+    has no such entry."""
+    pick = _PICK.search(latest)
+    if pick is None:
+        return None
+    number = int(pick.group("digit") or _ORDINALS[pick.group("word").lower()])
+    for item in _LIST_ITEM.finditer(previous_reply):
+        if int(item.group("number")) == number:
+            return number, item.group("name").strip()
+    return None
+
+
 def offline_review(request: FakeRequest) -> ReviewVerdict:
-    """Reject every add_lodging change when the user asked for a meal; approve the rest."""
-    if not _MEAL_WORDS.search(_latest_user_text(request)):
-        return ReviewVerdict(verdicts=[])
+    """Reject every add_lodging change when the user asked for a meal, and every change
+    that isn't the option the user picked from the previous reply; approve the rest."""
+    latest = _latest_user_text(request)
     content = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
+    previous = content.partition(PREVIOUS_REPLY_MARKER)[2].partition(REVIEW_CHANGES_MARKER)[0]
     changes = content.split(REVIEW_CHANGES_MARKER, 1)[-1].split(LATEST_MESSAGE_MARKER, 1)[0]
-    return ReviewVerdict(
-        verdicts=[
-            ChangeVerdict(
-                index=int(line.group("number")), fits_request=False, reason=OFFLINE_REVIEW_REASON
+    meal = _MEAL_WORDS.search(latest) is not None
+    picked = _picked_option(latest, previous)
+    verdicts: list[ChangeVerdict] = []
+    for line in _REVIEW_LINE.finditer(changes):
+        number = int(line.group("number"))
+        if meal and line.group("tool") == "add_lodging":
+            verdicts.append(
+                ChangeVerdict(index=number, fits_request=False, reason=OFFLINE_REVIEW_REASON)
             )
-            for line in _REVIEW_LINE.finditer(changes)
-            if line.group("tool") == "add_lodging"
-        ]
-    )
+        elif picked is not None and picked[1].lower() not in line.group("rest").lower():
+            reason = f"{OFFLINE_PICK_REASON} #{picked[0]}, {picked[1]}"
+            verdicts.append(ChangeVerdict(index=number, fits_request=False, reason=reason))
+    return ReviewVerdict(verdicts=verdicts)
 
 
 def offline_activity(what: str, day: date) -> dict[str, Any]:
@@ -290,6 +333,8 @@ def offline_reply(request: FakeRequest) -> LLMMessage:
     # The reviewer withdrew the change: acknowledge it rather than proposing it again.
     last = request.messages[-1] if request.messages else None
     if last is not None and last.role == "system" and REVIEW_FEEDBACK_MARKER in last.content:
+        if OFFLINE_PICK_REASON in last.content:
+            return text(OFFLINE_WRONG_PICK_REPLY)
         return text(OFFLINE_WITHDRAWN_REPLY)
     latest = _latest_user_text(request)
     # The turn after the user approved a proposal card.

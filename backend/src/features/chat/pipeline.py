@@ -102,6 +102,13 @@ def _llm_history(rows: Sequence[Message]) -> list[LLMMessage]:
     ]
 
 
+def _previous_reply(history: Sequence[LLMMessage]) -> str | None:
+    """The assistant reply the user's latest message answers: the last one in the
+    history, or None at the start of a conversation. The reviewer checks a pick ("add #1")
+    against the list in it."""
+    return next((m.content for m in reversed(history) if m.role == "assistant"), None)
+
+
 def _recent_sources(rows: Sequence[Message]) -> frozenset[str]:
     """Source URLs the recent conversation already established: the results of its
     web_searches (kept on their tool traces), those on its proposals' changes, and links
@@ -252,7 +259,7 @@ async def _agent_turn(
         staged=staged,
         tool_specs=tools.specs_for_stage(snapshot.stage),
         review=(
-            review.reviewer(llm, snapshot.stage)
+            review.reviewer(llm, snapshot.stage, _previous_reply(history))
             if review_enabled and not latest.startswith(APPROVAL_MARKER)
             else None
         ),

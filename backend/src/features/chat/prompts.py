@@ -387,6 +387,10 @@ flights, picks the shortest then cheapest, and proposes the flight out and the f
 with their exact times and price. Don't pick flights or work out flight times yourself. \
 Use add_round_trip only for specific flights the user gave you, and add_flight only for \
 the legs of a multi-city trip or a one-way trip the user asked for.
+- When the user picks something you listed in an earlier reply ("add #1", "the second \
+one", "the Granbell"), propose exactly that option, by its name. If you need its address \
+or price, search for that place by name and use the result about it. Never swap in a \
+different place a new search turned up: if you can't find the one they picked, say so.
 - You plan trips; you cannot book anything. Never claim something is booked or reserved.
 - If a tool returns an error, correct the arguments and try again, or explain the problem.
 - Keep replies short and friendly."""
@@ -468,14 +472,24 @@ fit when it is a different kind of thing (a hotel or a lodging when they asked f
 or a tour, a ride when they asked for a museum), a different place or item than the one \
 they named, a different date than they gave, or something extra they did not ask for.
 
-When the latest message doesn't say what it is about (a short follow-up like "yes" or \
-"the second one"), the change fits.
+When the user is answering the assistant's previous reply, that reply is given too. A \
+latest message that picks an option from it ("add #1", "the second one", a name from its \
+list) asks for that option: the change fits only when it is that option, by name. A \
+different place from the list, or one not on it, does not fit, even if it is the same \
+kind of thing.
+
+When the latest message doesn't say what it is about and picks nothing (a short \
+follow-up like "yes" or "go ahead"), the change fits.
 
 Give a verdict for every change, in order, numbered from 1. Answer with JSON only."""
 
 # The offline (fake) model finds the changes after this marker, one `{n}. {tool}: …` line
 # each; the latest user message comes after LATEST_MESSAGE_MARKER, at the very end.
 REVIEW_CHANGES_MARKER = "Proposed changes to review:"
+# The reply the user is answering comes after this marker, before the changes. qwen3:8b
+# proposed a different hotel than the "#1" the user picked from the agent's list, and the
+# reviewer, told only "add #1", had nothing to check the card against.
+PREVIOUS_REPLY_MARKER = "The assistant's previous reply (what the user is answering):"
 
 # Arguments that show what kind of thing a change really is (a summary only has the title
 # and start, and a dinner can be titled like a hotel).
@@ -506,13 +520,19 @@ def review_line(number: int, change: ProposedChange) -> str:
 
 
 def review_messages(
-    stage: PlanStage, latest: str, changes: Sequence[ProposedChange]
+    stage: PlanStage,
+    latest: str,
+    changes: Sequence[ProposedChange],
+    previous_reply: str | None = None,
 ) -> list[LLMMessage]:
-    """The reviewer's request: the stage, the numbered changes, and the user's message
-    last (the offline model reads it from after the marker)."""
+    """The reviewer's request: the stage, the reply the user is answering (if any), the
+    numbered changes, and the user's message last (the offline model reads it from after
+    the marker)."""
     lines = [review_line(number, change) for number, change in enumerate(changes, start=1)]
-    parts = [
-        f"Current stage: {stage_purpose(stage)}",
+    parts = [f"Current stage: {stage_purpose(stage)}"]
+    if previous_reply:
+        parts.append(f"{PREVIOUS_REPLY_MARKER}\n{previous_reply}")
+    parts += [
         f"{REVIEW_CHANGES_MARKER}\n" + "\n".join(lines),
         f"{LATEST_MESSAGE_MARKER}\n{latest}",
     ]

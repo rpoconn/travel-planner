@@ -357,3 +357,11 @@ def test_approval_message_points_at_next_when_a_stage_completes() -> None:
         "activities."
     )
     assert "stage is now complete" not in approval_applied_message(["Added lodging"])
+
+
+def test_agent_prompt_says_a_pick_from_an_earlier_list_is_that_option() -> None:
+    # "add #1" once got a fresh search and a different hotel than the one listed first.
+    prompt = agent_system_prompt(_plan(stage="lodging"), TODAY)
+
+    assert "propose exactly that option, by its name" in prompt
+    assert "Never swap in a different place a new search turned up" in prompt

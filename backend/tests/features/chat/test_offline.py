@@ -4,7 +4,12 @@ from datetime import date
 from typing import Any
 from uuid import uuid4
 
-from features.chat.offline import offline_reply, offline_transfers, offline_trip
+from features.chat.offline import (
+    OFFLINE_PICK_REASON,
+    offline_reply,
+    offline_transfers,
+    offline_trip,
+)
 from features.chat.prompts import agent_system_prompt, review_messages
 from features.chat.schemas import ProposedChange, ReviewVerdict
 from features.itinerary.gaps import find_gaps
@@ -92,9 +97,11 @@ _HOTEL = ProposedChange(
 _TAXI = ProposedChange(call_id="call_2", name="add_transfer", arguments={}, summary="Add taxi")
 
 
-def _review_request(latest: str, changes: list[ProposedChange]) -> FakeRequest:
+def _review_request(
+    latest: str, changes: list[ProposedChange], previous_reply: str | None = None
+) -> FakeRequest:
     return FakeRequest(
-        messages=review_messages("lodging", latest, changes),
+        messages=review_messages("lodging", latest, changes, previous_reply),
         tools=[],
         format=inline_schema(ReviewVerdict),
         streamed=False,
@@ -111,4 +118,36 @@ def test_offline_reviewer_rejects_lodging_for_a_meal() -> None:
 def test_offline_reviewer_approves_anything_else() -> None:
     reply = offline_reply(_review_request("Add a hotel", [_HOTEL]))
 
+    assert ReviewVerdict.model_validate_json(reply.content).verdicts == []
+
+
+_HOTEL_LIST = (
+    "Here are three options in Shinjuku:\n"
+    "1. **Granbell Hotel Shinjuku** \u2013 3 stars, about ¥20,000 a night\n"
+    "2. **Hotel du Louvre** \u2013 4 stars\n"
+    "3. Shinjuku Washington Hotel Annex (3 stars)"
+)
+
+
+def test_offline_reviewer_rejects_a_change_that_is_not_the_picked_option() -> None:
+    # The fake always proposes Hotel du Louvre; the user picked the first hotel listed.
+    reply = offline_reply(_review_request("Add hotel #1", [_HOTEL, _TAXI], _HOTEL_LIST))
+
+    verdict = ReviewVerdict.model_validate_json(reply.content)
+    assert [(v.index, v.fits_request) for v in verdict.verdicts] == [(1, False), (2, False)]
+    assert verdict.verdicts[0].reason == f"{OFFLINE_PICK_REASON} #1, Granbell Hotel Shinjuku"
+
+
+def test_offline_reviewer_approves_the_picked_option() -> None:
+    for latest in ("Add hotel #2", "the second one please", "number 2"):
+        reply = offline_reply(_review_request(latest, [_HOTEL], _HOTEL_LIST))
+
+        assert ReviewVerdict.model_validate_json(reply.content).verdicts == [], latest
+
+
+def test_offline_reviewer_ignores_a_pick_the_reply_has_no_entry_for() -> None:
+    reply = offline_reply(_review_request("Add hotel #7", [_HOTEL], _HOTEL_LIST))
+    assert ReviewVerdict.model_validate_json(reply.content).verdicts == []
+
+    reply = offline_reply(_review_request("Add hotel #1", [_HOTEL], "No list here."))
     assert ReviewVerdict.model_validate_json(reply.content).verdicts == []
