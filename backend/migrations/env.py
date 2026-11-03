@@ -21,6 +21,7 @@ from features.itinerary import models as itinerary_models
 from features.plans import models as plans_models
 from shared.config import get_settings
 from shared.db import Base, UTCDateTime, create_engine
+from shared.migrations import migration_transaction
 from shared.search import models as search_models
 
 # Every model module must be imported so `Base.metadata` knows all tables. Listed here so
@@ -76,11 +77,17 @@ def _run_sync(connection: Connection) -> None:
         context.run_migrations()
 
 
+def _run_cli_sync(connection: Connection) -> None:
+    # The app path (`shared.migrations`) wraps its run the same way.
+    with migration_transaction(connection):
+        _run_sync(connection)
+
+
 async def _run_cli_online() -> None:
     engine = create_engine(get_settings().database_url)
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(_run_sync)
+        async with engine.connect() as connection:
+            await connection.run_sync(_run_cli_sync)
     finally:
         await engine.dispose()
 

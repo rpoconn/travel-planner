@@ -1247,7 +1247,9 @@ _ALL_TOOLS: list[Tool] = [
     ),
     _add_tool(
         "lodging",
-        "Add a hotel or other stay. start = check-in time, end = check-out time.",
+        "Add a place to sleep: a hotel, hostel, rental or resort. start = check-in time, "
+        "end = check-out time (a later day). Only for overnight stays: never for a meal, "
+        "tour, show or event (those are activities).",
     ),
     _add_tool(
         "activity",

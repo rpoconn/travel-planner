@@ -151,3 +151,58 @@ def test_cancelled_items_are_ignored() -> None:
     dropped = activity("2027-05-04T10:00", "2027-05-04T12:00", status="cancelled")
 
     assert find_gaps([stay, dropped], None) == []
+
+
+# ---------------------------------------------------------------------------
+# Arriving after check-in, leaving before check-out
+# ---------------------------------------------------------------------------
+
+
+def test_a_ride_to_the_hotel_after_a_late_landing_covers_the_arrival() -> None:
+    # Lands 18:00, check-in opens at 15:00, the taxi from Narita gets there at 19:30.
+    out = flight("2027-05-01T11:00", "2027-05-02T18:00")
+    stay = lodging("2027-05-02T15:00", "2027-05-05T11:00")
+    taxi = transfer("2027-05-02T18:30", "2027-05-02T19:30", from_place=NRT, to_place=OKURA)
+
+    assert find_gaps([out, stay, taxi], None) == []
+
+
+def test_a_late_landing_without_a_ride_is_still_a_gap() -> None:
+    out = flight("2027-05-01T11:00", "2027-05-02T18:00")
+    stay = lodging("2027-05-02T15:00", "2027-05-05T11:00")
+
+    assert _pairs(find_gaps([out, stay], None)) == [(out.id, stay.id)]
+
+
+def test_a_ride_from_home_arriving_after_check_in_closes_the_home_gap() -> None:
+    # No flights: a car from home starts at check-in time and arrives two hours later.
+    stay = lodging("2027-05-02T15:00", "2027-05-05T11:00")
+    car = transfer("2027-05-02T15:00", "2027-05-02T17:00", from_place=HOME, to_place=OKURA)
+
+    gaps = find_gaps([stay, car], HOME)
+
+    assert _pairs(gaps) == [(stay.id, None)]  # only the way home is left
+
+
+def test_leaving_the_hotel_before_check_out_covers_the_departure() -> None:
+    stay = lodging("2027-05-02T15:00", "2027-05-05T11:00")
+    taxi = transfer("2027-05-05T08:00", "2027-05-05T09:00", from_place=OKURA, to_place=NRT)
+    home = flight(
+        "2027-05-05T12:00",
+        "2027-05-05T06:00",
+        from_place=NRT,
+        to_place=SFO,
+        timezone=TOKYO_TZ,
+        end_timezone=LA_TZ,
+    )
+
+    assert find_gaps([stay, taxi, home], None) == []
+
+
+def test_a_ride_elsewhere_after_check_in_does_not_move_the_check_in() -> None:
+    # Landed before check-in; the evening taxi goes to dinner, not to the hotel.
+    out = flight("2027-05-01T11:00", "2027-05-02T14:30")
+    stay = lodging("2027-05-02T15:00", "2027-05-05T11:00")
+    taxi = transfer("2027-05-02T19:00", "2027-05-02T19:30", from_place=OKURA, to_place=TSUKIJI)
+
+    assert _pairs(find_gaps([out, stay, taxi], None)) == [(out.id, stay.id)]

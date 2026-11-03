@@ -130,6 +130,14 @@ _STAGE_PURPOSES: dict[PlanStage, str] = {
     "review": "the trip is complete; answer questions and fix anything the user wants changed",
 }
 
+# Which stage a request belongs to, so the agent can redirect instead of forcing it into
+# this stage's tool (a small model once booked a dinner with add_lodging, kind "other").
+_STAGE_OWNERSHIP = (
+    "What belongs where: flights to the flights stage; hotels and other places to sleep to "
+    "lodging; sights, tours, meals and restaurants to activities; taxis, trains, car "
+    "rentals and other rides between places to ground transport."
+)
+
 # The offline (fake) model finds the gaps after this marker, one `GAP_LINE` each.
 GAPS_MARKER = "Transfers still needed:"
 _OPEN = "any time"
@@ -194,12 +202,19 @@ def _stage_block(plan: TravelPlan) -> str:
         f"{_STAGE_PURPOSES[stage]}.",
         _checklist(status),
         "You only have this stage's tools. The user moves between stages with the Next and "
-        "Back buttons; you cannot. If they ask for something from another stage, say which "
-        "stage it belongs to.",
+        "Back buttons; you cannot. If they ask for something from another stage, never use "
+        "this stage's tools for it (a restaurant is not lodging): tell them which stage it "
+        "belongs to and that they can go there with Next or Back.",
+        _STAGE_OWNERSHIP,
     ]
     if stage != "review":
         upcoming = STAGE_LABELS[STAGES[index + 1]]
         lines.append(f"When the checklist is complete, suggest pressing Next (next: {upcoming}).")
+    else:
+        lines.append(
+            "This is the last stage and there is no Next button: when the checklist is "
+            "complete, tell the user their trip is complete."
+        )
     if stage == "basics":
         if plan.origin is not None:
             lines.append(

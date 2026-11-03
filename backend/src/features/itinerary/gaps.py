@@ -8,9 +8,10 @@ are never "the same place", even in the same city).
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 from itertools import pairwise
+from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -42,6 +43,8 @@ class _Stop:
     start_zone: str
     end_zone: str
     is_transfer: bool = False
+    is_leg: bool = False  # a flight or transfer: it moves the traveller
+    stay_edge: Literal["check_in", "check_out"] | None = None
 
 
 def same_place(a: Place, b: Place) -> bool:
@@ -56,15 +59,19 @@ def _lodging_stops(item: LodgingItem) -> list[_Stop]:
     out on a middle day is a gap both ways (hotel → restaurant → hotel)."""
     zone = item.timezone
 
-    def at(moment: datetime) -> _Stop:
-        return _Stop(item.id, moment, moment, item.place, item.place, zone, zone)
+    def at(moment: datetime, edge: Literal["check_in", "check_out"] | None = None) -> _Stop:
+        return _Stop(item.id, moment, moment, item.place, item.place, zone, zone, stay_edge=edge)
 
     first, last = item_days(item)
     midnights = [
         datetime.combine(day, time(0), tzinfo=ZoneInfo(zone))
         for day in date_range(first + timedelta(days=1), last)
     ]
-    return [at(item.start), *(at(midnight) for midnight in midnights), at(item.end)]
+    return [
+        at(item.start, "check_in"),
+        *(at(midnight) for midnight in midnights),
+        at(item.end, "check_out"),
+    ]
 
 
 def _stops(items: Sequence[ItineraryItem]) -> list[_Stop]:
@@ -91,9 +98,53 @@ def _stops(items: Sequence[ItineraryItem]) -> list[_Stop]:
                         item.timezone,
                         item.end_timezone or item.timezone,
                         is_transfer=isinstance(item, TransferItem),
+                        is_leg=True,
                     )
                 )
-    return sorted(stops, key=lambda stop: (stop.start, stop.end))
+    return _settle_stay_edges(sorted(stops, key=lambda stop: (stop.start, stop.end)))
+
+
+def _position(stops: list[_Stop], stop: _Stop) -> int:
+    # By identity: two stops can compare equal (frozen dataclass) yet be different stops.
+    return next(index for index, candidate in enumerate(stops) if candidate is stop)
+
+
+def _settle_stay_edges(stops: list[_Stop]) -> list[_Stop]:
+    """Move check-ins and check-outs to when the traveller actually arrives and leaves.
+
+    A stay's check-in and check-out times say when arriving and leaving is *allowed*, not
+    when it happens. A flight landing at 18:00 for a 15:00 check-in, then a taxi to the
+    hotel at 18:30, would otherwise sort the check-in between the flight and the taxi and
+    report an "airport → hotel" gap the taxi already covers. So a check-in moves to just
+    after the run of rides that follows it, when one of those rides ends at the stay; a
+    check-out likewise moves to just before a preceding ride that starts there.
+    """
+    settled = list(stops)
+    for stop in [s for s in stops if s.stay_edge == "check_in"]:
+        index = _position(settled, stop)
+        arrival: int | None = None
+        for later in range(index + 1, len(settled)):
+            if not settled[later].is_leg:
+                break
+            if same_place(settled[later].end_place, stop.start_place):
+                arrival = later
+        if arrival is not None:
+            arrived = settled[arrival].end
+            settled.insert(arrival + 1, replace(stop, start=arrived, end=arrived))
+            del settled[index]  # before `arrival`, so the insert above didn't shift it
+    for stop in [s for s in stops if s.stay_edge == "check_out"]:
+        index = _position(settled, stop)
+        departure: int | None = None
+        for earlier in range(index - 1, -1, -1):
+            if not settled[earlier].is_leg:
+                break
+            if same_place(settled[earlier].start_place, stop.end_place):
+                departure = earlier
+        if departure is not None:
+            left = settled[departure].start
+            del settled[index]  # after `departure`, so deleting it doesn't shift it
+            settled.insert(departure, replace(stop, start=left, end=left))
+    return settled
 
 
 def _home_stops(stops: list[_Stop], origin: Place) -> list[_Stop]:

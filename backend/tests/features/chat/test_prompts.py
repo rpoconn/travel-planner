@@ -279,6 +279,14 @@ def test_agent_prompt_mentions_skipped_flights_after_the_flights_stage() -> None
     assert "Current stage: lodging (3 of 6)" in prompt
 
 
+def test_agent_prompt_says_where_out_of_stage_requests_belong() -> None:
+    prompt = agent_system_prompt(_plan(stage="lodging"), TODAY)
+
+    # Small models otherwise force a request into this stage's tool (a dinner as lodging).
+    assert "never use this stage's tools for it" in prompt
+    assert "meals and restaurants to activities" in prompt
+
+
 def test_agent_prompt_lists_each_gap_in_the_ground_stage() -> None:
     stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
     plan = _plan(stay, stage="ground", origin=HOME)
@@ -311,6 +319,7 @@ def test_review_has_no_next_stage() -> None:
 
     assert "Current stage: review (6 of 6)" in prompt
     assert "suggest pressing Next" not in prompt
+    assert "there is no Next button" in prompt
 
 
 def test_approval_message_points_at_next_when_a_stage_completes() -> None:
