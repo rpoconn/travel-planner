@@ -27,6 +27,7 @@ class FakeRequest:
     tools: list[ToolSpec]
     format: dict[str, Any] | None
     streamed: bool
+    think: bool | None = None  # the per-call override `chat` was given
 
 
 FakeReply = LLMMessage | LLMError
@@ -95,8 +96,10 @@ class FakeLLM:
         *,
         tools: Sequence[ToolSpec] | None = None,
         format: dict[str, Any] | None = None,
+        think: bool | None = None,
     ) -> LLMMessage:
-        return self._next(FakeRequest(list(messages), list(tools or []), format, streamed=False))
+        request = FakeRequest(list(messages), list(tools or []), format, False, think)
+        return self._next(request)
 
     async def stream(
         self,

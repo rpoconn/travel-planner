@@ -25,6 +25,7 @@ from features.chat.prompts import (
     AGENT_FINAL_ANSWER,
     ALREADY_STAGED,
     PHANTOM_PROPOSAL_NUDGE,
+    PROMISED_SEARCH_NUDGE,
     agent_system_prompt,
     review_feedback,
     withdrawn_note,
@@ -56,6 +57,14 @@ _ROUND_SEPARATOR = "\n\n"
 # the history's "[Proposed changes (…)]" note.
 _CLAIMED_PROPOSAL = re.compile(
     r"\bI(?:['\u2019]ve| have)?\s+(?:just\s+)?proposed\b|\[Proposed changes\b", re.IGNORECASE
+)
+# "Let me search for \u2026", "I should first search \u2026", "I'll look it up": a search announced
+# in text instead of called (see PROMISED_SEARCH_NUDGE).
+_PROMISED_SEARCH = re.compile(
+    r"\b(?:let me|I['\u2019]ll|I will|I need to|I should)\s+"
+    r"(?:first\s+|now\s+|quickly\s+|go ahead and\s+)?"
+    r"(?:search|look\s+(?:it\s+|that\s+|this\s+|them\s+)?up|do\s+a\s+(?:quick\s+)?search)\b",
+    re.IGNORECASE,
 )
 
 
@@ -152,6 +161,7 @@ async def run_agent(
     wrote_text = False
     nudged_return = False
     nudged_phantom = False
+    nudged_search = False
     reviews_done = 0
     # What the last review let through, so an unchanged card isn't reviewed again.
     reviewed: list[ProposedChange] = []
@@ -183,6 +193,15 @@ async def run_agent(
             logger.info("Reply on plan %s claims a proposal it never made", ctx.plan_id)
             messages.append(LLMMessage(role="assistant", content=content))
             messages.append(LLMMessage(role="system", content=PHANTOM_PROPOSAL_NUDGE))
+            continue
+
+        # ---- "Let me search …" with no tool call: have the model search, once ----
+        promised = not calls and not final_round and not nudged_search
+        if promised and _PROMISED_SEARCH.search(content):
+            nudged_search = True
+            logger.info("Reply on plan %s promises a search it never made", ctx.plan_id)
+            messages.append(LLMMessage(role="assistant", content=content))
+            messages.append(LLMMessage(role="system", content=PROMISED_SEARCH_NUDGE))
             continue
 
         if not calls or final_round:

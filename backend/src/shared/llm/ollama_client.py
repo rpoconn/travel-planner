@@ -131,12 +131,13 @@ class OllamaClient:
         self,
         messages: Sequence[LLMMessage],
         tools: Sequence[ToolSpec] | None,
+        think: bool | None = None,
     ) -> Mapping[str, Any]:
         return {
             "model": self._model,
             "messages": [_to_wire(message) for message in messages],
             "tools": [_tool_to_wire(tool) for tool in tools] if tools else None,
-            "think": self._think,
+            "think": self._think if think is None else think,
             "options": self._options,
         }
 
@@ -146,12 +147,13 @@ class OllamaClient:
         *,
         tools: Sequence[ToolSpec] | None = None,
         format: dict[str, Any] | None = None,
+        think: bool | None = None,
     ) -> LLMMessage:
         try:
             async for attempt in self._retrying():
                 with attempt:
                     response = await self._client.chat(
-                        **self._request(messages, tools), format=format, stream=False
+                        **self._request(messages, tools, think), format=format, stream=False
                     )
         except Exception as exc:
             logger.exception("Ollama chat call failed")

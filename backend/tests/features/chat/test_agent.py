@@ -9,6 +9,7 @@ from features.chat.prompts import (
     AGENT_FINAL_ANSWER,
     ALREADY_STAGED,
     PHANTOM_PROPOSAL_NUDGE,
+    PROMISED_SEARCH_NUDGE,
     RETURN_FLIGHT_NUDGE,
     WITHDRAWN_NOTE,
     agent_system_prompt,
@@ -463,6 +464,50 @@ async def test_a_plain_answer_or_a_real_proposal_gets_no_nudge(ctx: ToolContext)
     await _run(real, ctx)
 
     assert _system_notes(plain) == _system_notes(real) == []
+
+
+# ---------------------------------------------------------------------------
+# Promised search with no tool call
+# ---------------------------------------------------------------------------
+
+# What qwen3:8b wrote after its made-up source_url was rejected, then ended the turn.
+PROMISED = "I see. Let me search for “Clube de Fado in Lisbon” first. One moment please."
+SEARCH = ("web_search", {"query": "Clube de Fado Lisbon", "kind": "activities"})
+
+
+async def test_a_promised_search_without_a_tool_call_gets_a_nudge(ctx: ToolContext) -> None:
+    llm = FakeLLM([text(PROMISED), tool_calls(SEARCH), text("Here is what I found.")])
+
+    events = await _run(llm, ctx, "Book dinner at Clube de Fado")
+
+    assert llm.requests[1].messages[-2:] == [
+        LLMMessage(role="assistant", content=PROMISED),
+        LLMMessage(role="system", content=PROMISED_SEARCH_NUDGE),
+    ]
+    (result,) = _of_type(events, ToolResultEvent)
+    assert result.name == "web_search" and result.ok
+    assert _text(events) == f"{PROMISED}\n\nHere is what I found."
+
+
+async def test_the_promised_search_nudge_is_given_once_a_turn(ctx: ToolContext) -> None:
+    llm = FakeLLM([text("I should first search for it."), text("I'll look it up soon.")])
+
+    await _run(llm, ctx)
+
+    assert llm.pending == 0
+    assert _system_notes(llm) == [PROMISED_SEARCH_NUDGE]
+
+
+async def test_talk_of_searching_after_a_search_or_as_advice_gets_no_nudge(
+    ctx: ToolContext,
+) -> None:
+    searched = FakeLLM([tool_calls(SEARCH), text("I searched; here are two options.")])
+    advice = FakeLLM([text("You could search for fado houses in Alfama.")])
+
+    await _run(searched, ctx)
+    await _run(advice, ctx)
+
+    assert _system_notes(searched) == _system_notes(advice) == []
 
 
 # ---------------------------------------------------------------------------

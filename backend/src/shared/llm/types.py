@@ -61,8 +61,10 @@ class LLMClient(Protocol):
         *,
         tools: Sequence[ToolSpec] | None = None,
         format: dict[str, Any] | None = None,
+        think: bool | None = None,
     ) -> LLMMessage:
-        """One non-streaming completion. `format` constrains the output to a JSON schema."""
+        """One non-streaming completion. `format` constrains the output to a JSON schema;
+        `think` turns reasoning on or off for this call (None: the client's default)."""
         ...
 
     def stream(

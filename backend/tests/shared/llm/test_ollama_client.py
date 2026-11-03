@@ -65,6 +65,20 @@ async def test_chat_sends_request_and_parses_tool_calls() -> None:
     assert body["messages"] == [{"role": "user", "content": "Plan a trip to Tokyo"}]
 
 
+async def test_chat_can_turn_thinking_on_for_one_call() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=_chat_part("{}"))
+
+    client = _client(handler)
+    await client.chat(MESSAGES, think=True)
+    await client.chat(MESSAGES)
+
+    assert [body["think"] for body in seen] == [True, False]
+
+
 async def test_chat_sends_tool_results_back() -> None:
     seen: list[dict[str, Any]] = []
 

@@ -377,6 +377,16 @@ PHANTOM_PROPOSAL_NUDGE = (
     "Otherwise add nothing."
 )
 
+# Told to the model (once a turn) when its reply promises a search but it called no tool,
+# so the turn would end before searching. qwen3:8b did this after a source_url it made up
+# was rejected: "Let me search for … first. One moment please.", then nothing.
+PROMISED_SEARCH_NUDGE = (
+    "Your reply says you will search, but you called no tool, so the turn would end "
+    "without a search and the user would have to ask again. Call web_search now, then "
+    "propose the change if there is one (with a result's URL as source_url, or without "
+    "source_url). Add at most one short sentence without repeating yourself."
+)
+
 # Tool result for a change that is already on this turn's proposal card.
 ALREADY_STAGED = (
     "Already staged; do not repeat it. Stop calling tools for this change and reply to the "
@@ -388,19 +398,25 @@ ALREADY_STAGED = (
 # Proposal review (a second, narrow check of what the agent staged)
 # ---------------------------------------------------------------------------
 
+# Tuned on qwen3:8b with tests/features/chat/test_review_eval.py. "Judge a change by its
+# tool, not its title" is what catches a dinner saved as lodging; a numbered checklist
+# (kind, item, date, direction) scored worse, the model ticked every box.
 REVIEW_SYSTEM = """\
 You check a travel assistant's proposed changes before the user sees them. For each \
-change, answer whether it does what the user's latest message asked for and belongs to \
-the current stage.
+change, compare what the user's latest message asked for with what the change really does.
 
-A change fits when it is what the user asked for, or a needed part of it (the flight home \
-of a round trip, the hotel's check-out). It does not fit when it is a different kind of \
-thing than they asked for (a hotel when they asked for dinner, a meal saved as lodging), \
-or when it belongs to another stage. When the latest message doesn't say what it is about \
-(a short follow-up like "yes" or "the second one"), the change fits.
+Judge a change by its tool, not its title: add_lodging always saves a place to sleep, even \
+when its title says dinner or tour. A change fits when it is the same kind of thing the \
+user asked for, with the name, place and dates they gave, or a needed part of it (the \
+flight home of a round trip, every transfer when they ask for the transfers). It does not \
+fit when it is a different kind of thing (a hotel or a lodging when they asked for dinner \
+or a tour, a ride when they asked for a museum), a different place or item than the one \
+they named, a different date than they gave, or something extra they did not ask for.
 
-Give a verdict for every change, by its number, with a one-sentence reason when it does \
-not fit. Answer with JSON only."""
+When the latest message doesn't say what it is about (a short follow-up like "yes" or \
+"the second one"), the change fits.
+
+Give a verdict for every change, in order, numbered from 1. Answer with JSON only."""
 
 # The offline (fake) model finds the changes after this marker, one `{n}. {tool}: …` line
 # each; the latest user message comes after LATEST_MESSAGE_MARKER, at the very end.
@@ -409,7 +425,7 @@ REVIEW_CHANGES_MARKER = "Proposed changes to review:"
 # Arguments that show what kind of thing a change really is (a summary only has the title
 # and start, and a dinner can be titled like a hotel).
 _REVIEW_PLACES = ("place", "from_place", "to_place")
-_REVIEW_FIELDS = ("kind", "category", "mode", "direction", "start", "end")
+_REVIEW_FIELDS = ("kind", "category", "mode", "carrier", "direction", "start", "end")
 
 
 def stage_purpose(stage: PlanStage) -> str:

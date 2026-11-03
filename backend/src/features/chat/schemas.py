@@ -5,7 +5,14 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from features.itinerary.schemas import TimelineWarning
 from features.plans.schemas import TravelPlan
@@ -129,14 +136,32 @@ class GuardrailVerdict(BaseModel):
     topic: str = Field(max_length=200, description="A few words naming what the message is about")
 
 
+# Longer reviewer reasons are cut to this (they end up in a chip's summary).
+MAX_REASON_LENGTH = 300
+
+
 class ChangeVerdict(BaseModel):
     """The reviewer's judgement of one proposed change."""
 
-    index: int = Field(description="The change's number in the list")
+    index: int = Field(description="The change's number as listed (the first change is 1)")
+    # Before the verdict, so the model says what the change really is before judging it
+    # (Ollama fills properties in schema order). Measured in tests/.../test_review_eval.py.
+    reason: str = Field(
+        description="What the change really adds or changes, and whether that is what the "
+        "user asked for, in one sentence",
+    )
     fits_request: bool = Field(
         description="true if it does what the user asked for and belongs to the current stage"
     )
-    reason: str = Field(default="", max_length=300, description="Why not, in one sentence")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _shorten(cls, value: object) -> object:
+        # Cut, not rejected: prompt schemas drop maxLength (shared.llm.schema), and a
+        # verdict lost to a long reason made the reviewer fail open in the eval.
+        if isinstance(value, str) and len(value) > MAX_REASON_LENGTH:
+            return value[: MAX_REASON_LENGTH - 1].rstrip() + "…"
+        return value
 
 
 class ReviewVerdict(BaseModel):

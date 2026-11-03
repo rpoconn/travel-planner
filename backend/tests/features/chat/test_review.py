@@ -6,7 +6,7 @@ from features.chat.prompts import (
     REVIEW_SYSTEM,
 )
 from features.chat.review import DEFAULT_REASON, MAX_ATTEMPTS, check_changes, reviewer
-from features.chat.schemas import ChangeVerdict, ProposedChange, ReviewVerdict
+from features.chat.schemas import MAX_REASON_LENGTH, ChangeVerdict, ProposedChange, ReviewVerdict
 from shared.llm.fake import FakeLLM, json_reply
 from shared.llm.types import LLMError
 
@@ -54,7 +54,7 @@ async def test_rejected_changes_come_back_by_position_with_their_reason() -> Non
     verdict = ReviewVerdict(
         verdicts=[
             ChangeVerdict(index=1, fits_request=False, reason="They asked for dinner."),
-            ChangeVerdict(index=2, fits_request=True),
+            ChangeVerdict(index=2, fits_request=True, reason="The hotel they named."),
         ]
     )
     llm = FakeLLM([json_reply(verdict)])
@@ -76,6 +76,37 @@ async def test_out_of_range_numbers_are_ignored() -> None:
     rejected = await check_changes(llm, "x", [DINNER, HOTEL], stage="lodging")
 
     assert rejected == [(1, "the hotel")]
+
+
+async def test_a_full_list_numbered_from_zero_is_read_as_zero_based() -> None:
+    # qwen3:8b numbers from 0 about half the time; one verdict per change gives it away.
+    verdict = ReviewVerdict(
+        verdicts=[
+            ChangeVerdict(index=0, fits_request=True, reason="The hotel."),
+            ChangeVerdict(index=1, fits_request=False, reason="A dinner."),
+        ]
+    )
+    llm = FakeLLM([json_reply(verdict)])
+
+    assert await check_changes(llm, "x", [HOTEL, DINNER], stage="lodging") == [(1, "A dinner.")]
+
+
+async def test_a_lone_verdict_numbered_zero_is_about_the_only_change() -> None:
+    llm = FakeLLM([json_reply(_verdict((0, "A dinner.")))])
+
+    assert await check_changes(llm, "x", [DINNER], stage="lodging") == [(0, "A dinner.")]
+
+
+async def test_a_full_list_with_unusable_numbers_is_read_in_order() -> None:
+    verdict = ReviewVerdict(
+        verdicts=[
+            ChangeVerdict(index=7, fits_request=False, reason="A dinner."),
+            ChangeVerdict(index=7, fits_request=True, reason="The hotel."),
+        ]
+    )
+    llm = FakeLLM([json_reply(verdict)])
+
+    assert await check_changes(llm, "x", [DINNER, HOTEL], stage="lodging") == [(0, "A dinner.")]
 
 
 async def test_malformed_output_is_retried_then_fails_open() -> None:
@@ -117,7 +148,15 @@ async def test_request_lists_the_changes_then_the_latest_message() -> None:
 
     (request,) = llm.requests
     assert not request.streamed and request.tools == []
+    # Thinking on for this call only: the eval's catch rate depends on it.
+    assert request.think is True
     assert request.format is not None and "verdicts" in request.format["properties"]
+    # The reason comes before the verdict, so the model describes the change first.
+    assert list(request.format["properties"]["verdicts"]["items"]["properties"]) == [
+        "index",
+        "reason",
+        "fits_request",
+    ]
     assert "$ref" not in str(request.format)
     system, user = request.messages
     assert system.content == REVIEW_SYSTEM
@@ -148,3 +187,13 @@ async def test_an_update_shows_the_changed_fields() -> None:
         "1. update_item: Change “Hotel Okura”: start (start: 2027-05-03T10:00:00+09:00)"
         in llm.requests[0].messages[1].content
     )
+
+
+async def test_a_long_reason_is_cut_rather_than_failing_the_verdict() -> None:
+    # The prompt schema has no maxLength, so the model doesn't know about the limit.
+    llm = FakeLLM([json_reply(_verdict((1, "word " * 200)))])
+
+    ((position, reason),) = await check_changes(llm, "x", [DINNER], stage="lodging")
+
+    assert position == 0
+    assert len(reason) <= MAX_REASON_LENGTH and reason.endswith("…")
