@@ -179,6 +179,9 @@ class ToolOutcome:
     plan_changed: bool = False
     # Set when a write tool's call validated: one change, or two for add_round_trip.
     prepared: tuple[Prepared, ...] = ()
+    # Set by web_search: the result URLs (normalised), kept on the reply's tool trace so a
+    # later turn ("add the second one") may cite them without searching again.
+    sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -606,8 +609,13 @@ def _check_evidence(ctx: ToolContext, item: ItemFields) -> None:
                 f"source_url {url} is made up. Never invent a URL: use one from a web_search "
                 "result, or leave source_url out"
             )
-        if found:
-            listed = ", ".join(dict.fromkeys(found))
+        # What it could cite instead: this turn's results first, then the sources the
+        # conversation already established (earlier searches, the plan's items, pasted
+        # links). Small models cite a hotel's own site in place of the result that listed
+        # it; naming the real URLs lets them correct the call instead of giving up.
+        citable = list(dict.fromkeys([*found, *sorted(ctx.known_sources)]))
+        if citable:
+            listed = ", ".join(citable)
             raise ToolError(
                 f"source_url {url} is not from a web_search result. Use one of {listed}, "
                 "or leave source_url out"
@@ -1193,6 +1201,7 @@ async def _web_search(ctx: ToolContext, arguments: dict[str, Any]) -> ToolOutcom
         ok=True,
         content=_format_results(query, results),
         summary=f"Searched the web for “{query}”",
+        sources=tuple(dict.fromkeys(normalise_url(result.url) for result in results)),
     )
 
 

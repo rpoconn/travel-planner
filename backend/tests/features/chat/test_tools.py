@@ -1398,6 +1398,34 @@ async def test_a_known_source_needs_no_new_search(ctx: ToolContext) -> None:
     assert outcome.ok, outcome.content
 
 
+async def test_a_wrong_url_is_rejected_naming_the_known_sources(ctx: ToolContext) -> None:
+    # qwen3:8b cited the hotel's own site in place of the result (from an earlier turn)
+    # that listed it. With no search this turn, the error names what it may cite instead.
+    known = replace(_gated(ctx), known_sources=frozenset({_OKURA_URL.rstrip("/")}))
+
+    outcome = await _stage(
+        known, "add_lodging", {**HOTEL_ARGS, "source_url": "https://okura.jp/booking"}
+    )
+
+    assert not outcome.ok
+    assert "is not from a web_search result" in outcome.content
+    assert _OKURA_URL.rstrip("/") in outcome.content
+    assert "none ran this turn" not in outcome.content
+
+
+async def test_a_web_search_reports_its_result_urls_as_sources(
+    ctx: ToolContext, fake_search: FakeSearchProvider
+) -> None:
+    gated = _gated(ctx)
+    fake_search.queue(_RESULTS)
+
+    outcome = await _stage(gated, "web_search", {"query": "hotels", "kind": "hotels"})
+
+    assert outcome.ok
+    # Normalised like a cited source_url (no trailing slash), in result order.
+    assert outcome.sources == (_OKURA_URL.rstrip("/"), "https://www.hyatt.com/park-hyatt/tokyo")
+
+
 async def test_an_offline_search_result_may_be_cited(ctx: ToolContext) -> None:
     # The fake search provider's canned results are on example.com.
     gated = _gated(ctx)

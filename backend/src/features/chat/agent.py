@@ -27,6 +27,7 @@ from features.chat.prompts import (
     AGENT_FINAL_ANSWER,
     ALREADY_STAGED,
     APPROVAL_MARKER,
+    FAILED_CLAIM_NUDGE,
     PHANTOM_PROPOSAL_NOTE,
     PHANTOM_PROPOSAL_NUDGE,
     PROMISED_SEARCH_NUDGE,
@@ -57,13 +58,15 @@ REVIEW_RETRIES = 1
 # Inserted between the text of two rounds ("Let me add that." ... "Done!").
 _ROUND_SEPARATOR = "\n\n"
 
-# A reply claiming a card or a change it never made: "I've proposed …", "I've added …",
-# "… has been added to your itinerary", "… is now on your trip" (straight or curly
-# apostrophe), or a copy of the history's "[Proposed changes (…)]" note. qwen3:8b wrote
-# "I've added the following activities to your itinerary" with no tool call at all.
+# A reply claiming a card or a change it never made: "I've proposed …", "I've staged …",
+# "I've added …", "… has been added to your itinerary", "… is now on your trip" (straight
+# or curly apostrophe), or a copy of the history's "[Proposed changes (…)]" note. qwen3:8b
+# wrote "I've added the following activities to your itinerary" with no tool call at all,
+# and "I've staged the following for your approval" after its add_lodging was rejected.
 _CLAIMED_PROPOSAL = re.compile(
-    r"\bI(?:['\u2019]ve| have)?\s+(?:just\s+|now\s+)?(?:proposed|added|included|scheduled|put)\b"
-    r"|\b(?:has|have)\s+(?:now\s+)?been\s+(?:proposed|added|included|scheduled)\b"
+    r"\bI(?:['\u2019]ve| have)?\s+(?:just\s+|now\s+)?"
+    r"(?:proposed|staged|added|included|scheduled|put)\b"
+    r"|\b(?:has|have)\s+(?:now\s+)?been\s+(?:proposed|staged|added|included|scheduled)\b"
     r"|\b(?:is|are)\s+now\s+(?:on|in)\s+(?:your|the)\s+(?:itinerary|trip|plan|calendar)\b"
     r"|\[Proposed changes\b",
     re.IGNORECASE,
@@ -274,8 +277,26 @@ async def run_agent(
                 ok=outcome.ok,
                 summary=outcome.summary,
                 proposed=bool(outcome.prepared),
+                sources=list(outcome.sources),
             )
             messages.append(LLMMessage(role="tool", tool_name=call.name, content=outcome.content))
+
+        # ---- "Added!" written alongside calls that all failed: the claim is false ----
+        # qwen3:8b wrote "The APA Hotel has been added to your itinerary" in the same round
+        # as an add_lodging call that was then rejected. The tool error alone got it to
+        # claim again ("I've staged the following"), so it's told the text was wrong too,
+        # and the next round is held back like the one after the nudge above.
+        if (
+            not staged
+            and not confirming
+            and not nudged_phantom
+            and _CLAIMED_PROPOSAL.search(content)
+        ):
+            nudged_phantom = True
+            logger.info(
+                "Reply on plan %s claims a change its tool calls did not stage", ctx.plan_id
+            )
+            messages.append(LLMMessage(role="system", content=FAILED_CLAIM_NUDGE))
 
         # ---- a flight out with none home: have the model propose it (or ask), once ----
         if not nudged_return:

@@ -4577,6 +4577,13 @@
             "type": "boolean",
             "title": "Proposed",
             "default": false
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources"
           }
         },
         "type": "object",
@@ -4586,7 +4593,8 @@
           "name",
           "ok",
           "summary",
-          "proposed"
+          "proposed",
+          "sources"
         ],
         "title": "ToolResultEvent"
       },
@@ -4617,6 +4625,13 @@
             "type": "boolean",
             "title": "Proposed",
             "default": false
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources"
           }
         },
         "type": "object",
@@ -4626,7 +4641,8 @@
           "arguments",
           "ok",
           "summary",
-          "proposed"
+          "proposed",
+          "sources"
         ],
         "title": "ToolTrace",
         "description": "One tool the assistant ran: what it asked for and how it went."

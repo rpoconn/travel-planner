@@ -20,6 +20,7 @@ const EVENTS: ChatEvent[] = [
         ok: true,
         summary: 'Searched',
         proposed: false,
+        sources: [],
     },
     { type: 'plan_updated', plan: travelPlan({ version: 2 }) },
     { type: 'token', text: 'done — “ünïcode” ✈' },

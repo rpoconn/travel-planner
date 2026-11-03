@@ -35,6 +35,7 @@ const REPLY = chatMessage({
             ok: true,
             summary: 'Added lodging “Hotel Okura”',
             proposed: false,
+            sources: [],
         },
     ],
 })
@@ -183,6 +184,7 @@ describe('ChatPanel', () => {
             ok: true,
             summary: 'Searched the web for “Tokyo hotels”',
             proposed: false,
+            sources: [],
         })
         expect(await screen.findByText('Searched the web for “Tokyo hotels”')).toBeInTheDocument()
 
@@ -366,6 +368,7 @@ describe('ChatPanel proposals', () => {
                 ok: true,
                 summary: 'Proposed: Add lodging “Hotel Okura” on 2027-05-02 15:00',
                 proposed: true,
+                sources: [],
             },
         ],
         proposal: chatProposal({ message_id: 'a1' }),
@@ -398,6 +401,7 @@ describe('ChatPanel proposals', () => {
                     ok: true,
                     summary: 'Added lodging “Hotel Okura”',
                     proposed: false,
+                    sources: [],
                 },
             ],
         })
@@ -435,6 +439,7 @@ describe('ChatPanel proposals', () => {
             ok: true,
             summary: 'Added lodging “Hotel Okura”',
             proposed: false,
+            sources: [],
         })
         expect(await screen.findByText('Added lodging “Hotel Okura”')).toBeInTheDocument()
         const updated = travelPlan({ version: 2 })

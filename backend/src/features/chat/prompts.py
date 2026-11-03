@@ -190,7 +190,9 @@ _LODGING_INSTRUCTIONS = (
     'yet), even when the user just said "add a hotel" or "find a hotel"; suggest two or '
     "three well-known areas to choose from when you know the destination. Only when you "
     "have them, search with web_search for places matching all three and propose one with "
-    "add_lodging."
+    "add_lodging. Its source_url must be the URL of the web_search result that listed the "
+    "place (a result from this or an earlier reply), not the hotel's own website unless a "
+    "result had that address; if unsure, leave source_url out rather than guess."
 )
 
 # qwen3:8b, asked to add three activities, searched the web and then wrote "I've added
@@ -409,6 +411,18 @@ PHANTOM_PROPOSAL_NUDGE = (
     "proposal card and nothing to approve. If you meant to propose changes, call the tools "
     "for them now, then add at most one short sentence without repeating yourself. "
     "Otherwise add nothing."
+)
+
+# Told to the model (once a turn) when its reply claimed a change was made or staged in
+# the same round as the tool calls for it, and none of them staged anything: the user has
+# read a claim that is false. qwen3:8b wrote "has been added to your itinerary" beside an
+# add_lodging call whose source_url was rejected, then "I've staged the following".
+FAILED_CLAIM_NUDGE = (
+    "Your reply told the user the change was made, but the tool call for it failed (see "
+    "the error above), so nothing is proposed and the user has no card to approve. Fix "
+    "the call now using the error's guidance and call the tool again; if you cannot, tell "
+    "the user plainly that it was not added and why. Never say a change was added, staged "
+    "or proposed unless a tool call for it succeeded."
 )
 
 # Shown to the user (after the model's text) when the nudge above got the same claim

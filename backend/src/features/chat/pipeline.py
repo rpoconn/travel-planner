@@ -103,14 +103,16 @@ def _llm_history(rows: Sequence[Message]) -> list[LLMMessage]:
 
 
 def _recent_sources(rows: Sequence[Message]) -> frozenset[str]:
-    """Source URLs the recent conversation already established: those on its proposals'
-    changes, and links the user pasted. A re-proposal ("the second one", a revision) may
-    cite them without searching again. Web results only listed in an earlier reply's text
-    aren't stored anywhere, so citing one of those still needs a new search."""
+    """Source URLs the recent conversation already established: the results of its
+    web_searches (kept on their tool traces), those on its proposals' changes, and links
+    the user pasted. A later proposal ("add the second one", a revision) may cite them
+    without searching again."""
     urls: set[str] = set()
     for row in rows:
         if row.role == "user":
             urls |= tools.urls_in(row.content)
+        for trace in row.tool_calls:
+            urls.update(trace.get("sources") or ())
         if row.proposal is None:
             continue
         for change in row.proposal.changes:
@@ -150,6 +152,7 @@ class _Reply:
                     ok=event.ok,
                     summary=event.summary,
                     proposed=event.proposed,
+                    sources=event.sources,
                 )
             )
 

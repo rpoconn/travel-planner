@@ -8,6 +8,7 @@ from features.chat.agent import MAX_TOOL_ROUNDS, run_agent
 from features.chat.prompts import (
     AGENT_FINAL_ANSWER,
     ALREADY_STAGED,
+    FAILED_CLAIM_NUDGE,
     PHANTOM_PROPOSAL_NOTE,
     PHANTOM_PROPOSAL_NUDGE,
     PROMISED_SEARCH_NUDGE,
@@ -492,6 +493,73 @@ async def test_a_repeated_claim_after_the_nudge_becomes_a_note(ctx: ToolContext)
     assert staged == []
     assert llm.pending == 0
     assert _text(events) == f"{ADDED_CLAIM}\n\n{PHANTOM_PROPOSAL_NOTE}"
+
+
+async def test_a_staged_claim_without_a_tool_call_gets_the_nudge(ctx: ToolContext) -> None:
+    # What qwen3:8b wrote after its add_lodging was rejected, instead of calling it again.
+    claim = "I've staged the following for your approval:\n\n- **APA Hotel Shinjuku-Gyoemmae**"
+    llm = FakeLLM([text(claim), tool_calls(("add_lodging", HOTEL_ARGS)), text("On the card.")])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, "the APA hotel please", staged=staged)
+
+    assert _system_notes(llm) == [PHANTOM_PROPOSAL_NUDGE]
+    assert [change.name for change in staged] == ["add_lodging"]
+    assert _text(events) == f"{claim}\n\nOn the card."
+
+
+# What qwen3:8b wrote in the same round as an add_lodging call that was then rejected
+# (its source_url was made up), so the user read a claim that was false.
+ADDED_BESIDE_CALL = "The APA Hotel Shinjuku-Gyoemmae has been added to your itinerary for May 1."
+MADE_UP_SOURCE = {**HOTEL_ARGS, "source_url": "https://www.example.com/hotel-okura"}
+
+
+async def test_a_claim_beside_a_failed_tool_call_gets_the_failed_claim_nudge(
+    ctx: ToolContext,
+) -> None:
+    llm = FakeLLM(
+        [
+            tool_calls(("add_lodging", MADE_UP_SOURCE), content=ADDED_BESIDE_CALL),
+            tool_calls(("add_lodging", HOTEL_ARGS), content="Correcting that."),
+            text("Hotel Okura is on the card now."),
+        ]
+    )
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged)
+
+    rejected, corrected = _of_type(events, ToolResultEvent)
+    assert not rejected.ok and corrected.proposed
+    assert _system_notes(llm) == [FAILED_CLAIM_NUDGE]
+    assert [change.name for change in staged] == ["add_lodging"]
+    assert _text(events) == (
+        f"{ADDED_BESIDE_CALL}\n\nCorrecting that.\n\nHotel Okura is on the card now."
+    )
+
+
+async def test_a_claim_repeated_after_a_failed_tool_call_becomes_a_note(ctx: ToolContext) -> None:
+    llm = FakeLLM(
+        [
+            tool_calls(("add_lodging", MADE_UP_SOURCE), content=ADDED_BESIDE_CALL),
+            text("I've staged the following for your approval: APA Hotel Shinjuku-Gyoemmae."),
+        ]
+    )
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged)
+
+    assert staged == []
+    assert llm.pending == 0
+    assert _text(events) == f"{ADDED_BESIDE_CALL}\n\n{PHANTOM_PROPOSAL_NOTE}"
+
+
+async def test_a_claim_beside_a_tool_call_that_staged_gets_no_nudge(ctx: ToolContext) -> None:
+    proposing = tool_calls(("add_lodging", HOTEL_ARGS), content="Hotel Okura has been added.")
+    llm = FakeLLM([proposing, text("Approve the card to apply it.")])
+
+    await _run(llm, ctx)
+
+    assert _system_notes(llm) == []
 
 
 async def test_the_nudge_round_that_calls_the_tool_keeps_its_text(ctx: ToolContext) -> None:

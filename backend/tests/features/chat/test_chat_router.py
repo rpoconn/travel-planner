@@ -430,6 +430,41 @@ async def test_web_search_turn_streams_results_without_changing_the_plan(
     assert tool_message.role == "tool" and "https://example.com/hotels/1" in tool_message.content
 
 
+async def test_a_result_from_an_earlier_search_may_be_cited_without_searching_again(
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan: dict[str, Any],
+    fake_llm: FakeLLM,
+    fake_search: FakeSearchProvider,
+) -> None:
+    # Turn 1: the assistant searches and lists hotels. Turn 2: the user picks one and the
+    # model cites that result's URL without searching again (qwen3:8b never does), which
+    # used to be rejected because only this turn's results counted as evidence.
+    search = ("web_search", {"query": "hotels in Shinjuku", "kind": "hotels"})
+    fake_llm.queue(ON_TOPIC, tool_calls(search), text("Here are three hotels."))
+    first = await send(client, headers, plan["id"], "3 or 4 star under 500 a night")
+    assert isinstance(first[-1], DoneEvent)
+    (trace,) = first[-1].message.tool_calls
+    assert trace.name == "web_search" and trace.sources
+    url = trace.sources[0]
+
+    cited = {**HOTEL_ARGS, "source_url": url}
+    fake_llm.queue(
+        ON_TOPIC,
+        tool_calls(("add_lodging", cited)),
+        text("I've proposed the first one."),
+        APPROVE_ALL,
+    )
+    events = await send(client, headers, plan["id"], "the first one please")
+
+    result = next(e for e in events if isinstance(e, ToolResultEvent))
+    assert result.ok and result.proposed, result.summary
+    assert len(fake_search.searches) == 1
+    done = events[-1]
+    assert isinstance(done, DoneEvent) and done.message.proposal is not None
+    assert done.message.proposal.changes[0].arguments["source_url"] == cited["source_url"]
+
+
 async def test_repeated_searches_across_turns_hit_the_cache(
     client: AsyncClient,
     headers: dict[str, str],

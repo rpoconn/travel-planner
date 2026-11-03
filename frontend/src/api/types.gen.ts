@@ -1503,6 +1503,10 @@ export type ToolResultEvent = {
      * Proposed
      */
     proposed: boolean;
+    /**
+     * Sources
+     */
+    sources: Array<string>;
 };
 
 /**
@@ -1537,6 +1541,10 @@ export type ToolTrace = {
      * Proposed
      */
     proposed: boolean;
+    /**
+     * Sources
+     */
+    sources: Array<string>;
 };
 
 /**

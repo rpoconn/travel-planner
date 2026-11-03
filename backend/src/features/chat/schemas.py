@@ -55,6 +55,9 @@ class ToolTrace(BaseModel):
     summary: str  # short human-readable outcome, e.g. "Added flight SFO → NRT"
     # A plan change that was only staged into the message's proposal, not applied.
     proposed: bool = False
+    # A web_search's result URLs: what a later turn may cite as source_url without
+    # searching again (see pipeline `_recent_sources`).
+    sources: list[str] = Field(default_factory=list)
 
 
 class ProposedChange(BaseModel):
@@ -208,6 +211,7 @@ class ToolResultEvent(_Event):
     ok: bool
     summary: str
     proposed: bool = False  # staged into the reply's proposal rather than applied
+    sources: list[str] = Field(default_factory=list)  # a web_search's result URLs
 
 
 class PlanUpdatedEvent(_Event):

@@ -74,6 +74,7 @@ describe('applyChatEvent', () => {
                     ok: false,
                     summary: 'Bad dates',
                     proposed: false,
+                    sources: [],
                 },
                 {
                     type: 'tool_result',
@@ -82,6 +83,7 @@ describe('applyChatEvent', () => {
                     ok: true,
                     summary: 'Searched',
                     proposed: false,
+                    sources: [],
                 },
             ],
             running,
@@ -117,6 +119,7 @@ describe('applyChatEvent', () => {
                 ok: true,
                 summary: 'Proposed: Add lodging “Hotel Okura”',
                 proposed: true,
+                sources: [],
             },
             { type: 'done', message: chatMessage({ id: 'm9', proposal }) },
         ])
@@ -136,6 +139,7 @@ describe('applyChatEvent', () => {
                 ok: true,
                 summary: 'Proposed: Add lodging “Dinner at Alfama”',
                 proposed: true,
+                sources: [],
             },
             {
                 type: 'tool_result',
@@ -144,6 +148,7 @@ describe('applyChatEvent', () => {
                 ok: false,
                 summary: 'Withdrawn: Add lodging “Dinner at Alfama” — they asked for dinner',
                 proposed: false,
+                sources: [],
             },
         ])
 
@@ -191,6 +196,7 @@ describe('labels', () => {
                     ok: true,
                     summary: 'Added flight',
                     proposed: false,
+                    sources: [],
                 },
             ]),
         ).toEqual([{ callId: 'c1', name: 'add_flight', status: 'ok', summary: 'Added flight' }])
@@ -199,8 +205,8 @@ describe('labels', () => {
     it('maps stored proposed and failed traces to their chip status', () => {
         const trace = { call_id: 'c1', name: 'add_flight', arguments: {}, summary: 'x' }
         const statuses = toolsFromTraces([
-            { ...trace, ok: true, proposed: true },
-            { ...trace, call_id: 'c2', ok: false, proposed: false },
+            { ...trace, ok: true, proposed: true, sources: [] },
+            { ...trace, call_id: 'c2', ok: false, proposed: false, sources: [] },
         ]).map((tool) => tool.status)
 
         expect(statuses).toEqual(['proposed', 'failed'])
