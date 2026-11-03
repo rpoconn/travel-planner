@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, PartyPopper, SkipForward } from 'lucide-react'
+import { ArrowLeft, ArrowRight, PartyPopper, SkipForward, Sparkles } from 'lucide-react'
 
 import type { TravelPlan } from '@/api/types.gen'
 import { Badge } from '@/components/ui/badge'
@@ -7,11 +7,15 @@ import { errorMessage } from '@/lib/apiError'
 import { currentStatus, STAGE_META } from '@/lib/stages'
 import { useChangeStage } from '@/lib/useChangeStage'
 
+import { nextStep } from './StageControlsService'
+
 // What the current planning stage is about, what it still needs, and the buttons that move
 // the plan (Back / Skip flights / Next). Rendered inline at the end of the chat transcript, like
 // a message from the assistant asking "ready to move on?"; the step list is StageStepper.
 // Only the user moves stages (the assistant just suggests it); the server checks readiness
 // again and answers 409 with the reason if Next is early.
+// While the stage still needs something, a next-step button ("Find flights", "Find a hotel",
+// …) asks the assistant to do it, so there is always something to press besides Skip.
 
 // ----- types -----
 
@@ -19,15 +23,18 @@ interface StageControlsProps {
     plan: TravelPlan
     /** Disables every button, e.g. while the assistant is replying. */
     disabled?: boolean
+    /** Sends the next-step button's message to the assistant as a chat message. */
+    onAsk: (message: string) => void
 }
 
-export function StageControls({ plan, disabled = false }: StageControlsProps) {
+export function StageControls({ plan, disabled = false, onAsk }: StageControlsProps) {
     // ----- state -----
     const changeStage = useChangeStage(plan)
     const status = currentStatus(plan)
     const meta = STAGE_META[plan.stage]
     const busy = disabled || changeStage.isPending
     const atReview = plan.stage === 'review'
+    const step = nextStep(plan)
 
     // ----- markup -----
     return (
@@ -80,9 +87,25 @@ export function StageControls({ plan, disabled = false }: StageControlsProps) {
                             Skip flights
                         </Button>
                     )}
+                    {step && (
+                        <Button
+                            size="sm"
+                            variant={step.primary ? 'default' : 'outline'}
+                            disabled={busy}
+                            onClick={() => {
+                                onAsk(step.message)
+                            }}
+                        >
+                            <Sparkles aria-hidden />
+                            {step.label}
+                        </Button>
+                    )}
+                    {/* Next is the main button only once it can be pressed; until then the
+                        next-step button is, so a disabled Next doesn't look like the action. */}
                     {!atReview && (
                         <Button
                             size="sm"
+                            variant={status.ready ? 'default' : 'outline'}
                             disabled={busy || !status.ready}
                             onClick={() => {
                                 changeStage.move({ action: 'next' })

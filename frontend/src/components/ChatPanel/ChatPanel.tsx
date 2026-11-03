@@ -205,9 +205,10 @@ export function ChatPanel({ plan, ref, onBusyChange }: ChatPanelProps) {
                         </>
                     )}
                     {/* The stage decision (Back / Next) is part of the conversation: it
-                        follows the latest message and hides while a reply streams. */}
+                        follows the latest message and hides while a reply streams. Its
+                        next-step button ("Find flights", …) sends like a typed message. */}
                     {!messagesQuery.isPending && !messagesQuery.isError && !busy && (
-                        <StageControls plan={plan} />
+                        <StageControls plan={plan} onAsk={(text) => void send(text)} />
                     )}
                 </div>
             </div>

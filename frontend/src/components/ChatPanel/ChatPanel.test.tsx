@@ -6,7 +6,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { getPlanQueryKey } from '@/api/@tanstack/react-query.gen'
 import * as sdk from '@/api/sdk.gen'
 import type { ChatMessage, TimelineWarning } from '@/api/types.gen'
-import { chatMessage, chatProposal, PLAN_ID, sdkOk, travelPlan } from '@/test/fixtures'
+import {
+    chatMessage,
+    chatProposal,
+    PLAN_ID,
+    sdkOk,
+    stageStatuses,
+    travelPlan,
+} from '@/test/fixtures'
 import { renderWithQuery } from '@/test/render'
 import { controlledSseResponse, jsonResponse, sseResponse } from '@/test/sse'
 
@@ -90,6 +97,24 @@ describe('ChatPanel', () => {
             expect(screen.queryByRole('region', { name: 'Stage controls' })).not.toBeInTheDocument()
         })
         stream.close()
+    })
+
+    it("sends the stage controls' next-step button as a chat message", async () => {
+        mockHistory([USER_MESSAGE, REPLY])
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(sseResponse([{ type: 'done', message: REPLY }]))
+        const { user } = renderPanel(
+            travelPlan({ stage: 'flights', stages: stageStatuses({ flights: ['a flight home'] }) }),
+        )
+
+        const controls = await screen.findByRole('region', { name: 'Stage controls' })
+        await user.click(within(controls).getByRole('button', { name: 'Find a flight home' }))
+
+        const request = fetchSpy.mock.calls[0]?.[0] as Request
+        expect(await request.json()).toEqual({
+            content: 'Find flights for the trip to Tokyo. Still needed: a flight home.',
+        })
     })
 
     it('offers suggestions on an empty chat and sends the one picked', async () => {

@@ -14,8 +14,14 @@ import { StageControls } from './StageControls'
 
 function renderControls(plan: TravelPlan, { disabled = false } = {}) {
     const user = userEvent.setup()
-    const result = renderWithQuery(<StageControls plan={plan} disabled={disabled} />)
-    return { ...result, user, region: screen.getByRole('region', { name: 'Stage controls' }) }
+    const onAsk = vi.fn<(message: string) => void>()
+    const result = renderWithQuery(<StageControls plan={plan} disabled={disabled} onAsk={onAsk} />)
+    return {
+        ...result,
+        user,
+        onAsk,
+        region: screen.getByRole('region', { name: 'Stage controls' }),
+    }
 }
 
 function mockChangeStage(result: TravelPlan) {
@@ -39,6 +45,32 @@ describe('StageControls', () => {
         expect(within(region).getByTestId('stage-missing')).toHaveTextContent(
             'Missing: a flight out, a flight home',
         )
+    })
+
+    it('asks the assistant for the next step while the stage is incomplete', async () => {
+        const { region, user, onAsk } = renderControls(
+            travelPlan({
+                stage: 'flights',
+                stages: stageStatuses({ flights: ['a flight out', 'a flight home'] }),
+            }),
+        )
+
+        await user.click(within(region).getByRole('button', { name: 'Find flights' }))
+
+        expect(onAsk).toHaveBeenCalledWith(
+            'Find flights for the trip to Tokyo. Still needed: a flight out, a flight home.',
+        )
+    })
+
+    it('has no next-step button once the stage is ready; Next is the action', () => {
+        const { region } = renderControls(travelPlan({ stage: 'lodging' }))
+
+        expect(
+            within(region)
+                .getAllByRole('button')
+                .map((b) => b.textContent),
+        ).toEqual(['Back', 'Next'])
+        expect(within(region).getByRole('button', { name: 'Next' })).toBeEnabled()
     })
 
     it('moves to the next stage and caches the plan the server returns', async () => {

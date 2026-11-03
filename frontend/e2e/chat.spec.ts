@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 import {
     addViaChat,
     approveProposal,
+    askNextStep,
     createTrip,
     DENIED_REPLY,
     expectStage,
@@ -54,9 +55,10 @@ test('walks the stages from basics to review', async ({ page }) => {
     await skipFlights(page)
     await expect(stepper(page).getByRole('listitem').nth(1)).toContainText('Flights (skipped)')
 
-    // Lodging: one hotel covering every night.
+    // Lodging: the next-step button asks for one hotel covering every night.
     await expect(missing).toContainText('a place to stay the night of')
-    await proposeAndApprove(page, 'Add a hotel')
+    await askNextStep(page, 'Find a hotel')
+    await approveProposal(page)
     await nextStage(page, 'activities')
 
     await addViaChat(page, 'a visit to the Louvre')
@@ -70,8 +72,9 @@ test('walks the stages from basics to review', async ({ page }) => {
     await expect(missing).toContainText('a transfer from Home (Philadelphia) to Hotel du Louvre')
     await expect(next).toBeDisabled()
 
-    // One card proposes a taxi for every gap; approving it closes them all.
-    await sendChatMessage(page, 'Add transfers')
+    // The next-step button asks for transfers: one card proposes a taxi for every gap, and
+    // approving it closes them all.
+    await askNextStep(page, 'Add transfers')
     const proposal = latestProposal(page)
     await expect(proposal.getByText(/^Add transfer/)).toHaveCount(4)
     await approveProposal(page)

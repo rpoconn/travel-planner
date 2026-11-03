@@ -140,6 +140,13 @@ export async function nextStage(page: Page, to: Stage): Promise<void> {
     await expectStage(page, to)
 }
 
+/** Press the stage's next-step button ("Find a hotel", "Add transfers", …), which asks the
+ * assistant to do the stage's work, and wait for the card it proposes. */
+export async function askNextStep(page: Page, label: string): Promise<void> {
+    await stageControls(page).getByRole('button', { name: label }).click()
+    await expect(latestProposal(page).getByRole('button', { name: 'Approve' })).toBeEnabled()
+}
+
 /** From the flights stage, plan the trip without flying. */
 export async function skipFlights(page: Page): Promise<void> {
     await stageControls(page).getByRole('button', { name: 'Skip flights' }).click()
