@@ -3,8 +3,8 @@
 import { type DefaultError, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { addItem, createPlan, deletePlan, getHealth, getMe, getPlan, getTimeline, listItems, listMessages, listPlans, login, type Options, register, removeItem, updateItem, updatePlan } from '../sdk.gen';
-import type { AddItemData, AddItemError, AddItemResponse, CreatePlanData, CreatePlanError, CreatePlanResponse, DeletePlanData, DeletePlanError, DeletePlanResponse, GetHealthData, GetHealthResponse, GetMeData, GetMeError, GetMeResponse, GetPlanData, GetPlanError, GetPlanResponse, GetTimelineData, GetTimelineError, GetTimelineResponse, ListItemsData, ListItemsError, ListItemsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPlansData, ListPlansError, ListPlansResponse, LoginData, LoginError, LoginResponse, RegisterData, RegisterError, RegisterResponse, RemoveItemData, RemoveItemError, RemoveItemResponse, UpdateItemData, UpdateItemError, UpdateItemResponse, UpdatePlanData, UpdatePlanError, UpdatePlanResponse } from '../types.gen';
+import { addItem, changeStage, createPlan, deletePlan, getHealth, getMe, getPlan, getTimeline, listItems, listMessages, listPlans, login, type Options, register, removeItem, updateItem, updateMe, updatePlan } from '../sdk.gen';
+import type { AddItemData, AddItemError, AddItemResponse, ChangeStageData, ChangeStageError, ChangeStageResponse, CreatePlanData, CreatePlanError, CreatePlanResponse, DeletePlanData, DeletePlanError, DeletePlanResponse, GetHealthData, GetHealthResponse, GetMeData, GetMeError, GetMeResponse, GetPlanData, GetPlanError, GetPlanResponse, GetTimelineData, GetTimelineError, GetTimelineResponse, ListItemsData, ListItemsError, ListItemsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPlansData, ListPlansError, ListPlansResponse, LoginData, LoginError, LoginResponse, RegisterData, RegisterError, RegisterResponse, RemoveItemData, RemoveItemError, RemoveItemResponse, UpdateItemData, UpdateItemError, UpdateItemResponse, UpdateMeData, UpdateMeError, UpdateMeResponse, UpdatePlanData, UpdatePlanError, UpdatePlanResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -117,6 +117,25 @@ export const getMeOptions = (options?: Options<GetMeData>) => queryOptions<GetMe
     queryKey: getMeQueryKey(options)
 });
 
+/**
+ * Update Me
+ *
+ * Update the current user's profile (their home).
+ */
+export const updateMeMutation = (options?: Partial<Options<UpdateMeData>>): UseMutationOptions<UpdateMeResponse, UpdateMeError, Options<UpdateMeData>> => {
+    const mutationOptions: UseMutationOptions<UpdateMeResponse, UpdateMeError, Options<UpdateMeData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await updateMe({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
 export const listPlansQueryKey = (options?: Options<ListPlansData>) => createQueryKey('listPlans', options);
 
 /**
@@ -139,6 +158,8 @@ export const listPlansOptions = (options?: Options<ListPlansData>) => queryOptio
 
 /**
  * Create Plan
+ *
+ * Create a plan. Without an `origin` it starts from the user's home, if they set one.
  */
 export const createPlanMutation = (options?: Partial<Options<CreatePlanData>>): UseMutationOptions<CreatePlanResponse, CreatePlanError, Options<CreatePlanData>> => {
     const mutationOptions: UseMutationOptions<CreatePlanResponse, CreatePlanError, Options<CreatePlanData>> = {
@@ -200,6 +221,26 @@ export const updatePlanMutation = (options?: Partial<Options<UpdatePlanData>>): 
     const mutationOptions: UseMutationOptions<UpdatePlanResponse, UpdatePlanError, Options<UpdatePlanData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await updatePlan({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Change Stage
+ *
+ * Move through the planning stages. `next` is refused (409) until the current stage's
+ * checklist is complete; going back is always allowed.
+ */
+export const changeStageMutation = (options?: Partial<Options<ChangeStageData>>): UseMutationOptions<ChangeStageResponse, ChangeStageError, Options<ChangeStageData>> => {
+    const mutationOptions: UseMutationOptions<ChangeStageResponse, ChangeStageError, Options<ChangeStageData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await changeStage({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

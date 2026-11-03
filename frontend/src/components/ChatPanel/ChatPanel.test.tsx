@@ -40,9 +40,9 @@ function mockHistory(...responses: ChatMessage[][]) {
     return spy
 }
 
-function renderPanel() {
+function renderPanel(plan = travelPlan()) {
     const user = userEvent.setup()
-    const result = renderWithQuery(<ChatPanel plan={travelPlan()} />)
+    const result = renderWithQuery(<ChatPanel plan={plan} />)
     return { ...result, user }
 }
 
@@ -78,15 +78,33 @@ describe('ChatPanel', () => {
         const fetchSpy = vi
             .spyOn(globalThis, 'fetch')
             .mockResolvedValue(sseResponse([{ type: 'done', message: REPLY }]))
-        const { user } = renderPanel()
+        const { user } = renderPanel(travelPlan({ stage: 'flights' }))
 
-        // travelPlan() has destination Tokyo, so suggestions name it.
+        // The plan is in the flights stage with destination Tokyo, so suggestions name it.
         await user.click(await screen.findByRole('button', { name: 'Find flights to Tokyo' }))
 
         const request = fetchSpy.mock.calls[0]?.[0] as Request
         expect(await request.json()).toEqual({ content: 'Find flights to Tokyo' })
         expect(await screen.findByText(REPLY.content)).toBeInTheDocument()
     })
+
+    it.each([
+        ['basics', 'Where to next?', 'Set up the trip to Tokyo'],
+        ['lodging', 'Where will you stay?', 'Add a hotel'],
+        ['ground', 'How will you get around?', 'Add transfers'],
+        ['review', 'Ready to go?', 'Did we forget anything?'],
+    ] as const)(
+        'greets the %s stage with its own copy and suggestions',
+        async (stage, title, pick) => {
+            mockHistory([])
+
+            renderPanel(travelPlan({ stage }))
+
+            expect(await screen.findByText(title)).toBeInTheDocument()
+            const suggestions = screen.getByRole('list', { name: 'Suggestions' })
+            expect(within(suggestions).getByRole('button', { name: pick })).toBeInTheDocument()
+        },
+    )
 
     it('streams a reply: tokens, tool chips, plan updates, then the stored history', async () => {
         const history = mockHistory([], [USER_MESSAGE, REPLY])

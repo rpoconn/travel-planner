@@ -14,6 +14,7 @@ const TOKYO = planSummary()
 const LISBON = planSummary({
     id: 'aaaaaaaa-0000-0000-0000-000000000002',
     title: 'Lisbon weekend',
+    stage: 'lodging',
     destination: null,
     start_date: null,
     end_date: null,
@@ -46,6 +47,18 @@ describe('PlansSidebar', () => {
         expect(screen.getByRole('button', { name: /^Lisbon weekend/ })).toHaveTextContent(
             'No dates yet',
         )
+    })
+
+    it('shows which stage each plan is in', async () => {
+        vi.spyOn(sdk, 'listPlans').mockResolvedValue(sdkOk([TOKYO, LISBON]))
+
+        renderSidebar()
+
+        await screen.findByRole('button', { name: /^Tokyo in May/ })
+        expect(screen.getAllByTestId('plan-stage').map((badge) => badge.textContent)).toEqual([
+            'Basics',
+            'Lodging',
+        ])
     })
 
     it('shows an empty state', async () => {

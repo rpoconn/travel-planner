@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { getTimelineQueryKey } from '@/api/@tanstack/react-query.gen'
 import * as sdk from '@/api/sdk.gen'
 import type { TimelineWarning } from '@/api/types.gen'
-import { PLAN_ID, sdkOk, timeline, tokyoTimeline } from '@/test/fixtures'
+import { gap, PHILADELPHIA, PLAN_ID, sdkOk, timeline, tokyoTimeline } from '@/test/fixtures'
 import { renderWithQuery } from '@/test/render'
 
 import { ItineraryTimeline } from './ItineraryTimeline'
@@ -48,6 +48,29 @@ describe('ItineraryTimeline', () => {
         const stay = screen.getByRole('button', { name: 'Hotel Okura, 3 nights' })
         expect(stay).toHaveStyle({ gridColumn: '4 / 10' })
         expect(days[1]).toHaveStyle({ gridColumn: '3 / span 2' })
+    })
+
+    it('draws home at both ends and the missing way from home to the first flight', async () => {
+        vi.spyOn(sdk, 'getTimeline').mockResolvedValue(
+            sdkOk({
+                ...tokyoTimeline(),
+                home: PHILADELPHIA,
+                gaps: [gap({ from_place: PHILADELPHIA })],
+            }),
+        )
+
+        renderTimeline()
+
+        const first = await screen.findByRole('region', { name: /^Day 1,/ })
+        const last = screen.getByRole('region', { name: /^Day 5,/ })
+        expect(within(first).getAllByRole('listitem')[0]).toHaveTextContent('Home · Philadelphia')
+        expect(first).toHaveTextContent(
+            'No transfer from Home (Philadelphia) to San Francisco International',
+        )
+        expect(within(last).getAllByRole('listitem').at(-1)).toHaveTextContent(
+            'Home · Philadelphia',
+        )
+        expect(screen.getAllByTestId('home-chip')).toHaveLength(2)
     })
 
     it('opens the detail sheet for a clicked item and closes it', async () => {

@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AddItemData, AddItemErrors, AddItemResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DecideProposalData, DecideProposalErrors, DecideProposalResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, SendMessageData, SendMessageErrors, SendMessageResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
+import type { AddItemData, AddItemErrors, AddItemResponses, ChangeStageData, ChangeStageErrors, ChangeStageResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DecideProposalData, DecideProposalErrors, DecideProposalResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, SendMessageData, SendMessageErrors, SendMessageResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdateMeData, UpdateMeErrors, UpdateMeResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -65,6 +65,21 @@ export const getMe = <ThrowOnError extends boolean = false>(options?: Options<Ge
 });
 
 /**
+ * Update Me
+ *
+ * Update the current user's profile (their home).
+ */
+export const updateMe = <ThrowOnError extends boolean = false>(options: Options<UpdateMeData, ThrowOnError>): RequestResult<UpdateMeResponses, UpdateMeErrors, ThrowOnError> => (options.client ?? client).patch<UpdateMeResponses, UpdateMeErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/auth/me',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * List Plans
  *
  * The current user's plans, most recently updated first.
@@ -77,6 +92,8 @@ export const listPlans = <ThrowOnError extends boolean = false>(options?: Option
 
 /**
  * Create Plan
+ *
+ * Create a plan. Without an `origin` it starts from the user's home, if they set one.
  */
 export const createPlan = <ThrowOnError extends boolean = false>(options: Options<CreatePlanData, ThrowOnError>): RequestResult<CreatePlanResponses, CreatePlanErrors, ThrowOnError> => (options.client ?? client).post<CreatePlanResponses, CreatePlanErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -116,6 +133,22 @@ export const getPlan = <ThrowOnError extends boolean = false>(options: Options<G
 export const updatePlan = <ThrowOnError extends boolean = false>(options: Options<UpdatePlanData, ThrowOnError>): RequestResult<UpdatePlanResponses, UpdatePlanErrors, ThrowOnError> => (options.client ?? client).patch<UpdatePlanResponses, UpdatePlanErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/plans/{plan_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Change Stage
+ *
+ * Move through the planning stages. `next` is refused (409) until the current stage's
+ * checklist is complete; going back is always allowed.
+ */
+export const changeStage = <ThrowOnError extends boolean = false>(options: Options<ChangeStageData, ThrowOnError>): RequestResult<ChangeStageResponses, ChangeStageErrors, ThrowOnError> => (options.client ?? client).post<ChangeStageResponses, ChangeStageErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/stage',
     ...options,
     headers: {
         'Content-Type': 'application/json',

@@ -10,6 +10,7 @@ import { ProposalCard, type ProposalAction } from '@/components/ProposalCard/Pro
 import { errorMessage } from '@/lib/apiError'
 import { applyChatEvent, startTurn, toolsFromTraces, type ChatTurn } from '@/lib/chatTurn'
 import { applyPlanSnapshot } from '@/lib/planCache'
+import { STAGE_META, suggestionsFor } from '@/lib/stages'
 import { streamChat, streamDecision, type ChatEvent } from '@/lib/sse'
 
 // The plan's conversation: stored history from the API plus the live turn while a reply
@@ -40,22 +41,6 @@ const DECISION_TEXT: Record<Exclude<ProposalAction, 'revise'>, string> = {
 
 /** Starts a turn's request; the turn loop owns the abort signal. */
 type StartTurn = (signal: AbortSignal) => AsyncGenerator<ChatEvent, void, undefined>
-
-function suggestionsFor(plan: TravelPlan): string[] {
-    const destination = plan.destination?.city ?? plan.destination?.name
-    if (destination) {
-        return [
-            `Find flights to ${destination}`,
-            `Suggest a place to stay in ${destination}`,
-            `What should we do on the first day?`,
-        ]
-    }
-    return [
-        'I want to spend a week in Tokyo in May',
-        'Plan a long weekend in Lisbon',
-        'Where is warm and walkable in February?',
-    ]
-}
 
 export function ChatPanel({ plan, ref, onBusyChange }: ChatPanelProps) {
     // ----- state -----
@@ -180,7 +165,11 @@ export function ChatPanel({ plan, ref, onBusyChange }: ChatPanelProps) {
         }
         if (messages.length === 0 && turn === null) {
             return (
-                <EmptyChat suggestions={suggestionsFor(plan)} onPick={(text) => void send(text)} />
+                <EmptyChat
+                    stage={plan.stage}
+                    suggestions={suggestionsFor(plan)}
+                    onPick={(text) => void send(text)}
+                />
             )
         }
         return (
@@ -272,22 +261,28 @@ function LiveTurn({ turn }: { turn: ChatTurn }) {
 }
 
 interface EmptyChatProps {
+    stage: TravelPlan['stage']
     suggestions: string[]
     onPick: (text: string) => void
 }
 
-function EmptyChat({ suggestions, onPick }: EmptyChatProps) {
+/** Opening copy per stage; the first stage introduces how the assistant works. */
+function emptyChatText(stage: TravelPlan['stage']): string {
+    if (stage === 'basics') {
+        return "Tell me where and when you'd like to go. I'll look things up and propose changes to the itinerary on the right; nothing is added until you approve it."
+    }
+    return `${STAGE_META[stage].description} Ask me and I'll propose options; nothing is added until you approve it.`
+}
+
+function EmptyChat({ stage, suggestions, onPick }: EmptyChatProps) {
     return (
         <div className="m-auto flex max-w-sm flex-col items-center gap-4 text-center">
             <div className="bg-accent text-terracotta flex size-12 items-center justify-center rounded-full">
                 <Sparkles className="size-6" aria-hidden />
             </div>
             <div>
-                <p className="font-heading text-xl">Where to next?</p>
-                <p className="text-muted-foreground mt-1 text-sm">
-                    Tell me where and when you'd like to go. I'll look things up and propose changes
-                    to the itinerary on the right; nothing is added until you approve it.
-                </p>
+                <p className="font-heading text-xl">{STAGE_META[stage].prompt}</p>
+                <p className="text-muted-foreground mt-1 text-sm">{emptyChatText(stage)}</p>
             </div>
             <ul aria-label="Suggestions" className="flex w-full flex-col gap-2">
                 {suggestions.map((suggestion) => (

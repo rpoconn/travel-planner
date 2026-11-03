@@ -4,6 +4,7 @@ import type { LodgingSpan, TimelineWarning } from '@/api/types.gen'
 import {
     activityItem,
     flightItem,
+    gap as makeGap,
     lodgingItem,
     timelineEntry,
     tokyoTimeline,
@@ -20,8 +21,9 @@ import {
     formatDayHeader,
     formatDuration,
     formatWallTime,
+    gapMessage,
     layoutLodging,
-    missingTransferBetween,
+    placeGaps,
     parseWallClock,
     warningsByDate,
     warningsByItem,
@@ -246,11 +248,77 @@ describe('warnings', () => {
         expect(byItem.get('b')).toEqual([overlap, gap])
         expect(byItem.get('c')).toEqual([gap, undated])
     })
+})
 
-    it('finds a missing transfer only for that ordered pair', () => {
-        expect(missingTransferBetween([overlap, gap], 'b', 'c')).toBe(gap)
-        expect(missingTransferBetween([overlap, gap], 'c', 'b')).toBeUndefined()
-        expect(missingTransferBetween([overlap, gap], 'a', 'b')).toBeUndefined()
+describe('gaps', () => {
+    const NARITA = { name: 'Narita International Airport', iata: 'NRT' }
+    const OKURA = { name: 'Hotel Okura', city: 'Tokyo' }
+    const HOME = { name: 'San Francisco', city: 'San Francisco' }
+
+    it('names home by its city', () => {
+        expect(gapMessage(makeGap())).toBe(
+            'No transfer from Home (San Francisco) to San Francisco International',
+        )
+        expect(
+            gapMessage(
+                makeGap({
+                    from_place: OKURA,
+                    to_place: HOME,
+                    after_item_id: 'lodging-1',
+                    before_item_id: null,
+                }),
+            ),
+        ).toBe('No transfer from Hotel Okura to Home (San Francisco)')
+    })
+
+    it('draws a gap above the first card of the item it leads to', () => {
+        const placed = placeGaps({ ...tokyoTimeline(), gaps: [makeGap()] })
+
+        // The overnight flight shows on May 1 and 2; the way to it belongs before May 1's card.
+        expect(placed.get('2027-05-01')?.before.get('flight-1')).toEqual([makeGap()])
+        expect(placed.has('2027-05-02')).toBe(false)
+    })
+
+    it('draws a gap into a stay below the card it leaves', () => {
+        const toHotel = makeGap({
+            from_place: NARITA,
+            to_place: OKURA,
+            after_item_id: 'flight-1',
+            before_item_id: 'lodging-1',
+            leave_after: '2027-05-02T14:30:00+09:00',
+            arrive_before: '2027-05-02T15:00:00+09:00',
+        })
+
+        const placed = placeGaps({ ...tokyoTimeline(), gaps: [toHotel] })
+
+        // Lodging is a bar, not a card, so the flight's arrival card (May 2) carries it.
+        expect(placed.get('2027-05-02')?.after.get('flight-1')).toEqual([toHotel])
+    })
+
+    it('puts home ↔ stay gaps at the top or bottom of their day, inside the trip', () => {
+        const leave = makeGap({
+            to_place: OKURA,
+            before_item_id: 'lodging-1',
+            arrive_before: '2027-05-02T15:00:00+09:00',
+        })
+        const back = makeGap({
+            from_place: OKURA,
+            to_place: HOME,
+            after_item_id: 'lodging-1',
+            before_item_id: null,
+            // After the last day: clamped onto it.
+            leave_after: '2027-05-09T11:00:00+09:00',
+            arrive_before: null,
+        })
+
+        const placed = placeGaps({ ...tokyoTimeline(), gaps: [leave, back] })
+
+        expect(placed.get('2027-05-02')?.top).toEqual([leave])
+        expect(placed.get('2027-05-05')?.bottom).toEqual([back])
+    })
+
+    it('places nothing on a timeline without days', () => {
+        expect(placeGaps({ ...tokyoTimeline(), days: [], gaps: [makeGap()] }).size).toBe(0)
     })
 })
 

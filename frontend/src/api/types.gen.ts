@@ -653,6 +653,39 @@ export type FlightItemPatch = {
 };
 
 /**
+ * Gap
+ *
+ * A change of place with no transfer to cover it (found by `itinerary.gaps`).
+ *
+ * `None` item ids mean the traveller's home: `after_item_id=None` is the trip's start
+ * (home → first stop) and `before_item_id=None` is its end (last stop → home).
+ */
+export type Gap = {
+    from_place: Place;
+    to_place: Place;
+    /**
+     * After Item Id
+     */
+    after_item_id: string | null;
+    /**
+     * Before Item Id
+     */
+    before_item_id: string | null;
+    /**
+     * Leave After
+     */
+    leave_after: string | null;
+    /**
+     * Arrive Before
+     */
+    arrive_before: string | null;
+    /**
+     * Timezone
+     */
+    timezone: string;
+};
+
+/**
  * GuardrailEvent
  */
 export type GuardrailEvent = {
@@ -1064,6 +1097,10 @@ export type PlanSummary = {
      * Status
      */
     status: 'draft' | 'planned' | 'booked';
+    /**
+     * Stage
+     */
+    stage: 'basics' | 'flights' | 'lodging' | 'activities' | 'ground' | 'review';
     destination: Place | null;
     /**
      * Start Date
@@ -1243,6 +1280,44 @@ export type SpendingLimitOutput = {
 };
 
 /**
+ * StageChange
+ *
+ * Move the plan through the workflow: `next` (only when the current stage is ready),
+ * `back`, `skip_flights` (from the flights stage, for a trip without flying) or `go_to`
+ * an earlier `stage`.
+ */
+export type StageChange = {
+    /**
+     * Action
+     */
+    action: 'next' | 'back' | 'skip_flights' | 'go_to';
+    /**
+     * Stage
+     */
+    stage?: 'basics' | 'flights' | 'lodging' | 'activities' | 'ground' | 'review' | null;
+};
+
+/**
+ * StageStatus
+ *
+ * Whether a stage's checklist is complete, and what is still missing if not.
+ */
+export type StageStatus = {
+    /**
+     * Stage
+     */
+    stage: 'basics' | 'flights' | 'lodging' | 'activities' | 'ground' | 'review';
+    /**
+     * Ready
+     */
+    ready: boolean;
+    /**
+     * Missing
+     */
+    missing: Array<string>;
+};
+
+/**
  * Timeline
  */
 export type Timeline = {
@@ -1266,6 +1341,11 @@ export type Timeline = {
      * Warnings
      */
     warnings: Array<TimelineWarning>;
+    /**
+     * Gaps
+     */
+    gaps: Array<Gap>;
+    home: Place | null;
 };
 
 /**
@@ -1701,6 +1781,14 @@ export type TravelPlan = {
      * Status
      */
     status: 'draft' | 'planned' | 'booked';
+    /**
+     * Stage
+     */
+    stage: 'basics' | 'flights' | 'lodging' | 'activities' | 'ground' | 'review';
+    /**
+     * Flights Skipped
+     */
+    flights_skipped: boolean;
     origin: Place | null;
     destination: Place | null;
     /**
@@ -1737,6 +1825,14 @@ export type TravelPlan = {
      * Items
      */
     items: Array<FlightItem | LodgingItem | ActivityItem | TransferItem>;
+    /**
+     * Stages
+     */
+    stages: Array<StageStatus>;
+    /**
+     * Gaps
+     */
+    gaps: Array<Gap>;
 };
 
 /**
@@ -1769,10 +1865,23 @@ export type UserRead = {
      * Display Name
      */
     display_name: string;
+    home?: Place | null;
     /**
      * Created At
      */
     created_at: string;
+};
+
+/**
+ * UserUpdate
+ *
+ * Profile changes; `home` replaces the stored home (null clears it).
+ */
+export type UserUpdate = {
+    /**
+     * Where trips start and end: the city or address, plus the nearest airport's `iata` code for flight searches
+     */
+    home: Place | null;
 };
 
 /**
@@ -1935,6 +2044,35 @@ export type GetMeResponses = {
 };
 
 export type GetMeResponse = GetMeResponses[keyof GetMeResponses];
+
+export type UpdateMeData = {
+    body: UserUpdate;
+    path?: never;
+    query?: never;
+    url: '/auth/me';
+};
+
+export type UpdateMeErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateMeError = UpdateMeErrors[keyof UpdateMeErrors];
+
+export type UpdateMeResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserRead;
+};
+
+export type UpdateMeResponse = UpdateMeResponses[keyof UpdateMeResponses];
 
 export type ListPlansData = {
     body?: never;
@@ -2105,6 +2243,48 @@ export type UpdatePlanResponses = {
 };
 
 export type UpdatePlanResponse = UpdatePlanResponses[keyof UpdatePlanResponses];
+
+export type ChangeStageData = {
+    body: StageChange;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/stage';
+};
+
+export type ChangeStageErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ChangeStageError = ChangeStageErrors[keyof ChangeStageErrors];
+
+export type ChangeStageResponses = {
+    /**
+     * Successful Response
+     */
+    200: TravelPlan;
+};
+
+export type ChangeStageResponse = ChangeStageResponses[keyof ChangeStageResponses];
 
 export type ListItemsData = {
     body?: never;

@@ -88,6 +88,20 @@ describe('WorkspacePage', () => {
         })
     })
 
+    it('shows the stage stepper for the selected plan and the home button', async () => {
+        vi.spyOn(sdk, 'getPlan').mockResolvedValue(sdkOk(travelPlan({ stage: 'flights' })))
+
+        await renderWithRouter(<WorkspacePage planId={travelPlan().id} />)
+
+        const stepper = await screen.findByRole('navigation', { name: 'Planning stages' })
+        expect(within(stepper).getByRole('listitem', { current: 'step' })).toHaveTextContent(
+            'Flights',
+        )
+        expect(within(stepper).getByRole('button', { name: 'Skip flights' })).toBeEnabled()
+        // Ada has no home yet, so the header offers to set one.
+        expect(screen.getByRole('button', { name: 'Set home' })).toBeInTheDocument()
+    })
+
     it('shows an error when the plan cannot be loaded', async () => {
         vi.spyOn(sdk, 'getPlan').mockRejectedValue({ detail: 'Plan not found' })
 

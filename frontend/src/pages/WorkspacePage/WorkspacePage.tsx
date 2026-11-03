@@ -5,8 +5,10 @@ import { useRef, useState, type ReactNode } from 'react'
 
 import { getPlanOptions } from '@/api/@tanstack/react-query.gen'
 import { ChatPanel, type ChatPanelHandle } from '@/components/ChatPanel/ChatPanel'
+import { HomeSetup } from '@/components/HomeSetup/HomeSetup'
 import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
+import { StageStepper } from '@/components/StageStepper/StageStepper'
 import { ThemeToggle } from '@/components/ThemeToggle/ThemeToggle'
 import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/apiError'
@@ -15,6 +17,8 @@ import { formatDateRange } from '@/lib/format'
 
 // Three-pane shell: trips sidebar | chat | itinerary timeline. The chat and timeline are
 // keyed by plan id so switching trips starts them fresh (and aborts a streaming reply).
+// The stage stepper sits above the chat; it's locked while a reply streams, since the
+// assistant's tools depend on the stage the turn started in.
 
 interface WorkspacePageProps {
     planId?: string
@@ -107,6 +111,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                     Travel Planner
                 </span>
                 <div className="flex items-center gap-3 text-sm">
+                    <HomeSetup />
                     <ThemeToggle />
                     <span className="text-muted-foreground" data-testid="current-user">
                         {session && (session.user.display_name || session.user.email)}
@@ -141,6 +146,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                             </p>
                         </div>
                     )}
+                    {plan && <StageStepper plan={plan} disabled={chatBusy} />}
                     <div className="min-h-0 flex-1">{renderChatPane()}</div>
                 </section>
 

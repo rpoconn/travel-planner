@@ -1,5 +1,7 @@
 import type {
+    Gap,
     LodgingSpan,
+    Place,
     Timeline,
     TimelineDay,
     TimelineEntry,
@@ -296,21 +298,98 @@ export function warningsByItem(warnings: readonly TimelineWarning[]) {
     return byItem
 }
 
+// ----- gaps -----
+// A gap is a change of place no transfer covers, from the server's whole-trip scan; a null
+// item id is the traveller's home (`after_item_id: null` leaves home, `before_item_id: null`
+// gets back). Each gap is drawn once, as a "no transfer planned" connector next to a card.
+// Lodging is drawn as bars, not cards, so a gap that touches a stay anchors on its other end.
+
+/** Gaps drawn on one day, by where they sit in the day's list of cards. */
+export interface DayGaps {
+    /** Before the first card (e.g. home → hotel on a trip without flights). */
+    top: Gap[]
+    /** Above a card, keyed by item id: the way *to* that card is missing. */
+    before: Map<string, Gap[]>
+    /** Below a card, keyed by item id: the way *from* that card is missing. */
+    after: Map<string, Gap[]>
+    /** After the last card (e.g. hotel → home). */
+    bottom: Gap[]
+}
+
+export function emptyDayGaps(): DayGaps {
+    return { top: [], before: new Map(), after: new Map(), bottom: [] }
+}
+
+/** "Home (Philadelphia)" for a home end, otherwise the place's name. */
+function gapEndLabel(place: Place, itemId: string | null): string {
+    return itemId === null ? `Home (${place.city ?? place.name})` : place.name
+}
+
+/** "No transfer from Home (Philadelphia) to Philadelphia International (PHL)". */
+export function gapMessage(gap: Gap): string {
+    return `No transfer from ${gapEndLabel(gap.from_place, gap.after_item_id)} to ${gapEndLabel(gap.to_place, gap.before_item_id)}`
+}
+
+function push<K>(map: Map<K, Gap[]>, key: K, gap: Gap): void {
+    map.set(key, [...(map.get(key) ?? []), gap])
+}
+
 /**
- * The `missing_transfer` warning between two consecutive cards, if any. The server reports
- * these as `[from item, to item]` pairs.
+ * Where each gap is drawn, by day date. In order of preference: above the first card of the
+ * item it leads to; below the last card of the item it leaves; otherwise (both ends are home
+ * or lodging) at the top or bottom of the day it happens, clamped to the trip's days.
  */
-export function missingTransferBetween(
-    warnings: readonly TimelineWarning[],
-    fromId: string,
-    toId: string,
-): TimelineWarning | undefined {
-    return warnings.find(
-        (warning) =>
-            warning.kind === 'missing_transfer' &&
-            warning.item_ids[0] === fromId &&
-            warning.item_ids[1] === toId,
-    )
+export function placeGaps(timeline: Timeline): Map<string, DayGaps> {
+    const byDate = new Map<string, DayGaps>()
+    const dayGaps = (date: string) => {
+        let entry = byDate.get(date)
+        if (!entry) {
+            entry = emptyDayGaps()
+            byDate.set(date, entry)
+        }
+        return entry
+    }
+    const firstDate = timeline.days[0]?.date
+    const lastDate = timeline.days.at(-1)?.date
+    if (firstDate === undefined || lastDate === undefined) return byDate
+
+    // First and last day each item's card appears on (flights can span two days).
+    const firstSeen = new Map<string, string>()
+    const lastSeen = new Map<string, string>()
+    for (const day of timeline.days) {
+        for (const { item } of day.entries) {
+            if (!firstSeen.has(item.id)) firstSeen.set(item.id, day.date)
+            lastSeen.set(item.id, day.date)
+        }
+    }
+
+    for (const gap of timeline.gaps) {
+        const toCard = gap.before_item_id !== null ? firstSeen.get(gap.before_item_id) : undefined
+        const fromCard = gap.after_item_id !== null ? lastSeen.get(gap.after_item_id) : undefined
+        if (toCard !== undefined && gap.before_item_id !== null) {
+            push(dayGaps(toCard).before, gap.before_item_id, gap)
+        } else if (fromCard !== undefined && gap.after_item_id !== null) {
+            push(dayGaps(fromCard).after, gap.after_item_id, gap)
+        } else {
+            const leavingHome = gap.after_item_id === null
+            const moment = gap.arrive_before ?? gap.leave_after
+            let date = moment ? isoDate(moment) : leavingHome ? firstDate : lastDate
+            // ISO dates compare correctly as strings.
+            if (date < firstDate) date = firstDate
+            if (date > lastDate) date = lastDate
+            const day = dayGaps(date)
+            if (leavingHome) day.top.push(gap)
+            else day.bottom.push(gap)
+        }
+    }
+    return byDate
+}
+
+/** The local `YYYY-MM-DD` of an ISO date-time. */
+function isoDate(iso: string): string {
+    const { year, month, day } = parseWallClock(iso)
+    const pad = (value: number) => String(value).padStart(2, '0')
+    return `${String(year)}-${pad(month)}-${pad(day)}`
 }
 
 // ----- lookup -----

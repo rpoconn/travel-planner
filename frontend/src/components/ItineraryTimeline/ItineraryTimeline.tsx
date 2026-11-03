@@ -15,6 +15,7 @@ import {
     findTimelineItem,
     HALF_COLUMNS_PER_DAY,
     layoutLodging,
+    placeGaps,
     warningsByDate,
     warningsByItem,
 } from '@/lib/timeline'
@@ -156,6 +157,8 @@ function TimelineGrid({ timeline, onSelectItem }: TimelineGridProps) {
     const { placements, laneCount } = layoutLodging(timeline.lodging)
     const byDate = warningsByDate(timeline.warnings)
     const byItem = warningsByItem(timeline.warnings)
+    const gapsByDate = placeGaps(timeline)
+    const lastIndex = timeline.days.length - 1
     const hasItems = laneCount > 0 || timeline.days.some((day) => day.entries.length > 0)
 
     // Rows: date headers, one row per lodging lane, then the cards (filling the height).
@@ -179,7 +182,9 @@ function TimelineGrid({ timeline, onSelectItem }: TimelineGridProps) {
                         key={day.date}
                         day={day}
                         previousDay={timeline.days[day.index - 1]}
-                        warnings={timeline.warnings}
+                        gaps={gapsByDate.get(day.date)}
+                        homeAtStart={day.index === 0 ? timeline.home : null}
+                        homeAtEnd={day.index === lastIndex ? timeline.home : null}
                         dayWarnings={byDate.get(day.date)}
                         warningsByItem={byItem}
                         style={{ gridColumn: dayGridColumn(day.index), gridRow: '1 / -1' }}

@@ -3,8 +3,11 @@ import type {
     ChatMessage,
     ChatProposal,
     FlightItem,
+    Gap,
     LodgingItem,
+    Place,
     PlanSummary,
+    StageStatus,
     Timeline,
     TimelineEntry,
     TokenResponse,
@@ -28,6 +31,7 @@ export const ADA: UserRead = {
     id: '11111111-1111-1111-1111-111111111111',
     email: 'ada@example.com',
     display_name: 'Ada',
+    home: null,
     created_at: '2026-10-01T12:00:00Z',
 }
 
@@ -40,6 +44,7 @@ export function planSummary(overrides: Partial<PlanSummary> = {}): PlanSummary {
         id: 'aaaaaaaa-0000-0000-0000-000000000001',
         title: 'Tokyo in May',
         status: 'draft',
+        stage: 'basics',
         destination: { name: 'Tokyo' },
         start_date: '2027-05-01',
         end_date: '2027-05-08',
@@ -55,6 +60,8 @@ export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
         user_id: ADA.id,
         title: 'Tokyo in May',
         status: 'draft',
+        stage: 'basics',
+        flights_skipped: false,
         origin: null,
         destination: { name: 'Tokyo' },
         start_date: '2027-05-01',
@@ -67,8 +74,31 @@ export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
         created_at: '2026-10-01T12:00:00Z',
         updated_at: '2026-10-01T12:00:00Z',
         items: [],
+        stages: stageStatuses(),
+        gaps: [],
         ...overrides,
     }
+}
+
+/** Where Ada's trips start and end. */
+export const PHILADELPHIA: Place = { name: 'Philadelphia', city: 'Philadelphia', iata: 'PHL' }
+
+/**
+ * One status per stage, in order: ready unless listed in `missing` (stage → what's missing).
+ * Review is ready only when every other stage is.
+ */
+export function stageStatuses(
+    missing: Partial<Record<StageStatus['stage'], string[]>> = {},
+): StageStatus[] {
+    const stages = ['basics', 'flights', 'lodging', 'activities', 'ground'] as const
+    const statuses: StageStatus[] = stages.map((stage) => ({
+        stage,
+        ready: !missing[stage]?.length,
+        missing: missing[stage] ?? [],
+    }))
+    const review =
+        missing.review ?? statuses.filter((s) => !s.ready).map((s) => `the ${s.stage} stage`)
+    return [...statuses, { stage: 'review', ready: review.length === 0, missing: review }]
 }
 
 // ----- itinerary -----
@@ -174,7 +204,16 @@ export function timelineEntry(
 }
 
 export function timeline(overrides: Partial<Timeline> = {}): Timeline {
-    return { plan_id: PLAN_ID, version: 1, days: [], lodging: [], warnings: [], ...overrides }
+    return {
+        plan_id: PLAN_ID,
+        version: 1,
+        days: [],
+        lodging: [],
+        warnings: [],
+        gaps: [],
+        home: null,
+        ...overrides,
+    }
 }
 
 /** The Tokyo trip above as the server's timeline: May 1–5 with the hotel spanning 1..4. */
@@ -209,6 +248,20 @@ export function tokyoTimeline(): Timeline {
         ],
         lodging: [{ item: lodgingItem(), start_day_index: 1, end_day_index: 4 }],
     })
+}
+
+/** A gap from home to the outbound flight (SFO); override the ends for other gaps. */
+export function gap(overrides: Partial<Gap> = {}): Gap {
+    return {
+        from_place: { name: 'San Francisco', city: 'San Francisco' },
+        to_place: { name: 'San Francisco International', iata: 'SFO', city: 'San Francisco' },
+        after_item_id: null,
+        before_item_id: 'flight-1',
+        leave_after: null,
+        arrive_before: '2027-05-01T11:00:00-07:00',
+        timezone: 'America/Los_Angeles',
+        ...overrides,
+    }
 }
 
 // ----- chat -----

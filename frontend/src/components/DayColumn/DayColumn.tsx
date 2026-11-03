@@ -1,21 +1,25 @@
-import { Clock, TriangleAlert } from 'lucide-react'
+import { Clock, House, TriangleAlert } from 'lucide-react'
 import { Fragment, type CSSProperties } from 'react'
 
-import type { TimelineDay, TimelineWarning } from '@/api/types.gen'
+import type { Gap, Place, TimelineDay, TimelineWarning } from '@/api/types.gen'
 import { ItemCard } from '@/components/ItemCard/ItemCard'
 import { TransferConnector } from '@/components/TransferConnector/TransferConnector'
 import type { ItineraryItem } from '@/lib/itemMeta'
 import {
     dayZoneChange,
     dayZoneLabel,
+    emptyDayGaps,
     formatDayHeader,
-    missingTransferBetween,
+    gapMessage,
+    type DayGaps,
 } from '@/lib/timeline'
 
 // One day of the timeline. It spans every row of the timeline grid and uses `subgrid`, so
 // its sticky date header sits in the first row, its cards in the last, and the lodging lanes
 // that ItineraryTimeline draws in between line up with every column. The header shows the
 // timezone the traveller is in, and flags the day the clocks change (e.g. landing in Tokyo).
+// Missing transfers (gaps) are drawn as dashed connectors where ItineraryTimeline placed
+// them, and the first and last days start / end at a "Home" chip when the trip has one.
 
 // ----- types -----
 
@@ -23,8 +27,12 @@ interface DayColumnProps {
     day: TimelineDay
     /** The day before, to spot a timezone change; undefined for the first day. */
     previousDay?: TimelineDay
-    /** All timeline warnings: used to find `missing_transfer` gaps between cards. */
-    warnings: readonly TimelineWarning[]
+    /** Missing transfers drawn on this day (see `placeGaps`). */
+    gaps?: DayGaps | undefined
+    /** Home, on the first day: drawn above everything else. */
+    homeAtStart?: Place | null
+    /** Home, on the last day: drawn below everything else. */
+    homeAtEnd?: Place | null
     /** Warnings dated this day, summarized in the header. */
     dayWarnings?: readonly TimelineWarning[]
     warningsByItem: ReadonlyMap<string, TimelineWarning[]>
@@ -32,10 +40,14 @@ interface DayColumnProps {
     onSelectItem: (item: ItineraryItem) => void
 }
 
+const EMPTY_GAPS: DayGaps = emptyDayGaps()
+
 export function DayColumn({
     day,
     previousDay,
-    warnings,
+    gaps = EMPTY_GAPS,
+    homeAtStart = null,
+    homeAtEnd = null,
     dayWarnings = [],
     warningsByItem,
     style,
@@ -45,6 +57,7 @@ export function DayColumn({
     const { weekday, date } = formatDayHeader(day.date)
     const zone = dayZoneLabel(day)
     const zoneChange = dayZoneChange(day, previousDay)
+    const freeDay = day.entries.length === 0 && gaps.top.length === 0 && gaps.bottom.length === 0
 
     // ----- markup -----
     return (
@@ -89,42 +102,63 @@ export function DayColumn({
 
             {/* Last row of the subgrid, below the lodging lanes. */}
             <ol className="flex flex-col gap-0 p-2" style={{ gridRow: '-2 / -1' }}>
-                {day.entries.length === 0 && (
+                {homeAtStart && <HomeChip home={homeAtStart} />}
+                <MissingTransfers gaps={gaps.top} />
+                {freeDay && (
                     <li className="text-muted-foreground/70 py-6 text-center text-xs italic">
                         Free day
                     </li>
                 )}
-                {day.entries.map((entry, index) => {
-                    const previous = index > 0 ? day.entries[index - 1] : undefined
-                    const gap =
-                        previous &&
-                        missingTransferBetween(warnings, previous.item.id, entry.item.id)
-                    return (
-                        <Fragment key={entry.item.id}>
-                            {gap && (
-                                <li>
-                                    <TransferConnector variant="missing" message={gap.message} />
-                                </li>
+                {day.entries.map((entry) => (
+                    <Fragment key={entry.item.id}>
+                        <MissingTransfers gaps={gaps.before.get(entry.item.id)} />
+                        <li className={entry.item.type === 'transfer' ? '' : 'py-1'}>
+                            {entry.item.type === 'transfer' ? (
+                                <TransferConnector
+                                    variant="transfer"
+                                    item={entry.item}
+                                    onSelect={onSelectItem}
+                                />
+                            ) : (
+                                <ItemCard
+                                    entry={entry}
+                                    warnings={warningsByItem.get(entry.item.id)}
+                                    onSelect={onSelectItem}
+                                />
                             )}
-                            <li className={entry.item.type === 'transfer' ? '' : 'py-1'}>
-                                {entry.item.type === 'transfer' ? (
-                                    <TransferConnector
-                                        variant="transfer"
-                                        item={entry.item}
-                                        onSelect={onSelectItem}
-                                    />
-                                ) : (
-                                    <ItemCard
-                                        entry={entry}
-                                        warnings={warningsByItem.get(entry.item.id)}
-                                        onSelect={onSelectItem}
-                                    />
-                                )}
-                            </li>
-                        </Fragment>
-                    )
-                })}
+                        </li>
+                        <MissingTransfers gaps={gaps.after.get(entry.item.id)} />
+                    </Fragment>
+                ))}
+                <MissingTransfers gaps={gaps.bottom} />
+                {homeAtEnd && <HomeChip home={homeAtEnd} />}
             </ol>
         </section>
+    )
+}
+
+// ----- subcomponents -----
+
+function MissingTransfers({ gaps = [] }: { gaps?: readonly Gap[] | undefined }) {
+    return gaps.map((gap) => (
+        <li key={`${gap.after_item_id ?? 'home'}-${gap.before_item_id ?? 'home'}`}>
+            <TransferConnector variant="missing" message={gapMessage(gap)} />
+        </li>
+    ))
+}
+
+/** Where the trip leaves from and comes back to. */
+function HomeChip({ home }: { home: Place }) {
+    return (
+        <li className="flex justify-center py-1">
+            <span
+                data-testid="home-chip"
+                className="bg-secondary text-secondary-foreground inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
+                title={[home.address, home.city ?? home.name].filter(Boolean).join(', ')}
+            >
+                <House className="size-3.5 shrink-0" aria-hidden />
+                <span className="truncate">Home · {home.city ?? home.name}</span>
+            </span>
+        </li>
     )
 }

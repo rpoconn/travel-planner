@@ -186,6 +186,61 @@
             "HTTPBearer": []
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Update Me",
+        "description": "Update the current user's profile (their home).",
+        "operationId": "updateMe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/plans": {
@@ -233,6 +288,7 @@
           "plans"
         ],
         "summary": "Create Plan",
+        "description": "Create a plan. Without an `origin` it starts from the user's home, if they set one.",
         "operationId": "createPlan",
         "requestBody": {
           "content": {
@@ -474,6 +530,95 @@
               }
             },
             "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/stage": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Change Stage",
+        "description": "Move through the planning stages. `next` is refused (409) until the current stage's\nchecklist is complete; going back is always allowed.",
+        "operationId": "changeStage",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StageChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TravelPlan"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "description": "Validation Error",
@@ -2717,6 +2862,80 @@
         ],
         "title": "FlightItemPatch"
       },
+      "Gap": {
+        "properties": {
+          "from_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "to_place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "after_item_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Item Id"
+          },
+          "before_item_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Item Id"
+          },
+          "leave_after": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leave After"
+          },
+          "arrive_before": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrive Before"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from_place",
+          "to_place",
+          "after_item_id",
+          "before_item_id",
+          "leave_after",
+          "arrive_before",
+          "timezone"
+        ],
+        "title": "Gap",
+        "description": "A change of place with no transfer to cover it (found by `itinerary.gaps`).\n\n`None` item ids mean the traveller's home: `after_item_id=None` is the trip's start\n(home \u2192 first stop) and `before_item_id=None` is its end (last stop \u2192 home)."
+      },
       "GuardrailEvent": {
         "properties": {
           "type": {
@@ -3590,6 +3809,18 @@
             ],
             "title": "Status"
           },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "basics",
+              "flights",
+              "lodging",
+              "activities",
+              "ground",
+              "review"
+            ],
+            "title": "Stage"
+          },
           "destination": {
             "anyOf": [
               {
@@ -3639,6 +3870,7 @@
           "id",
           "title",
           "status",
+          "stage",
           "destination",
           "start_date",
           "end_date",
@@ -3970,6 +4202,80 @@
         "title": "SpendingLimit",
         "description": "The most one activity of a category may cost per person (a plan setting, defined here\nbecause it is about items)."
       },
+      "StageChange": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "next",
+              "back",
+              "skip_flights",
+              "go_to"
+            ],
+            "title": "Action"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "basics",
+                  "flights",
+                  "lodging",
+                  "activities",
+                  "ground",
+                  "review"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "StageChange",
+        "description": "Move the plan through the workflow: `next` (only when the current stage is ready),\n`back`, `skip_flights` (from the flights stage, for a trip without flying) or `go_to`\nan earlier `stage`."
+      },
+      "StageStatus": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "basics",
+              "flights",
+              "lodging",
+              "activities",
+              "ground",
+              "review"
+            ],
+            "title": "Stage"
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage",
+          "ready",
+          "missing"
+        ],
+        "title": "StageStatus",
+        "description": "Whether a stage's checklist is complete, and what is still missing if not."
+      },
       "Timeline": {
         "properties": {
           "plan_id": {
@@ -4001,6 +4307,23 @@
             },
             "type": "array",
             "title": "Warnings"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/Gap"
+            },
+            "type": "array",
+            "title": "Gaps"
+          },
+          "home": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -4009,7 +4332,9 @@
           "version",
           "days",
           "lodging",
-          "warnings"
+          "warnings",
+          "gaps",
+          "home"
         ],
         "title": "Timeline"
       },
@@ -4903,6 +5228,22 @@
             ],
             "title": "Status"
           },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "basics",
+              "flights",
+              "lodging",
+              "activities",
+              "ground",
+              "review"
+            ],
+            "title": "Stage"
+          },
+          "flights_skipped": {
+            "type": "boolean",
+            "title": "Flights Skipped"
+          },
           "origin": {
             "anyOf": [
               {
@@ -5020,6 +5361,20 @@
             },
             "type": "array",
             "title": "Items"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageStatus"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/Gap"
+            },
+            "type": "array",
+            "title": "Gaps"
           }
         },
         "type": "object",
@@ -5028,6 +5383,8 @@
           "user_id",
           "title",
           "status",
+          "stage",
+          "flights_skipped",
           "origin",
           "destination",
           "start_date",
@@ -5039,7 +5396,9 @@
           "version",
           "created_at",
           "updated_at",
-          "items"
+          "items",
+          "stages",
+          "gaps"
         ],
         "title": "TravelPlan",
         "description": "Full plan snapshot including its itinerary; built by `itinerary.service.snapshot`,\nwhich owns the items."
@@ -5081,6 +5440,16 @@
             "type": "string",
             "title": "Display Name"
           },
+          "home": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -5095,6 +5464,27 @@
           "created_at"
         ],
         "title": "UserRead"
+      },
+      "UserUpdate": {
+        "properties": {
+          "home": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Place"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where trips start and end: the city or address, plus the nearest airport's `iata` code for flight searches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "home"
+        ],
+        "title": "UserUpdate",
+        "description": "Profile changes; `home` replaces the stored home (null clears it)."
       },
       "ValidationError": {
         "properties": {
