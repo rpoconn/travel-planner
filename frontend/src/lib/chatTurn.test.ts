@@ -125,6 +125,35 @@ describe('applyChatEvent', () => {
         expect(turn.proposal).toEqual(proposal)
     })
 
+    it('turns a proposed chip into a failed one when the change is withdrawn', () => {
+        // The reviewer withdraws a staged change with a second result for the same call.
+        const turn = fold([
+            { type: 'tool_call', call_id: 'c1', name: 'add_lodging', arguments: {} },
+            {
+                type: 'tool_result',
+                call_id: 'c1',
+                name: 'add_lodging',
+                ok: true,
+                summary: 'Proposed: Add lodging “Dinner at Alfama”',
+                proposed: true,
+            },
+            {
+                type: 'tool_result',
+                call_id: 'c1',
+                name: 'add_lodging',
+                ok: false,
+                summary: 'Withdrawn: Add lodging “Dinner at Alfama” — they asked for dinner',
+                proposed: false,
+            },
+        ])
+
+        expect(turn.tools).toHaveLength(1)
+        expect(turn.tools[0]).toMatchObject({
+            status: 'failed',
+            summary: 'Withdrawn: Add lodging “Dinner at Alfama” — they asked for dinner',
+        })
+    })
+
     it('ends with an error, keeping the stored notice id when there is one', () => {
         const stored = fold([
             {

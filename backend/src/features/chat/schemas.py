@@ -129,6 +129,23 @@ class GuardrailVerdict(BaseModel):
     topic: str = Field(max_length=200, description="A few words naming what the message is about")
 
 
+class ChangeVerdict(BaseModel):
+    """The reviewer's judgement of one proposed change."""
+
+    index: int = Field(description="The change's number in the list")
+    fits_request: bool = Field(
+        description="true if it does what the user asked for and belongs to the current stage"
+    )
+    reason: str = Field(default="", max_length=300, description="Why not, in one sentence")
+
+
+class ReviewVerdict(BaseModel):
+    """Structured output of the proposal reviewer (also the JSON schema the model must
+    follow). Changes with no verdict, and an empty list, are approved."""
+
+    verdicts: list[ChangeVerdict]
+
+
 # ---------------------------------------------------------------------------
 # Server-sent events: each event's `data:` is one of these as JSON, told apart by `type`.
 # (No SSE `event:` name is sent, so clients read every event through `onmessage`.)

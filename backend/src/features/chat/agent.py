@@ -6,6 +6,11 @@ into the caller's `staged` list, which becomes the reply's proposal card. Nothin
 plan changes during a turn, so the plan JSON in the system prompt stays current. A card
 that adds a flight out without one home gets the model a reminder to propose it or ask,
 and a reply that says it proposed something without calling a tool gets one to call it.
+
+With a `review` callback, the staged changes are checked once the model stops calling
+tools (see features.chat.review). Rejected changes are withdrawn from the card; the model
+is told why and gets one more try, after which anything still rejected is withdrawn with a
+note to the user.
 """
 
 import logging
@@ -21,7 +26,10 @@ from features.chat.prompts import (
     ALREADY_STAGED,
     PHANTOM_PROPOSAL_NUDGE,
     agent_system_prompt,
+    review_feedback,
+    withdrawn_note,
 )
+from features.chat.review import ReviewFn
 from features.chat.schemas import (
     ChatEvent,
     ProposedChange,
@@ -37,6 +45,9 @@ logger = logging.getLogger(__name__)
 # Tool-calling rounds per user message. After the last one the model gets one more call
 # with no tools, so it always ends with a text answer.
 MAX_TOOL_ROUNDS = 6
+
+# How many times the model may propose again after the reviewer withdrew changes.
+REVIEW_RETRIES = 1
 
 # Inserted between the text of two rounds ("Let me add that." ... "Done!").
 _ROUND_SEPARATOR = "\n\n"
@@ -82,6 +93,28 @@ def _stage(
     return outcome
 
 
+def _base_call_id(call_id: str) -> str:
+    # A bundle tool stages "call_x", "call_x-2", …: one tool call, withdrawn as a unit.
+    return call_id.split("-")[0]
+
+
+def _withdraw(
+    staged: list[ProposedChange], rejected: list[tuple[int, str]]
+) -> list[tuple[str, str, str]]:
+    """Remove the rejected changes from `staged`, each with the rest of its tool call's
+    bundle. Returns (base call id, summary, reason) per withdrawn tool call, in order."""
+    reasons: dict[str, str] = {}
+    for position, reason in rejected:
+        reasons.setdefault(_base_call_id(staged[position].call_id), reason)
+    withdrawn: dict[str, list[str]] = {}
+    for change in staged:
+        base = _base_call_id(change.call_id)
+        if base in reasons:
+            withdrawn.setdefault(base, []).append(change.summary)
+    staged[:] = [change for change in staged if _base_call_id(change.call_id) not in reasons]
+    return [(base, "; ".join(summaries), reasons[base]) for base, summaries in withdrawn.items()]
+
+
 async def run_agent(
     *,
     llm: LLMClient,
@@ -92,12 +125,14 @@ async def run_agent(
     today: date,
     staged: list[ProposedChange],
     tool_specs: Sequence[ToolSpec] = tools.TOOL_SPECS,
+    review: ReviewFn | None = None,
 ) -> AsyncIterator[ChatEvent]:
     """Yield `token`, `tool_call` and `tool_result` events for one turn.
 
     Validated plan changes are appended to `staged` (an out-parameter, in call order);
     their `tool_result` events have `proposed=True`. Raises `LLMError` if the model fails;
-    tool failures are reported to the model instead.
+    tool failures are reported to the model instead. A change the `review` withdraws gets a
+    second `tool_result` for its call, with `ok=False`.
     """
     # The tools see the card as it grows (the same list), so its changes count towards the
     # budget: three dinners proposed together can't each fit on their own. Likewise the
@@ -117,6 +152,11 @@ async def run_agent(
     wrote_text = False
     nudged_return = False
     nudged_phantom = False
+    reviews_done = 0
+    # What the last review let through, so an unchanged card isn't reviewed again.
+    reviewed: list[ProposedChange] = []
+    # Tool names by call id, for the event that withdraws a call's changes.
+    call_names: dict[str, str] = {}
 
     for round_index in range(MAX_TOOL_ROUNDS + 1):
         final_round = round_index == MAX_TOOL_ROUNDS
@@ -146,12 +186,39 @@ async def run_agent(
             continue
 
         if not calls or final_round:
-            return
+            if review is None or not staged or staged == reviewed or reviews_done > REVIEW_RETRIES:
+                return
+            # ---- review the card; withdraw what doesn't fit, and retry once ----
+            reviews_done += 1
+            rejected = await review(latest, list(staged))
+            if not rejected:
+                return
+            withdrawn = _withdraw(staged, rejected)
+            reviewed = list(staged)
+            logger.info("Reviewer withdrew %d call(s) on plan %s", len(withdrawn), ctx.plan_id)
+            for call_id, summary, reason in withdrawn:
+                yield ToolResultEvent(
+                    call_id=call_id,
+                    name=call_names.get(call_id, ""),
+                    ok=False,
+                    summary=f"Withdrawn: {summary} — {reason}",
+                    proposed=False,
+                )
+            notes = [(summary, reason) for _, summary, reason in withdrawn]
+            if final_round or reviews_done > REVIEW_RETRIES:
+                # No retry left: tell the user, after whatever the model already said.
+                separator = _ROUND_SEPARATOR if wrote_text else ""
+                yield TokenEvent(text=separator + withdrawn_note(notes))
+                return
+            messages.append(LLMMessage(role="assistant", content=content))
+            messages.append(LLMMessage(role="system", content=review_feedback(notes)))
+            continue
 
         # ---- run (or stage) the requested tools and feed the results back ----
         messages.append(LLMMessage(role="assistant", content=content, tool_calls=calls))
         for call in calls:
             call_id = new_call_id()
+            call_names[call_id] = call.name
             yield ToolCallEvent(call_id=call_id, name=call.name, arguments=call.arguments)
             outcome = _stage(await tools.execute(ctx, call), staged, call_id)
             yield ToolResultEvent(

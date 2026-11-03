@@ -1,3 +1,4 @@
+from collections import deque
 from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
@@ -9,8 +10,11 @@ from features.chat.prompts import (
     ALREADY_STAGED,
     PHANTOM_PROPOSAL_NUDGE,
     RETURN_FLIGHT_NUDGE,
+    WITHDRAWN_NOTE,
     agent_system_prompt,
+    review_feedback,
 )
+from features.chat.review import ReviewFn
 from features.chat.schemas import (
     ChatEvent,
     PlanUpdatedEvent,
@@ -39,6 +43,7 @@ async def _run(
     history: list[LLMMessage] | None = None,
     tool_specs: Sequence[ToolSpec] = TOOL_SPECS,
     staged: list[ProposedChange] | None = None,
+    review: ReviewFn | None = None,
 ) -> list[ChatEvent]:
     plan = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
     return [
@@ -52,6 +57,7 @@ async def _run(
             today=TODAY,
             staged=[] if staged is None else staged,
             tool_specs=tool_specs,
+            review=review,
         )
     ]
 
@@ -482,3 +488,174 @@ async def test_round_limit_forces_a_text_answer(ctx: ToolContext) -> None:
     assert final.messages[-1].content == AGENT_FINAL_ANSWER
     assert _text(events) == "I couldn't do that."
     assert staged == []
+
+
+# ---------------------------------------------------------------------------
+# Review: withdrawing changes that don't fit the request
+# ---------------------------------------------------------------------------
+
+
+class _Reviewer:
+    """A scripted review callback: each call returns the next list of rejections (none
+    once the script runs out), and records what it was asked."""
+
+    def __init__(self, *verdicts: list[tuple[int, str]]) -> None:
+        self._verdicts = deque(verdicts)
+        self.calls: list[tuple[str, list[ProposedChange]]] = []
+
+    async def __call__(
+        self, latest: str, changes: Sequence[ProposedChange]
+    ) -> list[tuple[int, str]]:
+        self.calls.append((latest, list(changes)))
+        return self._verdicts.popleft() if self._verdicts else []
+
+
+DINNER_AS_LODGING: dict[str, Any] = {
+    **HOTEL_ARGS,
+    "title": "Dinner at Alchimiste",
+    "kind": "other",
+    "start": "2027-05-03T19:00:00",
+    "end": "2027-05-04T09:00:00",
+}
+_DINNER_SUMMARY = "Add lodging “Dinner at Alchimiste” on 2027-05-03 19:00"
+_NOT_A_MEAL = "they asked for dinner, not somewhere to stay"
+
+
+async def test_an_approved_card_is_reviewed_once_and_kept(ctx: ToolContext) -> None:
+    llm = FakeLLM([tool_calls(("add_lodging", HOTEL_ARGS)), text("Proposed.")])
+    review = _Reviewer()
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, "Hotel Okura please", staged=staged, review=review)
+
+    ((latest, changes),) = review.calls
+    assert latest == "Hotel Okura please" and changes == staged
+    assert len(staged) == 1 and len(_of_type(events, ToolResultEvent)) == 1
+
+
+async def test_a_rejected_change_is_withdrawn_and_the_model_told_why(ctx: ToolContext) -> None:
+    llm = FakeLLM(
+        [
+            tool_calls(("add_lodging", DINNER_AS_LODGING)),
+            text("I've proposed dinner."),
+            text("Sorry, dinner belongs to the activities stage."),
+        ]
+    )
+    review = _Reviewer([(0, _NOT_A_MEAL)])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, "Book dinner at Alchimiste", staged=staged, review=review)
+
+    assert staged == []
+    proposed, withdrawn = _of_type(events, ToolResultEvent)
+    assert withdrawn.call_id == proposed.call_id and withdrawn.name == "add_lodging"
+    assert not withdrawn.ok and not withdrawn.proposed
+    assert withdrawn.summary == f"Withdrawn: {_DINNER_SUMMARY} — {_NOT_A_MEAL}"
+    assert llm.requests[2].messages[-2:] == [
+        LLMMessage(role="assistant", content="I've proposed dinner."),
+        LLMMessage(role="system", content=review_feedback([(_DINNER_SUMMARY, _NOT_A_MEAL)])),
+    ]
+    # Nothing left to review, and the model explained itself: no note for the user.
+    assert len(review.calls) == 1
+    assert WITHDRAWN_NOTE not in _text(events)
+    assert _text(events).endswith("Sorry, dinner belongs to the activities stage.")
+
+
+async def test_a_bundle_is_withdrawn_as_a_unit(ctx: ToolContext) -> None:
+    round_trip = tool_calls(("add_round_trip", {"outbound": OUTBOUND, "return": RETURN}))
+    llm = FakeLLM([round_trip, text("Proposed both flights."), text("Which flights then?")])
+    # Only the flight home is rejected; the flight out goes with it.
+    review = _Reviewer([(1, "they asked for one way")])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, "Fly me there", staged=staged, review=review)
+
+    assert staged == []
+    proposed, withdrawn = _of_type(events, ToolResultEvent)
+    assert withdrawn.call_id == proposed.call_id and withdrawn.name == "add_round_trip"
+    assert withdrawn.summary.startswith("Withdrawn: Add flight “PHL to HND”")
+    assert "; Add flight “HND to PHL”" in withdrawn.summary
+
+
+async def test_only_the_rejected_call_is_withdrawn(ctx: ToolContext) -> None:
+    llm = FakeLLM(
+        [
+            tool_calls(("add_lodging", HOTEL_ARGS), ("add_lodging", DINNER_AS_LODGING)),
+            text("Proposed both."),
+            text("The hotel is on the card."),
+        ]
+    )
+    review = _Reviewer([(1, _NOT_A_MEAL)])
+    staged: list[ProposedChange] = []
+
+    await _run(llm, ctx, "Hotel Okura, and dinner", staged=staged, review=review)
+
+    assert [change.arguments["title"] for change in staged] == ["Hotel Okura"]
+    # The card didn't change after the withdrawal, so it isn't reviewed again.
+    assert len(review.calls) == 1
+
+
+async def test_after_a_rejection_a_corrected_proposal_is_kept(ctx: ToolContext) -> None:
+    llm = FakeLLM(
+        [
+            tool_calls(("add_lodging", DINNER_AS_LODGING)),
+            text("Proposed."),
+            tool_calls(("add_lodging", HOTEL_ARGS)),
+            text("I've proposed Hotel Okura instead."),
+        ]
+    )
+    review = _Reviewer([(0, _NOT_A_MEAL)], [])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged, review=review)
+
+    assert [change.arguments["title"] for change in staged] == ["Hotel Okura"]
+    assert len(review.calls) == 2
+    assert WITHDRAWN_NOTE not in _text(events)
+
+
+async def test_a_second_rejection_is_withdrawn_with_a_note(ctx: ToolContext) -> None:
+    llm = FakeLLM(
+        [
+            tool_calls(("add_lodging", DINNER_AS_LODGING)),
+            text("Proposed."),
+            tool_calls(("add_lodging", DINNER_AS_LODGING)),
+            text("Proposed again."),
+        ]
+    )
+    review = _Reviewer([(0, _NOT_A_MEAL)], [(0, "still a meal")])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged, review=review)
+
+    assert staged == []
+    assert llm.pending == 0 and len(review.calls) == 2
+    assert _text(events).endswith(
+        f"Proposed again.\n\n{WITHDRAWN_NOTE}\n- {_DINNER_SUMMARY} — still a meal"
+    )
+
+
+async def test_a_rejection_in_the_final_round_is_withdrawn_without_a_retry(
+    ctx: ToolContext,
+) -> None:
+    looping = tool_calls(("remove_item", {"item_id": "00000000-0000-0000-0000-000000000000"}))
+    llm = FakeLLM([tool_calls(("add_lodging", DINNER_AS_LODGING))])
+    llm.queue(*[looping] * (MAX_TOOL_ROUNDS - 1), text("I'm out of steps."))
+    review = _Reviewer([(0, _NOT_A_MEAL)])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged, review=review)
+
+    assert staged == []
+    assert len(llm.requests) == MAX_TOOL_ROUNDS + 1
+    assert _text(events).endswith(
+        f"I'm out of steps.\n\n{WITHDRAWN_NOTE}\n- {_DINNER_SUMMARY} — {_NOT_A_MEAL}"
+    )
+
+
+async def test_nothing_staged_means_no_review(ctx: ToolContext) -> None:
+    review = _Reviewer()
+
+    await _run(FakeLLM([text("Which dates?")]), ctx, review=review)
+
+    assert review.calls == []

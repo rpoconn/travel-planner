@@ -18,9 +18,10 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from features.chat import agent, guardrail, service, tools
+from features.chat import agent, guardrail, review, service, tools
 from features.chat.models import Message, Proposal
 from features.chat.prompts import (
+    APPROVAL_MARKER,
     FIX_GUARDRAIL_TOPIC,
     approval_applied_message,
     approval_failed_message,
@@ -136,7 +137,11 @@ class _Reply:
         elif isinstance(event, ToolCallEvent):
             self._calls[event.call_id] = event
         elif isinstance(event, ToolResultEvent):
-            call = self._calls.pop(event.call_id)
+            call = self._calls.pop(event.call_id, None)
+            if call is None:
+                # A second result for a call: the reviewer withdrew what it staged.
+                self._replace_trace(event)
+                return
             self.traces.append(
                 ToolTrace(
                     call_id=event.call_id,
@@ -147,6 +152,14 @@ class _Reply:
                     proposed=event.proposed,
                 )
             )
+
+    def _replace_trace(self, event: ToolResultEvent) -> None:
+        for index, trace in enumerate(self.traces):
+            if trace.call_id == event.call_id:
+                update = {"ok": event.ok, "summary": event.summary, "proposed": False}
+                self.traces[index] = trace.model_copy(update=update)
+                return
+        logger.warning("Tool result for unknown call %s", event.call_id)
 
     def applied_changes(self) -> bool:
         return any(
@@ -212,11 +225,15 @@ async def _agent_turn(
     history: list[LLMMessage],
     latest: str,
     reply: _Reply,
+    review_enabled: bool,
     sources: frozenset[str] = frozenset(),
 ) -> AsyncIterator[ChatEvent]:
     """Run the agent on `latest` and store its reply; the changes it stages become the
     reply's proposal. `sources` are source URLs the agent may cite without searching
-    again (see `_recent_sources`); the plan's own items' sources are added here."""
+    again (see `_recent_sources`); the plan's own items' sources are added here.
+
+    With `review_enabled`, what the agent stages is reviewed before the card is stored
+    (see features.chat.review), except after an approval: that turn only confirms."""
     snapshot = await itinerary_service.snapshot(session, plan)
     staged: list[ProposedChange] = []
     item_sources = {tools.normalise_url(i.source_url) for i in snapshot.items if i.source_url}
@@ -231,6 +248,11 @@ async def _agent_turn(
         today=ctx.today,
         staged=staged,
         tool_specs=tools.specs_for_stage(snapshot.stage),
+        review=(
+            review.reviewer(llm, snapshot.stage)
+            if review_enabled and not latest.startswith(APPROVAL_MARKER)
+            else None
+        ),
     ):
         reply.record(event)
         yield event
@@ -256,6 +278,7 @@ async def answer_message(
     content: str,
     today: date,
     fix: TimelineWarning | None = None,
+    review_enabled: bool = True,
 ) -> AsyncIterator[ChatEvent]:
     """Handle one user message for a plan the caller has already checked ownership of.
 
@@ -303,6 +326,7 @@ async def answer_message(
                 history=history,
                 latest=latest,
                 reply=reply,
+                review_enabled=review_enabled,
                 sources=_recent_sources(rows),
             )
         else:
@@ -397,6 +421,7 @@ async def decide_proposal(
     proposal: Proposal,
     decision: ProposalDecision,
     today: date,
+    review_enabled: bool = True,
 ) -> AsyncIterator[ChatEvent]:
     """Handle the user's answer to a pending proposal in a plan they own (both checked by
     the caller)."""
@@ -457,6 +482,7 @@ async def decide_proposal(
             history=_llm_history(rows),
             latest=latest,
             reply=reply,
+            review_enabled=review_enabled,
             sources=_recent_sources(rows),
         ):
             yield event

@@ -13,6 +13,7 @@ import {
     OFFLINE_PROPOSED_REPLY,
     OFFLINE_REDIRECT_REPLY,
     OFFLINE_STAGE_DONE_REPLY,
+    OFFLINE_WITHDRAWN_REPLY,
     proposeAndApprove,
     reachStage,
     registerNewUser,
@@ -107,6 +108,26 @@ test('Back returns to an earlier stage', async ({ page }) => {
         .getByRole('button', { name: /^Go back to Basics/ })
         .click()
     await expectStage(page, 'basics')
+})
+
+test('a change that does not fit the request is withdrawn before it reaches a card', async ({
+    page,
+}) => {
+    const conversation = page.getByRole('log', { name: 'Conversation' })
+    const cards = conversation.getByRole('region', { name: 'Proposed changes' })
+    await reachStage(page, 'lodging')
+    // Setting up the trip left its (approved) card above.
+    await expect(cards).toHaveCount(1)
+
+    // The offline model books the dinner with add_lodging; its reviewer withdraws it.
+    await sendChatMessage(page, 'Book dinner at a fado house')
+
+    await expect(
+        conversation.getByRole('list', { name: 'Assistant actions' }).last(),
+    ).toContainText('Withdrawn: Add lodging “Dinner at a fado house”')
+    await expect(conversation).toContainText(OFFLINE_WITHDRAWN_REPLY)
+    await expect(cards).toHaveCount(1)
+    await expect(page.locator('[data-item-type="lodging"]')).toHaveCount(0)
 })
 
 test('an off-topic message gets a gentle redirect and no itinerary change', async ({ page }) => {

@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     llm_context_tokens: int = Field(default=16384, ge=2048)
     # Cap on tokens per reply, so a runaway generation ends instead of stalling the stream.
     llm_max_output_tokens: int = Field(default=2048, ge=128)
+    # Review each card the agent proposes with one more structured model call, withdrawing
+    # changes that don't fit the request or the stage (features.chat.review).
+    chat_review: bool = True
 
     # Web search: "tavily" needs TAVILY_API_KEY; "fake" returns placeholder results offline.
     search_provider: Literal["tavily", "fake"] = "tavily"

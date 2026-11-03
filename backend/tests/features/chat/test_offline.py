@@ -4,12 +4,15 @@ from datetime import date
 from typing import Any
 from uuid import uuid4
 
-from features.chat.offline import offline_transfers, offline_trip
-from features.chat.prompts import agent_system_prompt
+from features.chat.offline import offline_reply, offline_transfers, offline_trip
+from features.chat.prompts import agent_system_prompt, review_messages
+from features.chat.schemas import ProposedChange, ReviewVerdict
 from features.itinerary.gaps import find_gaps
 from features.itinerary.schemas import ItineraryItem, TransferItem
 from features.plans.schemas import PlanDetails, TravelPlan
 from features.plans.stages import plan_progress
+from shared.llm.fake import FakeRequest
+from shared.llm.schema import inline_schema
 from tests.features.itinerary.factories import HOME, PLAN_ID, flight, lodging
 
 CREATED = date(2026, 10, 1)
@@ -77,3 +80,35 @@ def test_offline_trip_sets_an_origin_only_when_the_plan_has_none() -> None:
     assert "origin" not in offline_trip(today, has_origin=True)
     assert offline_trip(today, has_origin=False)["origin"]["city"] == "Philadelphia"
     assert offline_trip(today, has_origin=True)["start_date"] == "2026-12-03"
+
+
+# ---------------------------------------------------------------------------
+# Reviewer
+# ---------------------------------------------------------------------------
+
+_HOTEL = ProposedChange(
+    call_id="call_1", name="add_lodging", arguments={}, summary="Add lodging “Hotel du Louvre”"
+)
+_TAXI = ProposedChange(call_id="call_2", name="add_transfer", arguments={}, summary="Add taxi")
+
+
+def _review_request(latest: str, changes: list[ProposedChange]) -> FakeRequest:
+    return FakeRequest(
+        messages=review_messages("lodging", latest, changes),
+        tools=[],
+        format=inline_schema(ReviewVerdict),
+        streamed=False,
+    )
+
+
+def test_offline_reviewer_rejects_lodging_for_a_meal() -> None:
+    reply = offline_reply(_review_request("Book dinner at a fado house", [_TAXI, _HOTEL]))
+
+    verdict = ReviewVerdict.model_validate_json(reply.content)
+    assert [(v.index, v.fits_request) for v in verdict.verdicts] == [(2, False)]
+
+
+def test_offline_reviewer_approves_anything_else() -> None:
+    reply = offline_reply(_review_request("Add a hotel", [_HOTEL]))
+
+    assert ReviewVerdict.model_validate_json(reply.content).verdicts == []

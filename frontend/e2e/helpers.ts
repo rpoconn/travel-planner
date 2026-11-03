@@ -14,6 +14,7 @@ export const DENIED_REPLY = 'No problem — nothing was changed.'
 export const OFFLINE_REDIRECT_REPLY = "That's outside what I can help with"
 export const OFFLINE_FIX_REPLY = "Here's what I'd change to fix that"
 export const OFFLINE_STAGE_DONE_REPLY = 'That completes this stage: press Next'
+export const OFFLINE_WITHDRAWN_REPLY = "Sorry, scratch that: a dinner isn't somewhere to stay"
 
 /** The stepper's labels, in workflow order (frontend/src/lib/stages.ts). */
 export const STAGE_LABELS = {

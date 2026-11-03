@@ -11,6 +11,7 @@ from features.chat.offline import (
     OFFLINE_PROPOSED_REPLY,
     OFFLINE_REDIRECT_REPLY,
     OFFLINE_STAGE_DONE_REPLY,
+    OFFLINE_WITHDRAWN_REPLY,
 )
 from features.chat.pipeline import (
     APPROVED_TEXT,
@@ -25,6 +26,7 @@ from features.chat.schemas import (
     GuardrailEvent,
     GuardrailVerdict,
     PlanUpdatedEvent,
+    ReviewVerdict,
     TokenEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -44,6 +46,8 @@ from tests.features.chat.conftest import (
 
 ON_TOPIC = json_reply(GuardrailVerdict(on_topic=True, confidence=0.95, topic="lodging"))
 OFF_TOPIC = json_reply(GuardrailVerdict(on_topic=False, confidence=0.95, topic="math"))
+# The reviewer's verdict on a card, after the agent's last round: every change fits.
+APPROVE_ALL = json_reply(ReviewVerdict(verdicts=[]))
 
 
 async def _messages(
@@ -64,7 +68,10 @@ async def test_on_topic_turn_proposes_changes_and_stores_reply(
     client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
 ) -> None:
     fake_llm.queue(
-        ON_TOPIC, tool_calls(("add_lodging", HOTEL_ARGS)), text("I've proposed Hotel Okura.")
+        ON_TOPIC,
+        tool_calls(("add_lodging", HOTEL_ARGS)),
+        text("I've proposed Hotel Okura."),
+        APPROVE_ALL,
     )
 
     events = await send(client, headers, plan["id"], "Hotel Okura May 2-6 please")
@@ -111,7 +118,7 @@ async def test_on_topic_turn_proposes_changes_and_stores_reply(
 async def test_silent_reply_after_a_proposal_gets_a_fallback(
     client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
 ) -> None:
-    fake_llm.queue(ON_TOPIC, tool_calls(("add_lodging", HOTEL_ARGS)), text(""))
+    fake_llm.queue(ON_TOPIC, tool_calls(("add_lodging", HOTEL_ARGS)), text(""), APPROVE_ALL)
 
     events = await send(client, headers, plan["id"], "Add Hotel Okura")
 
@@ -355,6 +362,44 @@ async def test_offline_mode_add_command_proposes_then_approve_applies(
     ]
 
 
+async def test_offline_mode_withdraws_a_dinner_proposed_as_lodging(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+) -> None:
+    # The plan fixture is at the lodging stage, where the fake books dinner as lodging.
+    events = await send(client, headers, plan["id"], "Book dinner at a fado house")
+
+    proposed, withdrawn = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert proposed.proposed and withdrawn.call_id == proposed.call_id
+    assert not withdrawn.ok and withdrawn.summary.startswith("Withdrawn: Add lodging")
+    done = done_message(events)
+    assert done.message.proposal is None
+    assert OFFLINE_WITHDRAWN_REPLY in done.message.content
+    # The stored trace shows the withdrawal, not the proposal.
+    (trace,) = done.message.tool_calls
+    assert not trace.ok and not trace.proposed
+    assert trace.summary.startswith("Withdrawn: Add lodging “Dinner at a fado house”")
+    response = await client.get(f"/plans/{plan['id']}", headers=headers)
+    assert response.json()["items"] == []
+
+
+async def test_review_can_be_turned_off(
+    app: FastAPI,
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan: dict[str, Any],
+    fake_llm: FakeLLM,
+) -> None:
+    settings = app.state.settings
+    app.state.settings = settings.model_copy(update={"chat_review": False})
+    # No verdict queued: the strict fake would fail on a review call.
+    fake_llm.queue(ON_TOPIC, tool_calls(("add_lodging", HOTEL_ARGS)), text("Proposed."))
+
+    events = await send(client, headers, plan["id"], "Hotel Okura please")
+
+    assert done_message(events).message.proposal is not None
+    assert len(fake_llm.requests) == 3
+
+
 # ---------------------------------------------------------------------------
 # Web search
 # ---------------------------------------------------------------------------
@@ -456,7 +501,9 @@ async def test_fix_turn_offers_all_tools_and_skips_the_topic_check(
 async def test_a_fix_is_proposed_and_applied_on_approval(
     client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
 ) -> None:
-    fake_llm.queue(tool_calls(("add_lodging", HOTEL_ARGS)), text("I've proposed Hotel Okura."))
+    fake_llm.queue(
+        tool_calls(("add_lodging", HOTEL_ARGS)), text("I've proposed Hotel Okura."), APPROVE_ALL
+    )
     events = await send(
         client, headers, plan["id"], "Fix: No lodging for the night of May 1", NO_LODGING
     )
@@ -540,6 +587,7 @@ async def _propose_hotel(
         ON_TOPIC,
         tool_calls(("add_lodging", {**HOTEL_ARGS, "title": title})),
         text(f"I've proposed {title}."),
+        APPROVE_ALL,
     )
     proposal = done_message(
         await send(client, headers, plan_id, f"{title} please")
@@ -613,6 +661,7 @@ async def test_approve_applies_nothing_if_a_change_no_longer_fits(
             ("update_item", {"item_id": hotel_id, "changes": {"notes": "Late check-in"}}),
         ),
         text("Proposed both."),
+        APPROVE_ALL,
     )
     events = await send(client, headers, plan["id"], "Add a ryokan and note late check-in")
     proposal = done_message(events).message.proposal
@@ -659,7 +708,9 @@ async def test_revise_hands_the_text_to_the_agent_which_proposes_again(
     proposal_id = await _propose_hotel(client, headers, plan["id"], fake_llm)
     ryokan = {**HOTEL_ARGS, "title": "Ryokan Sawanoya"}
     # No guardrail verdict queued: a revision skips the topic check.
-    fake_llm.queue(tool_calls(("add_lodging", ryokan)), text("I've proposed a ryokan instead."))
+    fake_llm.queue(
+        tool_calls(("add_lodging", ryokan)), text("I've proposed a ryokan instead."), APPROVE_ALL
+    )
 
     events = await decide(
         client, headers, plan["id"], proposal_id, "revise", "A ryokan instead, please"
@@ -667,7 +718,8 @@ async def test_revise_hands_the_text_to_the_agent_which_proposes_again(
 
     (call,) = [e for e in events if isinstance(e, ToolCallEvent)]
     assert call.arguments["title"] == "Ryokan Sawanoya"
-    agent_request = fake_llm.requests[-2]
+    # The last request reviews the new card.
+    agent_request = fake_llm.requests[-3]
     assert agent_request.streamed and agent_request.tools
     latest = agent_request.messages[-1].content
     assert latest.startswith(REVISE_MARKER)
@@ -736,6 +788,7 @@ async def test_approving_a_flight_swap_removes_the_old_one_first(
         ON_TOPIC,
         tool_calls(("remove_item", {"item_id": old_id}), ("add_flight", cheaper)),
         text("I've proposed swapping to the cheaper flight."),
+        APPROVE_ALL,
     )
     proposal = done_message(
         await send(client, headers, plan["id"], "Switch me to the cheaper flight")
@@ -804,7 +857,10 @@ async def test_an_approval_that_completes_the_stage_suggests_next(
 ) -> None:
     whole_trip = {**HOTEL_ARGS, "start": "2027-05-01T15:00:00", "end": "2027-05-08T11:00:00"}
     fake_llm.queue(
-        ON_TOPIC, tool_calls(("add_lodging", whole_trip)), text("I've proposed Hotel Okura.")
+        ON_TOPIC,
+        tool_calls(("add_lodging", whole_trip)),
+        text("I've proposed Hotel Okura."),
+        APPROVE_ALL,
     )
     events = await send(client, headers, plan["id"], "Hotel Okura for the whole trip")
     proposal = done_message(events).message.proposal
@@ -823,7 +879,9 @@ async def test_an_approval_that_leaves_the_stage_unfinished_has_no_nudge(
     client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
 ) -> None:
     # HOTEL_ARGS covers May 2-5 of a May 1-8 trip.
-    fake_llm.queue(ON_TOPIC, tool_calls(("add_lodging", HOTEL_ARGS)), text("Proposed."))
+    fake_llm.queue(
+        ON_TOPIC, tool_calls(("add_lodging", HOTEL_ARGS)), text("Proposed."), APPROVE_ALL
+    )
     events = await send(client, headers, plan["id"], "Hotel Okura please")
     proposal = done_message(events).message.proposal
     assert proposal is not None

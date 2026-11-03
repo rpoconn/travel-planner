@@ -13,6 +13,7 @@ from features.chat.models import Proposal
 from features.chat.schemas import ChatEvent, ChatMessage, ProposalDecision, SendMessage
 from features.plans import service as plans_service
 from features.plans.models import Plan
+from shared.config import SettingsDep
 from shared.db import SessionDep
 from shared.errors import error_responses
 from shared.flights.provider import FlightsDep
@@ -92,6 +93,7 @@ async def send_message(
     llm: LLMDep,
     search: SearchDep,
     flights: FlightsDep,
+    settings: SettingsDep,
 ) -> AsyncIterator[ChatEvent]:
     """Send a message and stream the assistant's answer as server-sent events.
 
@@ -111,6 +113,7 @@ async def send_message(
         content=body.content,
         today=date.today(),
         fix=body.fix,
+        review_enabled=settings.chat_review,
     ):
         yield event
 
@@ -131,6 +134,7 @@ async def decide_proposal(
     llm: LLMDep,
     search: SearchDep,
     flights: FlightsDep,
+    settings: SettingsDep,
 ) -> AsyncIterator[ChatEvent]:
     """Approve, deny or revise a pending proposal, streaming the outcome like `sendMessage`.
 
@@ -150,5 +154,6 @@ async def decide_proposal(
         proposal=proposal,
         decision=body,
         today=date.today(),
+        review_enabled=settings.chat_review,
     ):
         yield event

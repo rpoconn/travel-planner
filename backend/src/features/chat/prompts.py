@@ -385,6 +385,96 @@ ALREADY_STAGED = (
 
 
 # ---------------------------------------------------------------------------
+# Proposal review (a second, narrow check of what the agent staged)
+# ---------------------------------------------------------------------------
+
+REVIEW_SYSTEM = """\
+You check a travel assistant's proposed changes before the user sees them. For each \
+change, answer whether it does what the user's latest message asked for and belongs to \
+the current stage.
+
+A change fits when it is what the user asked for, or a needed part of it (the flight home \
+of a round trip, the hotel's check-out). It does not fit when it is a different kind of \
+thing than they asked for (a hotel when they asked for dinner, a meal saved as lodging), \
+or when it belongs to another stage. When the latest message doesn't say what it is about \
+(a short follow-up like "yes" or "the second one"), the change fits.
+
+Give a verdict for every change, by its number, with a one-sentence reason when it does \
+not fit. Answer with JSON only."""
+
+# The offline (fake) model finds the changes after this marker, one `{n}. {tool}: …` line
+# each; the latest user message comes after LATEST_MESSAGE_MARKER, at the very end.
+REVIEW_CHANGES_MARKER = "Proposed changes to review:"
+
+# Arguments that show what kind of thing a change really is (a summary only has the title
+# and start, and a dinner can be titled like a hotel).
+_REVIEW_PLACES = ("place", "from_place", "to_place")
+_REVIEW_FIELDS = ("kind", "category", "mode", "direction", "start", "end")
+
+
+def stage_purpose(stage: PlanStage) -> str:
+    """What `stage` is for, and which stage owns which kind of request."""
+    return f"{STAGE_LABELS[stage]}: {_STAGE_PURPOSES[stage]}. {_STAGE_OWNERSHIP}"
+
+
+def _change_details(change: ProposedChange) -> str:
+    fields = change.arguments
+    if change.name == "update_item" and isinstance(fields.get("changes"), dict):
+        fields = fields["changes"]
+    details: list[str] = []
+    for key in _REVIEW_PLACES:
+        place = fields.get(key)
+        if isinstance(place, dict) and place.get("name"):
+            details.append(f"{key}: {place['name']}")
+    details += [f"{key}: {fields[key]}" for key in _REVIEW_FIELDS if key in fields]
+    return f" ({'; '.join(details)})" if details else ""
+
+
+def review_line(number: int, change: ProposedChange) -> str:
+    return f"{number}. {change.name}: {change.summary}{_change_details(change)}"
+
+
+def review_messages(
+    stage: PlanStage, latest: str, changes: Sequence[ProposedChange]
+) -> list[LLMMessage]:
+    """The reviewer's request: the stage, the numbered changes, and the user's message
+    last (the offline model reads it from after the marker)."""
+    lines = [review_line(number, change) for number, change in enumerate(changes, start=1)]
+    parts = [
+        f"Current stage: {stage_purpose(stage)}",
+        f"{REVIEW_CHANGES_MARKER}\n" + "\n".join(lines),
+        f"{LATEST_MESSAGE_MARKER}\n{latest}",
+    ]
+    return [
+        LLMMessage(role="system", content=REVIEW_SYSTEM),
+        LLMMessage(role="user", content="\n\n".join(parts)),
+    ]
+
+
+# Told to the agent when the reviewer withdrew changes; the offline model looks for it.
+REVIEW_FEEDBACK_MARKER = "Your proposed changes were withdrawn:"
+
+
+def review_feedback(withdrawn: Sequence[tuple[str, str]]) -> str:
+    """What the agent is told about withdrawn changes (summary, reason) before it tries
+    again."""
+    lines = [f"{summary}: {reason}" for summary, reason in withdrawn]
+    return (
+        f"{REVIEW_FEEDBACK_MARKER}\n{_bullets(lines)}\n\nThey are not on the card. Propose "
+        "only what the user asked for in this stage, or explain which stage it belongs to. "
+        "Do not propose the withdrawn changes again."
+    )
+
+
+# Shown to the user when withdrawn changes could not be retried.
+WITHDRAWN_NOTE = "I withdrew changes that didn't fit your request:"
+
+
+def withdrawn_note(withdrawn: Sequence[tuple[str, str]]) -> str:
+    return f"{WITHDRAWN_NOTE}\n{_bullets([f'{s} — {r}' for s, r in withdrawn])}"
+
+
+# ---------------------------------------------------------------------------
 # Proposal notes (past cards, as the agent sees them in its history)
 # ---------------------------------------------------------------------------
 

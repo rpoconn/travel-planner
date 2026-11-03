@@ -6,9 +6,12 @@ lodging → activities → ground → review) works with no model:
 - "Set up the trip" → `set_plan_details` (a Paris trip a month from today, two adults);
 - "Add a hotel" → `add_lodging` for the whole trip;
 - "Add <something>" → `add_activity` (two hours on the trip's second day, or tomorrow);
-- "Add transfers" → one `add_transfer` per transfer the ground stage lists as needed.
+- "Add transfers" → one `add_transfer` per transfer the ground stage lists as needed;
+- "Book dinner at <somewhere>" → a dinner wrongly proposed with `add_lodging` (overnight
+  times, so the tools accept it), which the fake reviewer withdraws.
 
 The fake calls the tool whatever stage the plan is in, so the stage gate's refusal shows.
+Its reviewer approves everything except lodging proposed for a meal.
 """
 
 import re
@@ -20,11 +23,13 @@ from features.chat.prompts import (
     FIX_REQUEST_MARKER,
     GAPS_MARKER,
     LATEST_MESSAGE_MARKER,
+    REVIEW_CHANGES_MARKER,
+    REVIEW_FEEDBACK_MARKER,
     REVISE_MARKER,
     STAGE_COMPLETE_MARKER,
     parse_gap_line,
 )
-from features.chat.schemas import GuardrailVerdict
+from features.chat.schemas import ChangeVerdict, GuardrailVerdict, ReviewVerdict
 from shared.llm.fake import FakeRequest, json_reply, text, tool_calls
 from shared.llm.types import LLMMessage
 
@@ -38,7 +43,7 @@ _TRAVEL_WORDS = frozenset(
         "itinerary", "plan", "vacation", "holiday", "visit", "tour", "museum", "beach",
         "train", "car", "rental", "budget", "day", "days", "night", "nights", "restaurant",
         "add", "fix", "hi", "hello", "hey", "thanks", "yes", "no", "setup", "transfer",
-        "transfers", "taxi",
+        "transfers", "taxi", "book", "dinner", "lunch", "breakfast", "meal",
     }
 )  # fmt: skip
 
@@ -60,12 +65,24 @@ OFFLINE_FIX_REPLY = (
     "one of the items to a free slot. Say 'add <something>' and I'll propose it."
 )
 OFFLINE_NO_GAPS_REPLY = "Every change of place already has a transfer, so there's nothing to add."
+OFFLINE_WITHDRAWN_REPLY = (
+    "Sorry, scratch that: a dinner isn't somewhere to stay, so I withdrew it. Meals and "
+    "restaurants belong to the activities stage."
+)
+# Why the fake reviewer rejects lodging proposed for a meal.
+OFFLINE_REVIEW_REASON = "the user asked for a meal, not somewhere to stay"
 
 # "Add a visit to the Louvre" -> "visit to the Louvre"
 _ADD_COMMAND = re.compile(r"^\s*add\s+(?:an?\s+|the\s+)?(?P<what>\S.*?)[\s.!]*$", re.IGNORECASE)
 _SETUP_COMMAND = re.compile(r"^\s*set\s*up\b.*\btrip\b", re.IGNORECASE)
 _HOTEL_COMMAND = re.compile(r"^\s*add\s+(?:an?\s+|the\s+)?hotel\b", re.IGNORECASE)
 _TRANSFERS_COMMAND = re.compile(r"^\s*add\s+(?:the\s+)?transfers?\b", re.IGNORECASE)
+# "Book dinner at a fado house" -> " at a fado house"
+_DINNER_COMMAND = re.compile(r"^\s*book\s+(?:a\s+)?dinner\b(?P<rest>.*?)[\s.!]*$", re.IGNORECASE)
+# What the fake reviewer takes for a request for a meal.
+_MEAL_WORDS = re.compile(r"\b(?:dinner|restaurant|meal|lunch|breakfast)\b", re.IGNORECASE)
+# A change line in the review request: "1. add_lodging: Add lodging …".
+_REVIEW_LINE = re.compile(r"^(?P<number>\d+)\. (?P<tool>\w+):", re.MULTILINE)
 
 # The plan JSON in the system prompt is compact (`"start_date":"2027-05-01"`).
 _PLAN_DATE = re.compile(r'"(?P<field>start_date|end_date)":"(?P<day>\d{4}-\d{2}-\d{2})"')
@@ -135,6 +152,37 @@ def offline_hotel(trip: tuple[date, date]) -> dict[str, Any]:
     }
 
 
+def offline_dinner(rest: str, day: date) -> dict[str, Any]:
+    """`add_lodging` arguments for "book dinner <rest>": the small-model mistake the
+    reviewer exists for. Overnight times, so the tools' own lodging check lets it through."""
+    title = f"Dinner{rest}"[:200]
+    return {
+        "title": title,
+        "place": {"name": title, "city": "Paris"},
+        "kind": "other",
+        "start": datetime.combine(day, time(19)).isoformat(),
+        "end": datetime.combine(day + timedelta(days=1), time(9)).isoformat(),
+        "timezone": _PARIS_TZ,
+    }
+
+
+def offline_review(request: FakeRequest) -> ReviewVerdict:
+    """Reject every add_lodging change when the user asked for a meal; approve the rest."""
+    if not _MEAL_WORDS.search(_latest_user_text(request)):
+        return ReviewVerdict(verdicts=[])
+    content = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
+    changes = content.split(REVIEW_CHANGES_MARKER, 1)[-1].split(LATEST_MESSAGE_MARKER, 1)[0]
+    return ReviewVerdict(
+        verdicts=[
+            ChangeVerdict(
+                index=int(line.group("number")), fits_request=False, reason=OFFLINE_REVIEW_REASON
+            )
+            for line in _REVIEW_LINE.finditer(changes)
+            if line.group("tool") == "add_lodging"
+        ]
+    )
+
+
 def offline_activity(what: str, day: date) -> dict[str, Any]:
     """`add_activity` arguments for "add <what>": two hours that morning, Paris time (the
     fake's trip is always Paris; in UTC, the taxis "Add transfers" proposes around it would
@@ -200,6 +248,10 @@ def _command_reply(latest: str, system: str) -> LLMMessage | None:
     if _HOTEL_COMMAND.match(latest):
         stay = trip or (today + _TRIP_LEAD, today + _TRIP_LEAD + _TRIP_LENGTH)
         return tool_calls(("add_lodging", offline_hotel(stay)))
+    dinner = _DINNER_COMMAND.match(latest)
+    if dinner is not None:
+        day = trip[0] if trip else today + _TRIP_LEAD
+        return tool_calls(("add_lodging", offline_dinner(dinner.group("rest"), day)))
     if _TRANSFERS_COMMAND.match(latest):
         transfers = offline_transfers(system)
         if not transfers:
@@ -213,7 +265,12 @@ def _command_reply(latest: str, system: str) -> LLMMessage | None:
 
 
 def offline_reply(request: FakeRequest) -> LLMMessage:
-    if request.format is not None:  # the only structured-output call is the guardrail
+    # Structured-output calls are told apart by their schema's fields (inlined schemas have
+    # no title): the reviewer's has `verdicts`, the guardrail's `on_topic`.
+    properties = (request.format or {}).get("properties", {})
+    if "verdicts" in properties:
+        return json_reply(offline_review(request))
+    if request.format is not None:
         words = set(re.findall(r"[a-z]+", _latest_user_text(request).lower()))
         on_topic = bool(words & _TRAVEL_WORDS)
         return json_reply(
@@ -230,6 +287,10 @@ def offline_reply(request: FakeRequest) -> LLMMessage:
         if result.startswith("Error"):
             return text(f"I couldn't add that. {result}")
         return text(OFFLINE_PROPOSED_REPLY)
+    # The reviewer withdrew the change: acknowledge it rather than proposing it again.
+    last = request.messages[-1] if request.messages else None
+    if last is not None and last.role == "system" and REVIEW_FEEDBACK_MARKER in last.content:
+        return text(OFFLINE_WITHDRAWN_REPLY)
     latest = _latest_user_text(request)
     # The turn after the user approved a proposal card.
     if APPROVAL_MARKER in latest:
