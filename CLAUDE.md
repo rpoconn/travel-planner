@@ -50,3 +50,6 @@
    - Use the tanstack ecosystem for all UI needs.
 12. **UI Component Structure**
    - Each UI component should have all of its input properties defined on an interface at the top.  The middle should be initialization , state, and finally UI callbacks. Finally all of its html at the bottom.  Don't include random functions that return react markup.  all markup should be centalized in the component at the bottom.   
+13. **UI Services**
+   -Any pure functions that sit outside of the UI component can be placed in a service class file that sits next to the UI component.  E
+   example: MyComponent.tsx will have a MyComponentService.ts file, which has any pure functions that perform logic.  these services should have unit tests as well.
