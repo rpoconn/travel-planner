@@ -6,12 +6,15 @@ Kept separate from the logic so wording can be tuned without touching control fl
 
 import re
 from collections.abc import Sequence
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from features.chat.schemas import ProposedChange
-from features.itinerary.schemas import TimelineWarning
-from features.plans.schemas import TravelPlan
+from features.itinerary.gaps import describe_place
+from features.itinerary.schemas import Gap, TimelineWarning
+from features.plans.schemas import STAGES, PlanStage, StageStatus, TravelPlan
+from features.plans.stages import STAGE_LABELS, stage_status
 from shared.costs import budget_summary, totals_by_currency
 from shared.llm.types import LLMMessage
 
@@ -101,9 +104,121 @@ def _plan_json(plan: TravelPlan) -> str:
             "created_at": True,
             "updated_at": True,
             "items": {"__all__": {"plan_id", "created_by"}},
+            # The workflow is described in words by `_stage_block` instead.
+            "stage": True,
+            "flights_skipped": True,
+            "stages": True,
+            "gaps": True,
         },
         exclude_none=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Stage block (where the plan is in the workflow)
+# ---------------------------------------------------------------------------
+
+_STAGE_PURPOSES: dict[PlanStage, str] = {
+    "basics": (
+        "agree the trip's dates, who is travelling, where it starts and the destination, "
+        "and save them with set_plan_details"
+    ),
+    "flights": "propose the flight out and the flight home",
+    "lodging": "find somewhere to stay for every night of the trip",
+    "activities": "plan things to do and places to eat",
+    "ground": ("add a transfer for every change of place, from leaving home to getting back home"),
+    "review": "the trip is complete; answer questions and fix anything the user wants changed",
+}
+
+# The offline (fake) model finds the gaps after this marker, one `GAP_LINE` each.
+GAPS_MARKER = "Transfers still needed:"
+_OPEN = "any time"
+# One gap as `format_gap` writes it. Times are local wall-clock in the gap's timezone.
+GAP_LINE = re.compile(
+    r'^- from "(?P<from_name>[^"]*)" to "(?P<to_name>[^"]*)" \| leave after: '
+    r"(?P<leave>[^|]+?) \| arrive by: (?P<arrive>[^|]+?) \| timezone: (?P<timezone>\S+)$",
+    re.MULTILINE,
+)
+
+
+def _local(moment: datetime | None, timezone: str) -> str:
+    if moment is None:
+        return _OPEN
+    return moment.astimezone(ZoneInfo(timezone)).strftime("%Y-%m-%dT%H:%M")
+
+
+def format_gap(gap: Gap) -> str:
+    """One line per gap for the ground stage (parsed back by `GAP_LINE`)."""
+    return (
+        f'- from "{describe_place(gap.from_place, gap.after_item_id)}" '
+        f'to "{describe_place(gap.to_place, gap.before_item_id)}" '
+        f"| leave after: {_local(gap.leave_after, gap.timezone)} "
+        f"| arrive by: {_local(gap.arrive_before, gap.timezone)} "
+        f"| timezone: {gap.timezone}"
+    )
+
+
+def parse_gap_line(line: str) -> dict[str, str | None] | None:
+    """A `format_gap` line's parts (None for an open time), or None if it isn't one."""
+    match = GAP_LINE.match(line.strip())
+    if match is None:
+        return None
+    parts: dict[str, str | None] = dict(match.groupdict())
+    for key in ("leave", "arrive"):
+        if parts[key] == _OPEN:
+            parts[key] = None
+    return parts
+
+
+_GROUND_INSTRUCTIONS = (
+    "For each transfer still needed, ask the user how they want to make it (taxi, train, "
+    "rental car, shuttle...), at most three questions at a time; suggest a sensible mode "
+    "when there is an obvious one. Once you know the modes, propose every transfer on one "
+    "card with add_transfer, one call per line above, leaving after and arriving by its "
+    "times. Use the plan's origin as the place for home."
+)
+
+
+def _checklist(status: StageStatus) -> str:
+    if status.ready:
+        return "Checklist: complete."
+    return f"Still missing: {'; '.join(status.missing)}."
+
+
+def _stage_block(plan: TravelPlan) -> str:
+    stage = plan.stage
+    status = stage_status(plan, stage)
+    index = STAGES.index(stage)
+    lines = [
+        f"Current stage: {STAGE_LABELS[stage]} ({index + 1} of {len(STAGES)}): "
+        f"{_STAGE_PURPOSES[stage]}.",
+        _checklist(status),
+        "You only have this stage's tools. The user moves between stages with the Next and "
+        "Back buttons; you cannot. If they ask for something from another stage, say which "
+        "stage it belongs to.",
+    ]
+    if stage != "review":
+        upcoming = STAGE_LABELS[STAGES[index + 1]]
+        lines.append(f"When the checklist is complete, suggest pressing Next (next: {upcoming}).")
+    if stage == "basics":
+        if plan.origin is not None:
+            lines.append(
+                "The origin is prefilled from the user's home: confirm it with them rather "
+                "than asking where they start. Never replace it with just an airport code; "
+                "to set the nearest airport, add its iata code to the origin instead."
+            )
+        else:
+            lines.append("Ask where the trip starts (their home city or address).")
+    if plan.flights_skipped and index > STAGES.index("flights"):
+        lines.append(
+            "The user skipped flights (they are driving or taking ground transport), so "
+            "the ground stage covers the whole journey from home."
+        )
+    if stage == "ground" and plan.gaps:
+        lines.append(GAPS_MARKER)
+        lines.extend(format_gap(gap) for gap in plan.gaps)
+        lines.append(_GROUND_INSTRUCTIONS)
+    return "\n\nPlanning stage:\n" + "\n".join(lines)
 
 
 # Longer trips skip the calendar: the list would cost more context than it saves.
@@ -156,7 +271,7 @@ with them. Today is {today:%A} {today.isoformat()} ({today:%B} {today.day}, {tod
 
 The current plan (JSON; it is always up to date, and item ids are what update_item and \
 remove_item need; a field that is missing is unknown):
-{_plan_json(plan)}{_trip_calendar(plan)}{_cost_summary(plan)}
+{_plan_json(plan)}{_stage_block(plan)}{_trip_calendar(plan)}{_cost_summary(plan)}
 
 How changes work:
 - Calling set_plan_details, an add_* tool, update_item or remove_item does not change the \
@@ -174,7 +289,8 @@ suggest the next step.
 Earlier replies may end with a "[Proposed changes (…): …]" note; the app adds those to \
 record past cards. Never write one yourself.
 
-Before set_plan_details or any add_* tool, make sure the user has told you:
+The planning stage above decides what to work on now; within it, before \
+set_plan_details or any add_* tool, make sure the user has told you:
 - travel dates, number of travelers (adults and children), and where they start from;
 - for flights: airline, departure-time and cabin preferences (they apply to the flight \
 home too unless the user says otherwise);
@@ -329,13 +445,25 @@ def _bullets(lines: Sequence[str]) -> str:
     return "\n".join(f"- {line}" for line in lines)
 
 
-def approval_applied_message(applied: Sequence[str]) -> str:
-    """The agent's latest message after an approval: what was applied (tool results)."""
-    return (
+# The offline (fake) model looks for this to mention the Next button.
+STAGE_COMPLETE_MARKER = "stage is now complete"
+
+
+def approval_applied_message(applied: Sequence[str], completed: StageStatus | None = None) -> str:
+    """The agent's latest message after an approval: what was applied (tool results), and
+    whether that finished the current stage's checklist."""
+    message = (
         f"{APPROVAL_MARKER} These changes are now applied:\n{_bullets(applied)}\n\n"
         "Confirm this in one short sentence and suggest the next step. Propose more "
         "changes only if the user already gave you the details."
     )
+    if completed is not None and completed.stage != "review":
+        upcoming = STAGES[STAGES.index(completed.stage) + 1]
+        message += (
+            f"\n\nThe {STAGE_LABELS[completed.stage]} {STAGE_COMPLETE_MARKER}; tell the "
+            f"user they can press Next to move on to {STAGE_LABELS[upcoming]}."
+        )
+    return message
 
 
 def approval_failed_message(applied: Sequence[str], failures: Sequence[str]) -> str:

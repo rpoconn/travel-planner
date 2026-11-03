@@ -49,7 +49,8 @@ from features.chat.tools import ToolContext
 from features.itinerary import service as itinerary_service
 from features.itinerary.schemas import TimelineWarning
 from features.plans.models import Plan
-from features.plans.schemas import TravelPlan
+from features.plans.schemas import StageStatus, TravelPlan
+from features.plans.stages import stage_status
 from shared.flights.types import FlightProvider
 from shared.llm.types import LLMClient, LLMError, LLMMessage
 from shared.search.types import SearchProvider
@@ -195,14 +196,17 @@ async def _agent_turn(
     reply's proposal."""
     snapshot = await itinerary_service.snapshot(session, plan)
     staged: list[ProposedChange] = []
+    # Hard gate: the agent is offered only the current stage's tools, and `execute`
+    # refuses any other it names anyway.
     async for event in agent.run_agent(
         llm=llm,
-        ctx=ctx,
+        ctx=replace(ctx, stage=snapshot.stage),
         plan=snapshot,
         history=history,
         latest=latest,
         today=ctx.today,
         staged=staged,
+        tool_specs=tools.specs_for_stage(snapshot.stage),
     ):
         reply.record(event)
         yield event
@@ -308,6 +312,15 @@ async def _redirect(
 # ---------------------------------------------------------------------------
 
 
+def _completed_stage(before: TravelPlan, after: TravelPlan | None) -> StageStatus | None:
+    """The current stage's status when an approval just finished its checklist."""
+    if after is None:
+        return None
+    was = stage_status(before, before.stage)
+    now = stage_status(after, after.stage)
+    return now if now.ready and not was.ready else None
+
+
 async def _apply_proposal(
     ctx: ToolContext,
     changes: Sequence[ProposedChange],
@@ -398,14 +411,18 @@ async def decide_proposal(
             await service.add_message(session, plan_id, "user", APPROVED_TEXT, kind="decision")
             applied: list[str] = []
             failures: list[str] = []
+            before = await itinerary_service.snapshot(session, plan)
+            after: TravelPlan | None = None
             async for event in _apply_proposal(ctx, changes, reply, applied, failures):
+                if isinstance(event, PlanUpdatedEvent):
+                    after = event.plan
                 yield event
             status: ProposalStatus = "failed" if failures else "approved"
             await service.set_proposal_status(session, proposal, status)
             latest = (
                 approval_failed_message(applied, failures)
                 if failures
-                else approval_applied_message(applied)
+                else approval_applied_message(applied, _completed_stage(before, after))
             )
 
         async for event in _agent_turn(

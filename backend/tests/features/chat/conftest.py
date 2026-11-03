@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from features.chat.schemas import ChatEvent, DoneEvent
 from features.chat.tools import ToolContext
+from features.plans import service as plans_service
+from features.plans.schemas import PlanStage
 from shared.domain import Money
 from shared.flights.airports import airport_timezone
 from shared.flights.fake import FakeFlightProvider
@@ -134,12 +136,26 @@ async def headers(register_user: RegisterUser) -> dict[str, str]:
     return await register_user("ada@example.com")
 
 
+async def move_to_stage(app: FastAPI, plan: dict[str, Any], stage: PlanStage) -> None:
+    """Put the plan at `stage` directly, skipping the readiness checks of the stage
+    endpoint, so a test can script a tool that only that stage offers."""
+    maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
+    async with maker() as db:
+        await plans_service.set_stage(
+            db, UUID(plan["user_id"]), UUID(plan["id"]), stage, flights_skipped=False
+        )
+
+
 @pytest.fixture
-async def plan(client: AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
+async def plan(app: FastAPI, client: AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     response = await client.post("/plans", json=PLAN, headers=headers)
     assert response.status_code == 201, response.text
     created: dict[str, Any] = response.json()
-    return created
+    # The agent only gets the current stage's tools; most chat tests propose a hotel.
+    await move_to_stage(app, created, "lodging")
+    response = await client.get(f"/plans/{created['id']}", headers=headers)
+    moved: dict[str, Any] = response.json()
+    return moved
 
 
 @pytest.fixture

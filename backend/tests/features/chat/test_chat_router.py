@@ -10,6 +10,7 @@ from features.chat.offline import (
     OFFLINE_FIX_REPLY,
     OFFLINE_PROPOSED_REPLY,
     OFFLINE_REDIRECT_REPLY,
+    OFFLINE_STAGE_DONE_REPLY,
 )
 from features.chat.pipeline import (
     APPROVED_TEXT,
@@ -33,7 +34,13 @@ from shared.llm.types import LLMError
 from shared.rate_limit import CHAT_BUCKET, RateLimiter
 from shared.search.fake import FakeSearchProvider
 from tests.conftest import RegisterUser
-from tests.features.chat.conftest import HOTEL_ARGS, decide, done_message, send
+from tests.features.chat.conftest import (
+    HOTEL_ARGS,
+    decide,
+    done_message,
+    move_to_stage,
+    send,
+)
 
 ON_TOPIC = json_reply(GuardrailVerdict(on_topic=True, confidence=0.95, topic="lodging"))
 OFF_TOPIC = json_reply(GuardrailVerdict(on_topic=False, confidence=0.95, topic="math"))
@@ -322,8 +329,9 @@ async def test_offline_mode_answers_without_ollama(
 
 
 async def test_offline_mode_add_command_proposes_then_approve_applies(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
 ) -> None:
+    await move_to_stage(app, plan, "activities")
     events = await send(client, headers, plan["id"], "Add a visit to the Louvre!")
 
     call = next(e for e in events if isinstance(e, ToolCallEvent))
@@ -340,7 +348,8 @@ async def test_offline_mode_add_command_proposes_then_approve_applies(
     updated = next(e for e in approved if isinstance(e, PlanUpdatedEvent))
     assert [item.title for item in updated.plan.items] == ["Visit to the Louvre"]
     follow_up = done_message(approved)
-    assert follow_up.message.content == OFFLINE_ADDED_REPLY
+    # The first activity completes the activities stage, so the reply points at Next.
+    assert follow_up.message.content == f"{OFFLINE_ADDED_REPLY} {OFFLINE_STAGE_DONE_REPLY}"
     assert [t.summary for t in follow_up.message.tool_calls] == [
         "Added activity “Visit to the Louvre”"
     ]
@@ -707,8 +716,13 @@ async def test_decisions_are_validated_before_the_stream(
 
 
 async def test_approving_a_flight_swap_removes_the_old_one_first(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
+    app: FastAPI,
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan: dict[str, Any],
+    fake_llm: FakeLLM,
 ) -> None:
+    await move_to_stage(app, plan, "flights")
     # The reported bug: a cheaper flight was added and the pricier one stayed. A card that
     # removes the old flight before adding the new one must pass the approval check, which
     # would otherwise see two flights out of PHL.
@@ -749,3 +763,72 @@ def _flight_args(title: str, start: str, end: str) -> dict[str, Any]:
         "from_place": {"name": "Philadelphia International Airport", "iata": "PHL"},
         "to_place": {"name": "Narita International Airport", "iata": "NRT"},
     }
+
+
+# ---------------------------------------------------------------------------
+# Stages
+# ---------------------------------------------------------------------------
+
+_TEMPLE: dict[str, Any] = {
+    "title": "Senso-ji",
+    "place": {"name": "Senso-ji"},
+    "category": "sightseeing",
+    "start": "2027-05-03T10:00:00",
+    "end": "2027-05-03T12:00:00",
+    "timezone": "Asia/Tokyo",
+}
+
+
+async def test_the_agent_only_gets_the_stage_tools_and_others_are_refused(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
+) -> None:
+    # The plan fixture is at the lodging stage.
+    fake_llm.queue(
+        ON_TOPIC,
+        tool_calls(("add_activity", _TEMPLE)),
+        text("That belongs to the activities stage."),
+    )
+
+    events = await send(client, headers, plan["id"], "Add a visit to Senso-ji")
+
+    offered = [spec.name for spec in fake_llm.requests[1].tools]
+    assert offered == ["add_lodging", "update_item", "remove_item", "web_search"]
+    result = next(e for e in events if isinstance(e, ToolResultEvent))
+    assert not result.ok and not result.proposed
+    assert "not available in the lodging stage" in result.summary
+    assert done_message(events).message.proposal is None
+
+
+async def test_an_approval_that_completes_the_stage_suggests_next(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
+) -> None:
+    whole_trip = {**HOTEL_ARGS, "start": "2027-05-01T15:00:00", "end": "2027-05-08T11:00:00"}
+    fake_llm.queue(
+        ON_TOPIC, tool_calls(("add_lodging", whole_trip)), text("I've proposed Hotel Okura.")
+    )
+    events = await send(client, headers, plan["id"], "Hotel Okura for the whole trip")
+    proposal = done_message(events).message.proposal
+    assert proposal is not None
+    fake_llm.queue(text("Done! Press Next to plan activities."))
+
+    await decide(client, headers, plan["id"], str(proposal.id), "approve")
+
+    latest = fake_llm.requests[-1].messages[-1].content
+    assert APPROVAL_MARKER in latest
+    assert "The lodging stage is now complete" in latest
+    assert "move on to activities" in latest
+
+
+async def test_an_approval_that_leaves_the_stage_unfinished_has_no_nudge(
+    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], fake_llm: FakeLLM
+) -> None:
+    # HOTEL_ARGS covers May 2-5 of a May 1-8 trip.
+    fake_llm.queue(ON_TOPIC, tool_calls(("add_lodging", HOTEL_ARGS)), text("Proposed."))
+    events = await send(client, headers, plan["id"], "Hotel Okura please")
+    proposal = done_message(events).message.proposal
+    assert proposal is not None
+    fake_llm.queue(text("Done!"))
+
+    await decide(client, headers, plan["id"], str(proposal.id), "approve")
+
+    assert "stage is now complete" not in fake_llm.requests[-1].messages[-1].content

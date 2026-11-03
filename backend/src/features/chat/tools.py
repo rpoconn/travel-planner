@@ -70,7 +70,8 @@ from features.itinerary.schemas import (
 )
 from features.plans import service as plans_service
 from features.plans.models import Plan
-from features.plans.schemas import PlanUpdate, TravelPlan, active_budget
+from features.plans.schemas import PlanStage, PlanUpdate, TravelPlan, active_budget
+from features.plans.stages import STAGE_LABELS
 from shared.domain import Cost, Money, Place, Travelers
 from shared.flights.types import (
     FlightCabin,
@@ -145,6 +146,9 @@ class ToolContext:
     # This turn's proposal card so far: its changes count towards the budget too. Empty
     # when an approved card is applied, where earlier changes are already in the plan.
     staged: Sequence[ProposedChange] = ()
+    # The plan's workflow stage: `execute` refuses tools that belong to another stage.
+    # None is ungated (applying an approved card, which may predate a stage change).
+    stage: PlanStage | None = None
 
 
 @dataclass(frozen=True)
@@ -1293,6 +1297,47 @@ TOOL_SPECS: list[ToolSpec] = [tool.spec for tool in TOOLS.values()]
 
 
 # ---------------------------------------------------------------------------
+# Stage gating
+# ---------------------------------------------------------------------------
+
+# Offered in every stage: looking things up, and fixing or dropping what is already there.
+COMMON_TOOLS = frozenset({"web_search", "update_item", "remove_item"})
+# What each stage adds. Review adds nothing: the trip is complete.
+STAGE_TOOLS: dict[PlanStage, frozenset[str]] = {
+    "basics": frozenset({"set_plan_details"}),
+    "flights": frozenset({"choose_flights", "add_round_trip", "add_flight"}),
+    "lodging": frozenset({"add_lodging"}),
+    "activities": frozenset({"add_activity"}),
+    "ground": frozenset({"add_transfer"}),
+    "review": frozenset(),
+}
+
+STAGE_LOCKED = (
+    "{name} is not available in the {stage} stage{owner}. Only the user can change stages "
+    "with the Next/Back buttons; tell them which stage this belongs to."
+)
+
+
+def stage_tools(stage: PlanStage) -> frozenset[str]:
+    return STAGE_TOOLS[stage] | COMMON_TOOLS
+
+
+def specs_for_stage(stage: PlanStage) -> list[ToolSpec]:
+    """The tools the agent is offered in `stage`, in the usual order."""
+    allowed = stage_tools(stage)
+    return [tool.spec for tool in _ALL_TOOLS if tool.spec.name in allowed]
+
+
+def _stage_locked(name: str, stage: PlanStage) -> str:
+    owner = next((other for other, names in STAGE_TOOLS.items() if name in names), None)
+    return STAGE_LOCKED.format(
+        name=name,
+        stage=STAGE_LABELS[stage],
+        owner=f" (it belongs to the {STAGE_LABELS[owner]} stage)" if owner else "",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Executor
 # ---------------------------------------------------------------------------
 
@@ -1348,8 +1393,14 @@ def _write_tool(name: str) -> WriteTool:
 async def execute(ctx: ToolContext, call: LLMToolCall) -> ToolOutcome:
     """Run a read tool, or prepare (stage) a write tool's change without applying it."""
     tool = TOOLS.get(call.name)
+    available = list(TOOLS) if ctx.stage is None else [s.name for s in specs_for_stage(ctx.stage)]
     if tool is None:
-        return _failure(f"Unknown tool {call.name!r}. Available tools: {', '.join(TOOLS)}")
+        return _failure(f"Unknown tool {call.name!r}. Available tools: {', '.join(available)}")
+    if call.name not in available:
+        # The model is only offered this stage's tools, but may still name another one
+        # (from the history, or the prompt's general rules).
+        assert ctx.stage is not None  # every tool is available when ungated
+        return _logged(call.name, ctx, _failure(_stage_locked(call.name, ctx.stage)))
 
     async def action() -> ToolOutcome:
         if isinstance(tool, ReadTool):

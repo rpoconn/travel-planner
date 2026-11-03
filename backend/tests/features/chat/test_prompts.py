@@ -1,30 +1,41 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import uuid4
 
 from features.chat.prompts import (
     APPROVAL_MARKER,
     FIX_REQUEST_MARKER,
+    GAPS_MARKER,
     REVISE_MARKER,
     agent_system_prompt,
     approval_applied_message,
     approval_failed_message,
     fix_request_message,
+    parse_gap_line,
     proposal_note,
     revise_request_message,
     strip_proposal_notes,
 )
 from features.chat.schemas import ProposedChange
-from features.itinerary.schemas import ActivityItem, TimelineWarning
-from features.plans.schemas import TravelPlan
+from features.itinerary.schemas import ItineraryItem, TimelineWarning
+from features.plans.schemas import PlanDetails, StageStatus, TravelPlan
+from features.plans.stages import plan_progress
 from shared.domain import Cost, Money
-from tests.features.itinerary.factories import PLAN_ID, TSUKIJI, activity
+from tests.features.itinerary.factories import (
+    HOME,
+    PLAN_ID,
+    TOKYO_TZ,
+    TSUKIJI,
+    activity,
+    lodging,
+)
 
 CREATED = datetime(2026, 10, 1, tzinfo=UTC)
 
 
-def _plan(*items: ActivityItem) -> TravelPlan:
-    return TravelPlan.model_validate(
+def _plan(*items: ItineraryItem, **overrides: Any) -> TravelPlan:
+    details = PlanDetails.model_validate(
         {
             "id": PLAN_ID,
             "user_id": uuid4(),
@@ -43,10 +54,12 @@ def _plan(*items: ActivityItem) -> TravelPlan:
             "version": 1,
             "created_at": CREATED,
             "updated_at": CREATED,
-            "items": list(items),
-            "stages": [],
-            "gaps": [],
+            **overrides,
         }
+    )
+    progress = plan_progress(details, items)
+    return TravelPlan.model_validate(
+        {**dict(details), "items": list(items), "stages": progress.stages, "gaps": progress.gaps}
     )
 
 
@@ -217,3 +230,96 @@ def test_revise_request_message_frames_the_users_text() -> None:
 
     assert message.startswith(f"{REVISE_MARKER}\nA ryokan instead\n")
     assert f"- {CHANGE.summary}" in message
+
+
+# ---------------------------------------------------------------------------
+# Planning stage block
+# ---------------------------------------------------------------------------
+
+TODAY = date(2026, 10, 29)
+
+
+def test_agent_prompt_names_the_stage_and_what_is_missing() -> None:
+    prompt = agent_system_prompt(_plan(), TODAY)
+
+    assert "Current stage: basics (1 of 6)" in prompt
+    assert "Still missing: trip dates; who is travelling;" in prompt
+    assert "suggest pressing Next (next: flights)" in prompt
+    assert "Ask where the trip starts" in prompt
+    # The workflow is described in words, not dumped as JSON.
+    assert '"stages"' not in prompt
+    assert '"stage"' not in prompt
+
+
+def test_agent_prompt_says_the_origin_comes_from_home() -> None:
+    prompt = agent_system_prompt(_plan(origin=HOME), TODAY)
+
+    assert "The origin is prefilled from the user's home" in prompt
+    assert "Never replace it with just an airport code" in prompt
+
+
+def test_agent_prompt_reports_a_complete_checklist() -> None:
+    plan = _plan(
+        origin=HOME,
+        destination={"name": "Tokyo"},
+        start_date=date(2027, 5, 1),
+        end_date=date(2027, 5, 4),
+        travelers={"adults": 2},
+    )
+
+    assert "Checklist: complete." in agent_system_prompt(plan, TODAY)
+
+
+def test_agent_prompt_mentions_skipped_flights_after_the_flights_stage() -> None:
+    plan = _plan(stage="lodging", flights_skipped=True)
+
+    prompt = agent_system_prompt(plan, TODAY)
+
+    assert "The user skipped flights" in prompt
+    assert "Current stage: lodging (3 of 6)" in prompt
+
+
+def test_agent_prompt_lists_each_gap_in_the_ground_stage() -> None:
+    stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
+    plan = _plan(stay, stage="ground", origin=HOME)
+
+    prompt = agent_system_prompt(plan, TODAY)
+
+    assert GAPS_MARKER in prompt
+    gaps = [parse_gap_line(line) for line in prompt.splitlines()]
+    assert [gap for gap in gaps if gap is not None] == [
+        {
+            "from_name": "Home (San Francisco)",
+            "to_name": "Hotel Okura",
+            "leave": None,
+            "arrive": "2027-05-02T15:00",
+            "timezone": TOKYO_TZ,
+        },
+        {
+            "from_name": "Hotel Okura",
+            "to_name": "Home (San Francisco)",
+            "leave": "2027-05-06T11:00",
+            "arrive": None,
+            "timezone": TOKYO_TZ,
+        },
+    ]
+    assert "propose every transfer on one card with add_transfer" in prompt
+
+
+def test_review_has_no_next_stage() -> None:
+    prompt = agent_system_prompt(_plan(stage="review"), TODAY)
+
+    assert "Current stage: review (6 of 6)" in prompt
+    assert "suggest pressing Next" not in prompt
+
+
+def test_approval_message_points_at_next_when_a_stage_completes() -> None:
+    done = StageStatus(stage="lodging", ready=True, missing=[])
+
+    message = approval_applied_message(["Added lodging"], done)
+
+    assert message.endswith(
+        "The lodging stage is now complete; tell the user they can press Next to move on to "
+        "activities."
+    )
+    assert "stage is now complete" not in approval_applied_message(["Added lodging"])
