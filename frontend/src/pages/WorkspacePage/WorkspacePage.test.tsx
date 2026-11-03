@@ -48,7 +48,7 @@ describe('WorkspacePage', () => {
         expect(await within(itinerary).findAllByRole('region', { name: /^Day \d/ })).toHaveLength(5)
     })
 
-    it('sends a "Fix it" from the itinerary through the chat', async () => {
+    it('sends a "Fix it" from the stage bar warnings through the chat', async () => {
         const warning = {
             kind: 'no_lodging' as const,
             message: 'No lodging for the night of May 1',
@@ -63,20 +63,24 @@ describe('WorkspacePage', () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(stream.response)
         await renderWithRouter(<WorkspacePage planId={travelPlan().id} />)
         const chat = screen.getByRole('region', { name: 'Chat' })
-        const itinerary = screen.getByRole('region', { name: 'Itinerary' })
         await within(chat).findByText('Where to next?')
 
-        await userEvent.click(await within(itinerary).findByText('1 thing to check'))
-        const fixButton = within(itinerary).getByRole('button', {
-            name: `Fix it: ${warning.message}`,
-        })
-        await userEvent.click(fixButton)
+        // The warnings moved out of the itinerary, into the stage bar.
+        const itinerary = screen.getByRole('region', { name: 'Itinerary' })
+        expect(within(itinerary).queryByText('1 thing to check')).not.toBeInTheDocument()
+        const trigger = await screen.findByRole('button', { name: '1 thing to check' })
+        await userEvent.click(trigger)
+        await userEvent.click(screen.getByRole('button', { name: `Fix it: ${warning.message}` }))
 
         expect(within(chat).getByText(`Fix: ${warning.message}`)).toBeInTheDocument()
-        // Disabled while the reply streams.
+        // The flyout closes, and its buttons are disabled while the reply streams.
         await waitFor(() => {
-            expect(fixButton).toBeDisabled()
+            expect(
+                screen.queryByRole('dialog', { name: 'Things to check' }),
+            ).not.toBeInTheDocument()
         })
+        await userEvent.click(trigger)
+        expect(screen.getByRole('button', { name: `Fix it: ${warning.message}` })).toBeDisabled()
         await waitFor(() => {
             expect(fetchSpy).toHaveBeenCalledTimes(1)
         })
@@ -84,7 +88,7 @@ describe('WorkspacePage', () => {
         expect(await request.json()).toEqual({ content: `Fix: ${warning.message}`, fix: warning })
         stream.close()
         await waitFor(() => {
-            expect(fixButton).toBeEnabled()
+            expect(screen.getByRole('button', { name: `Fix it: ${warning.message}` })).toBeEnabled()
         })
     })
 
@@ -97,8 +101,8 @@ describe('WorkspacePage', () => {
         expect(within(stepper).getByRole('listitem', { current: 'step' })).toHaveTextContent(
             'Flights',
         )
-        // The Next / Skip buttons are separate from the steps, below the chat.
-        const controls = screen.getByRole('region', { name: 'Stage controls' })
+        // The Next / Skip buttons are separate from the steps, inline in the chat transcript.
+        const controls = await screen.findByRole('region', { name: 'Stage controls' })
         expect(within(controls).getByRole('button', { name: 'Skip flights' })).toBeEnabled()
         // Ada has no home yet, so the header offers to set one.
         expect(screen.getByRole('button', { name: 'Set home' })).toBeInTheDocument()

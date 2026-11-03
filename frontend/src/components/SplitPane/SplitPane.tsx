@@ -17,6 +17,8 @@ interface SplitPaneProps {
     defaultRatio?: number
 }
 
+// ----- helpers -----
+
 /** Neither pane may shrink below this share of the height. */
 const MIN_RATIO = 0.2
 const MAX_RATIO = 0.8

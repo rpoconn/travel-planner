@@ -73,6 +73,25 @@ describe('ChatPanel', () => {
         )
     })
 
+    it('shows the stage controls inline after the messages, hidden while a reply streams', async () => {
+        mockHistory([USER_MESSAGE, REPLY])
+        const stream = controlledSseResponse()
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(stream.response)
+        const { user } = renderPanel(travelPlan({ stage: 'flights' }))
+
+        // Inside the conversation log, so it reads as part of the chat.
+        const controls = await within(await screen.findByRole('log')).findByRole('region', {
+            name: 'Stage controls',
+        })
+        expect(within(controls).getByRole('button', { name: 'Skip flights' })).toBeInTheDocument()
+
+        await sendText(user, 'hello')
+        await waitFor(() => {
+            expect(screen.queryByRole('region', { name: 'Stage controls' })).not.toBeInTheDocument()
+        })
+        stream.close()
+    })
+
     it('offers suggestions on an empty chat and sends the one picked', async () => {
         mockHistory([], [USER_MESSAGE, REPLY])
         const fetchSpy = vi

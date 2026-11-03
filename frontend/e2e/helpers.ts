@@ -118,7 +118,8 @@ export function stepper(page: Page) {
     return page.getByRole('navigation', { name: 'Planning stages' })
 }
 
-/** The Back / Skip flights / Next buttons and "Missing" text below the chat. */
+/** The Back / Skip flights / Next buttons and "Missing" text, at the end of the chat
+ * transcript (hidden while a reply streams). */
 export function stageControls(page: Page) {
     return page.getByRole('region', { name: 'Stage controls' })
 }
@@ -131,8 +132,8 @@ export async function expectStage(page: Page, stage: Stage): Promise<void> {
     )
 }
 
-/** Press Next and wait for the following stage. (Next waits for the reply to finish, since
- * the stepper is locked while the assistant streams.) */
+/** Press Next and wait for the following stage. (The click waits for the reply to finish:
+ * the stage controls only appear in the transcript once the assistant is done.) */
 export async function nextStage(page: Page, to: Stage): Promise<void> {
     await stageControls(page).getByRole('button', { name: 'Next' }).click()
     await expectStage(page, to)

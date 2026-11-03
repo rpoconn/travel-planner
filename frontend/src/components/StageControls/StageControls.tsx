@@ -8,7 +8,8 @@ import { currentStatus, STAGE_META } from '@/lib/stages'
 import { useChangeStage } from '@/lib/useChangeStage'
 
 // What the current planning stage is about, what it still needs, and the buttons that move
-// the plan (Back / Skip flights / Next). Sits below the chat; the step list is StageStepper.
+// the plan (Back / Skip flights / Next). Rendered inline at the end of the chat transcript, like
+// a message from the assistant asking "ready to move on?"; the step list is StageStepper.
 // Only the user moves stages (the assistant just suggests it); the server checks readiness
 // again and answers 409 with the reason if Next is early.
 
@@ -30,7 +31,10 @@ export function StageControls({ plan, disabled = false }: StageControlsProps) {
 
     // ----- markup -----
     return (
-        <section aria-label="Stage controls" className="flex flex-col gap-1 border-t px-6 py-3">
+        <section
+            aria-label="Stage controls"
+            className="bg-card flex flex-col gap-1 rounded-xl border px-4 py-3"
+        >
             <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
                 <div className="min-w-0 flex-1 text-xs">
                     <p className="text-muted-foreground">{meta.description}</p>

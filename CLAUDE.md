@@ -41,8 +41,12 @@
    - UI compoennts should have a single file
 9. **Comments**
    - Make sure to comment any unusual code that is not obvious
-   - Make sure to orgnaize files into separate functional code sections. Example: state / setup / markup / event listeners, etc...
+   - Make sure to orgnaize files into separate functional code sections. Example: State / Initialization / Render (jsx/html) / UI Callbacks, etc...
+   Example: 
+   // ------------ Render ------------
 10. **Self-Contained UI Folders**
    - Each component and page gets its own folder (`components/Composer/`, `pages/ChatPage/`) holding its component, styles, and tests.
 11. **Routing / Query / UI Toolkit**
    - Use the tanstack ecosystem for all UI needs.
+12. **UI Component Structure**
+   - Each UI component should have all of its input properties defined on an interface at the top.  The middle should be initialization , state, and finally UI callbacks. Finally all of its html at the bottom.  Don't include random functions that return react markup.  all markup should be centalized in the component at the bottom.   

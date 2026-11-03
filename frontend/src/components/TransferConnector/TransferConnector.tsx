@@ -1,7 +1,7 @@
 import { TriangleAlert } from 'lucide-react'
-import type { ReactNode } from 'react'
 
 import type { TransferItem } from '@/api/types.gen'
+import { ConnectorRail } from '@/components/ConnectorRail/ConnectorRail'
 import { TRANSFER_MODE_META } from '@/lib/itemMeta'
 import { formatDuration, formatWallTime } from '@/lib/timeline'
 import { cn } from '@/lib/utils'
@@ -20,7 +20,7 @@ export function TransferConnector(props: TransferConnectorProps) {
     // ----- markup -----
     if (props.variant === 'missing') {
         return (
-            <Connector dashed>
+            <ConnectorRail dashed>
                 <span
                     className="border-warning/50 bg-warning/8 text-foreground inline-flex items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-xs"
                     title={props.message}
@@ -29,7 +29,7 @@ export function TransferConnector(props: TransferConnectorProps) {
                     No transfer planned
                     <span className="sr-only">: {props.message}</span>
                 </span>
-            </Connector>
+            </ConnectorRail>
         )
     }
 
@@ -39,7 +39,7 @@ export function TransferConnector(props: TransferConnectorProps) {
     const label = [item.provider ?? mode.label, formatDuration(item.start, item.end)].join(' · ')
 
     return (
-        <Connector>
+        <ConnectorRail>
             <button
                 type="button"
                 data-item-type="transfer"
@@ -60,25 +60,6 @@ export function TransferConnector(props: TransferConnectorProps) {
                 </span>
                 <span className="truncate">{label}</span>
             </button>
-        </Connector>
-    )
-}
-
-// ----- subcomponents -----
-
-/** Centers its chip on a short vertical line joining the cards above and below. */
-function Connector({ children, dashed = false }: { children: ReactNode; dashed?: boolean }) {
-    return (
-        <div className="relative flex justify-center py-1">
-            <span
-                aria-hidden
-                className={cn(
-                    'border-border absolute inset-y-0 left-1/2 border-l-2',
-                    dashed && 'border-dashed',
-                )}
-            />
-            {/* Opaque backing so the line doesn't show through the translucent chip. */}
-            <div className="bg-card relative max-w-full rounded-full">{children}</div>
-        </div>
+        </ConnectorRail>
     )
 }

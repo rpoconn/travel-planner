@@ -215,9 +215,11 @@ test.describe('in the activities stage', () => {
         await expect(added).toHaveCount(earlier + 2)
         await expect(itinerary.locator('[data-item-type="activity"]')).toHaveCount(2)
 
-        // The overlap, among the missing transfers between the places.
-        await itinerary.getByText(/things to check$/).click()
-        await itinerary
+        // The overlap, among the missing transfers between the places, in the stage bar's
+        // warnings flyout.
+        await page.getByRole('button', { name: /things to check$/ }).click()
+        await page
+            .getByRole('dialog', { name: 'Things to check' })
             .getByRole('button', {
                 name: 'Fix it: Visit to the Louvre overlaps Walk along the Seine',
             })

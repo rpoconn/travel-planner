@@ -1,17 +1,9 @@
-import {
-    CircleAlert,
-    CircleCheck,
-    ClipboardList,
-    Compass,
-    LoaderCircle,
-    Search,
-    TriangleAlert,
-    type LucideIcon,
-} from 'lucide-react'
+import { CircleAlert, Compass } from 'lucide-react'
 
 import type { ChatMessage } from '@/api/types.gen'
+import { ToolChip } from '@/components/ToolChip/ToolChip'
+import { TypingDots } from '@/components/TypingDots/TypingDots'
 import type { ToolActivity } from '@/lib/chatTurn'
-import { cn } from '@/lib/utils'
 
 // One transcript entry. Renders stored messages and the live, streaming reply the same way:
 // user bubbles on the right (including decisions on a proposal card), assistant replies on
@@ -106,63 +98,5 @@ export function MessageBubble({
                 </div>
             )}
         </div>
-    )
-}
-
-// ----- subcomponents -----
-
-const STATUS_ICONS: Record<Exclude<ToolActivity['status'], 'ok'>, LucideIcon> = {
-    running: LoaderCircle,
-    failed: TriangleAlert,
-    // Staged onto the proposal card, not applied: neutral rather than a check mark.
-    proposed: ClipboardList,
-}
-
-function ToolChip({ tool }: { tool: ToolActivity }) {
-    const Icon =
-        tool.status !== 'ok'
-            ? STATUS_ICONS[tool.status]
-            : tool.name === 'web_search'
-              ? Search
-              : CircleCheck
-
-    return (
-        <span
-            data-status={tool.status}
-            className={cn(
-                'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
-                tool.status === 'running' && 'bg-muted text-muted-foreground',
-                tool.status === 'ok' && 'border-primary/25 bg-primary/8 text-foreground',
-                tool.status === 'proposed' && 'border-primary/25 bg-card text-muted-foreground',
-                tool.status === 'failed' && 'border-warning/40 bg-warning/10 text-foreground',
-            )}
-        >
-            <Icon
-                aria-hidden
-                className={cn(
-                    'size-3.5 shrink-0',
-                    tool.status === 'running' && 'animate-spin',
-                    (tool.status === 'ok' || tool.status === 'proposed') && 'text-primary',
-                    tool.status === 'failed' && 'text-warning',
-                )}
-            />
-            <span className="truncate" title={tool.summary}>
-                {tool.summary}
-            </span>
-        </span>
-    )
-}
-
-function TypingDots() {
-    return (
-        <span role="status" aria-label="Assistant is typing" className="inline-flex gap-1 py-1">
-            {[0, 150, 300].map((delay) => (
-                <span
-                    key={delay}
-                    className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full"
-                    style={{ animationDelay: `${String(delay)}ms` }}
-                />
-            ))}
-        </span>
     )
 }

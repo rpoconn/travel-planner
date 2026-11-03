@@ -1,16 +1,18 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Sparkles } from 'lucide-react'
 import { Fragment, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 
 import { listMessagesOptions } from '@/api/@tanstack/react-query.gen'
 import type { TimelineWarning, TravelPlan } from '@/api/types.gen'
 import { Composer } from '@/components/Composer/Composer'
+import { EmptyChat } from '@/components/EmptyChat/EmptyChat'
+import { LiveTurn } from '@/components/LiveTurn/LiveTurn'
 import { MessageBubble } from '@/components/MessageBubble/MessageBubble'
 import { ProposalCard, type ProposalAction } from '@/components/ProposalCard/ProposalCard'
+import { StageControls } from '@/components/StageControls/StageControls'
 import { errorMessage } from '@/lib/apiError'
 import { applyChatEvent, startTurn, toolsFromTraces, type ChatTurn } from '@/lib/chatTurn'
 import { applyPlanSnapshot } from '@/lib/planCache'
-import { STAGE_META, suggestionsFor } from '@/lib/stages'
+import { suggestionsFor } from '@/lib/stages'
 import { streamChat, streamDecision, type ChatEvent } from '@/lib/sse'
 
 // The plan's conversation: stored history from the API plus the live turn while a reply
@@ -91,7 +93,7 @@ export function ChatPanel({ plan, ref, onBusyChange }: ChatPanelProps) {
         sendFix: (warning) => void send(`Fix: ${warning.message}`, warning),
     }))
 
-    // ----- actions -----
+    // ----- event handlers -----
     async function send(text: string, fix?: TimelineWarning) {
         const content = text.trim()
         if (!content || turn !== null) return
@@ -152,50 +154,6 @@ export function ChatPanel({ plan, ref, onBusyChange }: ChatPanelProps) {
     }
 
     // ----- markup -----
-    function renderTranscript() {
-        if (messagesQuery.isPending) {
-            return <p className="text-muted-foreground text-sm">Loading conversation…</p>
-        }
-        if (messagesQuery.isError) {
-            return (
-                <p role="alert" className="text-destructive text-sm">
-                    {errorMessage(messagesQuery.error, "Couldn't load the conversation")}
-                </p>
-            )
-        }
-        if (messages.length === 0 && turn === null) {
-            return (
-                <EmptyChat
-                    stage={plan.stage}
-                    suggestions={suggestionsFor(plan)}
-                    onPick={(text) => void send(text)}
-                />
-            )
-        }
-        return (
-            <>
-                {messages.map(({ proposal, ...message }) => (
-                    <Fragment key={message.id}>
-                        <MessageBubble
-                            role={message.role}
-                            kind={message.kind}
-                            content={message.content}
-                            tools={toolsFromTraces(message.tool_calls)}
-                        />
-                        {proposal && (
-                            <ProposalCard
-                                proposal={proposal}
-                                disabled={busy}
-                                onDecide={(action, text) => void decide(proposal.id, action, text)}
-                            />
-                        )}
-                    </Fragment>
-                ))}
-                {showTurn && <LiveTurn turn={turn} />}
-            </>
-        )
-    }
-
     return (
         <div className="flex h-full flex-col">
             {/* `*:shrink-0`: entries must scroll, never squeeze. Without it, once the log
@@ -210,7 +168,47 @@ export function ChatPanel({ plan, ref, onBusyChange }: ChatPanelProps) {
             >
                 {/* The chat is now full-width, so keep messages at a readable line length. */}
                 <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 *:shrink-0">
-                    {renderTranscript()}
+                    {messagesQuery.isPending ? (
+                        <p className="text-muted-foreground text-sm">Loading conversation…</p>
+                    ) : messagesQuery.isError ? (
+                        <p role="alert" className="text-destructive text-sm">
+                            {errorMessage(messagesQuery.error, "Couldn't load the conversation")}
+                        </p>
+                    ) : messages.length === 0 && turn === null ? (
+                        <EmptyChat
+                            stage={plan.stage}
+                            suggestions={suggestionsFor(plan)}
+                            onPick={(text) => void send(text)}
+                        />
+                    ) : (
+                        <>
+                            {messages.map(({ proposal, ...message }) => (
+                                <Fragment key={message.id}>
+                                    <MessageBubble
+                                        role={message.role}
+                                        kind={message.kind}
+                                        content={message.content}
+                                        tools={toolsFromTraces(message.tool_calls)}
+                                    />
+                                    {proposal && (
+                                        <ProposalCard
+                                            proposal={proposal}
+                                            disabled={busy}
+                                            onDecide={(action, text) =>
+                                                void decide(proposal.id, action, text)
+                                            }
+                                        />
+                                    )}
+                                </Fragment>
+                            ))}
+                            {showTurn && <LiveTurn turn={turn} />}
+                        </>
+                    )}
+                    {/* The stage decision (Back / Next) is part of the conversation: it
+                        follows the latest message and hides while a reply streams. */}
+                    {!messagesQuery.isPending && !messagesQuery.isError && !busy && (
+                        <StageControls plan={plan} />
+                    )}
                 </div>
             </div>
 
@@ -227,81 +225,6 @@ export function ChatPanel({ plan, ref, onBusyChange }: ChatPanelProps) {
                     busy={busy}
                 />
             </div>
-        </div>
-    )
-}
-
-// ----- subcomponents -----
-
-function LiveTurn({ turn }: { turn: ChatTurn }) {
-    // Once the guardrail says off-topic, the reply renders as the hint card, matching how the
-    // stored redirect looks after the history refetch.
-    const kind = turn.onTopic === false ? 'redirect' : 'message'
-    const streaming = turn.status === 'streaming'
-    const hasReply = streaming || turn.text !== '' || turn.tools.length > 0
-
-    return (
-        <>
-            <MessageBubble role="user" kind={kind} content={turn.userText} />
-            {hasReply && (
-                <MessageBubble
-                    role="assistant"
-                    kind={kind}
-                    content={turn.text}
-                    tools={turn.tools}
-                    streaming={streaming}
-                />
-            )}
-            {turn.proposal && (
-                // Inert: the turn is still in flight until the history refetch replaces it.
-                <ProposalCard proposal={turn.proposal} disabled onDecide={() => undefined} />
-            )}
-            {turn.status === 'error' && turn.error && (
-                <MessageBubble role="system" kind="error" content={turn.error} />
-            )}
-        </>
-    )
-}
-
-interface EmptyChatProps {
-    stage: TravelPlan['stage']
-    suggestions: string[]
-    onPick: (text: string) => void
-}
-
-/** Opening copy per stage; the first stage introduces how the assistant works. */
-function emptyChatText(stage: TravelPlan['stage']): string {
-    if (stage === 'basics') {
-        return "Tell me where and when you'd like to go. I'll look things up and propose changes to the itinerary above; nothing is added until you approve it."
-    }
-    return `${STAGE_META[stage].description} Ask me and I'll propose options; nothing is added until you approve it.`
-}
-
-function EmptyChat({ stage, suggestions, onPick }: EmptyChatProps) {
-    return (
-        <div className="m-auto flex max-w-sm flex-col items-center gap-4 text-center">
-            <div className="bg-accent text-terracotta flex size-12 items-center justify-center rounded-full">
-                <Sparkles className="size-6" aria-hidden />
-            </div>
-            <div>
-                <p className="font-heading text-xl">{STAGE_META[stage].prompt}</p>
-                <p className="text-muted-foreground mt-1 text-sm">{emptyChatText(stage)}</p>
-            </div>
-            <ul aria-label="Suggestions" className="flex w-full flex-col gap-2">
-                {suggestions.map((suggestion) => (
-                    <li key={suggestion}>
-                        <button
-                            type="button"
-                            className="bg-card hover:border-primary/40 hover:bg-primary/5 w-full rounded-xl border px-4 py-2 text-left text-sm transition-colors"
-                            onClick={() => {
-                                onPick(suggestion)
-                            }}
-                        >
-                            {suggestion}
-                        </button>
-                    </li>
-                ))}
-            </ul>
         </div>
     )
 }

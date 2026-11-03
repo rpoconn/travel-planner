@@ -52,6 +52,20 @@
     --color-activity: var(--activity);
     --color-transfer: var(--transfer);
 
+    /* Type scale: tighter than Tailwind's defaults (sm=14px, base=16px, ...) for a denser UI. */
+    --text-xs: 0.6875rem;
+    --text-xs--line-height: 1rem;
+    --text-sm: 0.78125rem;
+    --text-sm--line-height: 1.125rem;
+    --text-base: 0.875rem;
+    --text-base--line-height: 1.25rem;
+    --text-lg: 1rem;
+    --text-lg--line-height: 1.375rem;
+    --text-xl: 1.125rem;
+    --text-xl--line-height: 1.5rem;
+    --text-2xl: 1.3125rem;
+    --text-2xl--line-height: 1.75rem;
+
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -151,7 +165,7 @@
         @apply border-border outline-ring/50;
     }
     body {
-        @apply bg-background text-foreground;
+        @apply bg-background text-foreground text-base;
     }
     html {
         @apply font-sans;

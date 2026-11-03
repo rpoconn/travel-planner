@@ -1,8 +1,10 @@
-import { Clock, House, TriangleAlert } from 'lucide-react'
+import { Clock, TriangleAlert } from 'lucide-react'
 import { Fragment, type CSSProperties } from 'react'
 
-import type { Gap, Place, TimelineDay, TimelineWarning } from '@/api/types.gen'
+import type { Place, TimelineDay, TimelineWarning } from '@/api/types.gen'
+import { HomeChip } from '@/components/HomeChip/HomeChip'
 import { ItemCard } from '@/components/ItemCard/ItemCard'
+import { MissingTransfers } from '@/components/MissingTransfers/MissingTransfers'
 import { TransferConnector } from '@/components/TransferConnector/TransferConnector'
 import type { ItineraryItem } from '@/lib/itemMeta'
 import {
@@ -10,7 +12,6 @@ import {
     dayZoneLabel,
     emptyDayGaps,
     formatDayHeader,
-    gapMessage,
     type DayGaps,
 } from '@/lib/timeline'
 
@@ -134,31 +135,5 @@ export function DayColumn({
                 {homeAtEnd && <HomeChip home={homeAtEnd} />}
             </ol>
         </section>
-    )
-}
-
-// ----- subcomponents -----
-
-function MissingTransfers({ gaps = [] }: { gaps?: readonly Gap[] | undefined }) {
-    return gaps.map((gap) => (
-        <li key={`${gap.after_item_id ?? 'home'}-${gap.before_item_id ?? 'home'}`}>
-            <TransferConnector variant="missing" message={gapMessage(gap)} />
-        </li>
-    ))
-}
-
-/** Where the trip leaves from and comes back to. */
-function HomeChip({ home }: { home: Place }) {
-    return (
-        <li className="flex justify-center py-1">
-            <span
-                data-testid="home-chip"
-                className="bg-secondary text-secondary-foreground inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-                title={[home.address, home.city ?? home.name].filter(Boolean).join(', ')}
-            >
-                <House className="size-3.5 shrink-0" aria-hidden />
-                <span className="truncate">Home · {home.city ?? home.name}</span>
-            </span>
-        </li>
     )
 }

@@ -37,6 +37,8 @@ interface PlansSidebarProps {
     onPlanDeleted: (planId: string) => void
 }
 
+// ----- helpers -----
+
 function planSubtitle(plan: PlanSummary): string {
     const parts = [plan.destination?.name, formatDateRange(plan.start_date, plan.end_date)]
     return parts.filter(Boolean).join(' · ') || 'No dates yet'
