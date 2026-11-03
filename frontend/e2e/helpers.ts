@@ -13,6 +13,20 @@ export const OFFLINE_ADDED_REPLY = "Done! It's on your itinerary."
 export const DENIED_REPLY = 'No problem — nothing was changed.'
 export const OFFLINE_REDIRECT_REPLY = "That's outside what I can help with"
 export const OFFLINE_FIX_REPLY = "Here's what I'd change to fix that"
+export const OFFLINE_STAGE_DONE_REPLY = 'That completes this stage: press Next'
+
+/** The stepper's labels, in workflow order (frontend/src/lib/stages.ts). */
+export const STAGE_LABELS = {
+    basics: 'Basics',
+    flights: 'Flights',
+    lodging: 'Lodging',
+    activities: 'Activities',
+    ground: 'Transfers',
+    review: 'Review',
+} as const
+
+export type Stage = keyof typeof STAGE_LABELS
+const STAGE_ORDER = Object.keys(STAGE_LABELS) as Stage[]
 
 // ----- steps -----
 
@@ -21,8 +35,16 @@ export function uniqueEmail(prefix = 'traveler'): string {
     return `${prefix}-${String(Date.now())}-${Math.random().toString(36).slice(2, 8)}@example.com`
 }
 
-/** Register through the UI and wait for the workspace. Returns the email used. */
-export async function registerNewUser(page: Page, name = 'Ada'): Promise<string> {
+/**
+ * Register through the UI and wait for the workspace. Returns the email used. A new user is
+ * asked where home is; unless `home` is null that's answered (Philadelphia, PHL), so new
+ * trips start with an origin and the sheet is out of the way.
+ */
+export async function registerNewUser(
+    page: Page,
+    name = 'Ada',
+    { home = 'Philadelphia' }: { home?: string | null } = {},
+): Promise<string> {
     const email = uniqueEmail()
     await page.goto('/register')
     await page.getByLabel('Name (optional)').fill(name)
@@ -31,7 +53,23 @@ export async function registerNewUser(page: Page, name = 'Ada'): Promise<string>
     await page.getByRole('button', { name: 'Create account' }).click()
 
     await expect(page.getByTestId('current-user')).toHaveText(name)
+    if (home !== null) await setHome(page, home)
     return email
+}
+
+/** Save `city` (and its airport) as home: through the sheet that opens for a new user, or
+ * the header button. */
+export async function setHome(page: Page, city: string, iata = 'PHL'): Promise<void> {
+    const sheet = page.getByRole('dialog', { name: 'Where is home?' })
+    // The sheet opens by itself on the first render without a home; otherwise use the button.
+    if (!(await sheet.isVisible()))
+        await page.getByRole('button', { name: /^(Set home|Home:)/ }).click()
+    await sheet.getByLabel('City or town').fill(city)
+    await sheet.getByLabel(/Nearest airport code/).fill(iata)
+    await sheet.getByRole('button', { name: 'Save home' }).click()
+
+    await expect(sheet).toBeHidden()
+    await expect(page.getByRole('button', { name: `Home: ${city}` })).toBeVisible()
 }
 
 /** Create a trip from the sidebar and give it `title` (New trip opens an inline rename). */
@@ -71,4 +109,68 @@ export async function addViaChat(page: Page, what: string): Promise<void> {
     await sendChatMessage(page, `Add ${what}`)
     await expect(latestProposal(page).getByRole('button', { name: 'Approve' })).toBeEnabled()
     await approveProposal(page)
+}
+
+// ----- planning stages -----
+
+export function stepper(page: Page) {
+    return page.getByRole('navigation', { name: 'Planning stages' })
+}
+
+/** Wait until the stepper shows `stage` as the current one. */
+export async function expectStage(page: Page, stage: Stage): Promise<void> {
+    // Playwright's getByRole has no `current` option, so match the attribute directly.
+    await expect(stepper(page).locator('li[aria-current="step"]')).toContainText(
+        STAGE_LABELS[stage],
+    )
+}
+
+/** Press Next and wait for the following stage. (Next waits for the reply to finish, since
+ * the stepper is locked while the assistant streams.) */
+export async function nextStage(page: Page, to: Stage): Promise<void> {
+    await stepper(page).getByRole('button', { name: 'Next' }).click()
+    await expectStage(page, to)
+}
+
+/** From the flights stage, plan the trip without flying. */
+export async function skipFlights(page: Page): Promise<void> {
+    await stepper(page).getByRole('button', { name: 'Skip flights' }).click()
+    await expectStage(page, 'lodging')
+}
+
+/** Send an offline command and approve what it proposes. */
+export async function proposeAndApprove(page: Page, command: string): Promise<void> {
+    await sendChatMessage(page, command)
+    await expect(latestProposal(page).getByRole('button', { name: 'Approve' })).toBeEnabled()
+    await approveProposal(page)
+}
+
+/**
+ * Walk a fresh trip to `target` with the offline commands: set up a Paris trip, skip
+ * flights, add a hotel for every night, add a visit to the Louvre, then a taxi per gap.
+ */
+export async function reachStage(page: Page, target: Stage): Promise<void> {
+    const steps: Record<Exclude<Stage, 'review'>, () => Promise<void>> = {
+        basics: async () => {
+            await proposeAndApprove(page, 'Set up the trip')
+            await nextStage(page, 'flights')
+        },
+        flights: () => skipFlights(page),
+        lodging: async () => {
+            await proposeAndApprove(page, 'Add a hotel')
+            await nextStage(page, 'activities')
+        },
+        activities: async () => {
+            await addViaChat(page, 'a visit to the Louvre')
+            await nextStage(page, 'ground')
+        },
+        ground: async () => {
+            await proposeAndApprove(page, 'Add transfers')
+            await nextStage(page, 'review')
+        },
+    }
+    for (const stage of STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(target))) {
+        if (stage !== 'review') await steps[stage]()
+    }
+    await expectStage(page, target)
 }

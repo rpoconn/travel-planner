@@ -136,7 +136,9 @@ def offline_hotel(trip: tuple[date, date]) -> dict[str, Any]:
 
 
 def offline_activity(what: str, day: date) -> dict[str, Any]:
-    """`add_activity` arguments for "add <what>": two hours that morning, in UTC."""
+    """`add_activity` arguments for "add <what>": two hours that morning, Paris time (the
+    fake's trip is always Paris; in UTC, the taxis "Add transfers" proposes around it would
+    fail the traveller's-timezone check once a taxi has brought them into Paris)."""
     title = (what[:1].upper() + what[1:])[:200]
     return {
         "title": title,
@@ -144,7 +146,7 @@ def offline_activity(what: str, day: date) -> dict[str, Any]:
         "category": "sightseeing",
         "start": datetime.combine(day, time(10)).isoformat(),
         "end": datetime.combine(day, time(12)).isoformat(),
-        "timezone": "UTC",
+        "timezone": _PARIS_TZ,
     }
 
 
