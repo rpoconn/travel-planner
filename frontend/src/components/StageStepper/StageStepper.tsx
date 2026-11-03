@@ -1,22 +1,8 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-    ArrowLeft,
-    ArrowRight,
-    Check,
-    Lock,
-    PartyPopper,
-    SkipForward,
-    TriangleAlert,
-} from 'lucide-react'
+import { Check, Lock, TriangleAlert } from 'lucide-react'
 
-import { changeStageMutation } from '@/api/@tanstack/react-query.gen'
-import type { StageChange, TravelPlan } from '@/api/types.gen'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import type { TravelPlan } from '@/api/types.gen'
 import { errorMessage } from '@/lib/apiError'
-import { applyPlanSnapshot } from '@/lib/planCache'
 import {
-    currentStatus,
     STAGE_META,
     STAGES,
     stageState,
@@ -24,17 +10,18 @@ import {
     type PlanStage,
     type StageState,
 } from '@/lib/stages'
+import { useChangeStage } from '@/lib/useChangeStage'
 import { cn } from '@/lib/utils'
 
-// The planning workflow above the chat: six steps, what the current one still needs, and
-// the buttons that move the plan. Only the user moves stages (the assistant just suggests
-// it); the server checks readiness again and answers 409 with the reason if Next is early.
+// The six planning steps, shown across the top of the page. Passed steps are buttons that
+// jump back to them (the server only allows going back). The Next / Back / Skip buttons live
+// in StageControls, below the chat.
 
 // ----- types -----
 
 interface StageStepperProps {
     plan: TravelPlan
-    /** Disables every button, e.g. while the assistant is replying. */
+    /** Disables the step buttons, e.g. while the assistant is replying. */
     disabled?: boolean
 }
 
@@ -55,23 +42,8 @@ const STATE_TEXT: Record<StageState, string> = {
 
 export function StageStepper({ plan, disabled = false }: StageStepperProps) {
     // ----- state -----
-    const queryClient = useQueryClient()
-    const changeStage = useMutation({
-        ...changeStageMutation(),
-        onSuccess: (updated) => {
-            applyPlanSnapshot(queryClient, updated)
-        },
-    })
-
-    const status = currentStatus(plan)
-    const meta = STAGE_META[plan.stage]
+    const changeStage = useChangeStage(plan)
     const busy = disabled || changeStage.isPending
-    const atReview = plan.stage === 'review'
-
-    // ----- event handlers -----
-    function move(body: StageChange) {
-        changeStage.mutate({ path: { plan_id: plan.id }, body })
-    }
 
     // ----- markup -----
     function renderStep(stage: PlanStage, index: number) {
@@ -111,7 +83,6 @@ export function StageStepper({ plan, disabled = false }: StageStepperProps) {
                     state === 'current' ? 'text-foreground font-medium' : 'text-muted-foreground',
                 )}
             >
-                {/* Passed stages are links back to them (the server only allows going back). */}
                 {state === 'done' || state === 'incomplete' ? (
                     <button
                         type="button"
@@ -122,7 +93,7 @@ export function StageStepper({ plan, disabled = false }: StageStepperProps) {
                         }
                         aria-label={`Go back to ${label} (${stateText})`}
                         onClick={() => {
-                            move({ action: 'go_to', stage })
+                            changeStage.move({ action: 'go_to', stage })
                         }}
                     >
                         {marker}
@@ -140,70 +111,9 @@ export function StageStepper({ plan, disabled = false }: StageStepperProps) {
     }
 
     return (
-        <nav aria-label="Planning stages" className="flex flex-col gap-2 border-b px-6 py-3">
-            <ol className="flex items-center gap-3 overflow-x-auto">{STAGES.map(renderStep)}</ol>
-
-            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-                <div className="min-w-0 flex-1 text-xs">
-                    <p className="text-muted-foreground">{meta.description}</p>
-                    {atReview && status.ready ? (
-                        <Badge className="mt-1.5">
-                            <PartyPopper aria-hidden />
-                            Trip complete
-                        </Badge>
-                    ) : (
-                        status.missing.length > 0 && (
-                            <p className="text-foreground mt-0.5" data-testid="stage-missing">
-                                <span className="font-medium">Missing:</span>{' '}
-                                {status.missing.join(', ')}
-                            </p>
-                        )
-                    )}
-                </div>
-
-                <div className="flex shrink-0 items-center gap-1.5">
-                    {plan.stage !== 'basics' && (
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={busy}
-                            onClick={() => {
-                                move({ action: 'back' })
-                            }}
-                        >
-                            <ArrowLeft aria-hidden />
-                            Back
-                        </Button>
-                    )}
-                    {plan.stage === 'flights' && (
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => {
-                                move({ action: 'skip_flights' })
-                            }}
-                        >
-                            <SkipForward aria-hidden />
-                            Skip flights
-                        </Button>
-                    )}
-                    {!atReview && (
-                        <Button
-                            size="sm"
-                            disabled={busy || !status.ready}
-                            onClick={() => {
-                                move({ action: 'next' })
-                            }}
-                        >
-                            Next
-                            <ArrowRight aria-hidden />
-                        </Button>
-                    )}
-                </div>
-            </div>
-
-            {changeStage.isError && (
+        <nav aria-label="Planning stages" className="flex flex-col gap-1 border-b px-6 py-2.5">
+            <ol className="flex items-center gap-4 overflow-x-auto">{STAGES.map(renderStep)}</ol>
+            {changeStage.error && (
                 <p role="alert" className="text-destructive text-xs">
                     {errorMessage(changeStage.error, "Couldn't change the stage")}
                 </p>

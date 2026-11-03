@@ -97,7 +97,9 @@ describe('WorkspacePage', () => {
         expect(within(stepper).getByRole('listitem', { current: 'step' })).toHaveTextContent(
             'Flights',
         )
-        expect(within(stepper).getByRole('button', { name: 'Skip flights' })).toBeEnabled()
+        // The Next / Skip buttons are separate from the steps, below the chat.
+        const controls = screen.getByRole('region', { name: 'Stage controls' })
+        expect(within(controls).getByRole('button', { name: 'Skip flights' })).toBeEnabled()
         // Ada has no home yet, so the header offers to set one.
         expect(screen.getByRole('button', { name: 'Set home' })).toBeInTheDocument()
     })

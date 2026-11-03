@@ -18,6 +18,7 @@ import {
     registerNewUser,
     sendChatMessage,
     skipFlights,
+    stageControls,
     stepper,
 } from './helpers.ts'
 
@@ -33,8 +34,8 @@ const activityCards = (page: Page) =>
 test('walks the stages from basics to review', async ({ page }) => {
     const conversation = page.getByRole('log', { name: 'Conversation' })
     const itinerary = page.getByRole('region', { name: 'Itinerary' })
-    const next = stepper(page).getByRole('button', { name: 'Next' })
-    const missing = stepper(page).getByTestId('stage-missing')
+    const next = stageControls(page).getByRole('button', { name: 'Next' })
+    const missing = stageControls(page).getByTestId('stage-missing')
     const noTransfer = itinerary.getByText('No transfer planned')
 
     // Basics: home is already the origin; dates, travellers and destination are missing.
@@ -77,7 +78,7 @@ test('walks the stages from basics to review', async ({ page }) => {
     await expect(itinerary.locator('[data-item-type="transfer"]')).not.toHaveCount(0)
     await nextStage(page, 'review')
 
-    await expect(stepper(page).getByText('Trip complete')).toBeVisible()
+    await expect(stageControls(page).getByText('Trip complete')).toBeVisible()
     await expect(next).toHaveCount(0)
 
     // The stage is stored with the plan.
@@ -100,7 +101,7 @@ test("the assistant only uses the current stage's tools", async ({ page }) => {
 test('Back returns to an earlier stage', async ({ page }) => {
     await reachStage(page, 'lodging')
 
-    await stepper(page).getByRole('button', { name: 'Back', exact: true }).click()
+    await stageControls(page).getByRole('button', { name: 'Back', exact: true }).click()
     await expectStage(page, 'flights')
     await stepper(page)
         .getByRole('button', { name: /^Go back to Basics/ })

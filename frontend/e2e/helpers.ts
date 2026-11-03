@@ -113,8 +113,14 @@ export async function addViaChat(page: Page, what: string): Promise<void> {
 
 // ----- planning stages -----
 
+/** The step list across the top of the page. */
 export function stepper(page: Page) {
     return page.getByRole('navigation', { name: 'Planning stages' })
+}
+
+/** The Back / Skip flights / Next buttons and "Missing" text below the chat. */
+export function stageControls(page: Page) {
+    return page.getByRole('region', { name: 'Stage controls' })
 }
 
 /** Wait until the stepper shows `stage` as the current one. */
@@ -128,13 +134,13 @@ export async function expectStage(page: Page, stage: Stage): Promise<void> {
 /** Press Next and wait for the following stage. (Next waits for the reply to finish, since
  * the stepper is locked while the assistant streams.) */
 export async function nextStage(page: Page, to: Stage): Promise<void> {
-    await stepper(page).getByRole('button', { name: 'Next' }).click()
+    await stageControls(page).getByRole('button', { name: 'Next' }).click()
     await expectStage(page, to)
 }
 
 /** From the flights stage, plan the trip without flying. */
 export async function skipFlights(page: Page): Promise<void> {
-    await stepper(page).getByRole('button', { name: 'Skip flights' }).click()
+    await stageControls(page).getByRole('button', { name: 'Skip flights' }).click()
     await expectStage(page, 'lodging')
 }
 

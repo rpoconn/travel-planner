@@ -9,6 +9,7 @@ import { HomeSetup } from '@/components/HomeSetup/HomeSetup'
 import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
 import { SplitPane } from '@/components/SplitPane/SplitPane'
+import { StageControls } from '@/components/StageControls/StageControls'
 import { StageStepper } from '@/components/StageStepper/StageStepper'
 import { ThemeToggle } from '@/components/ThemeToggle/ThemeToggle'
 import { Button } from '@/components/ui/button'
@@ -17,10 +18,10 @@ import { clearSession, useAuthSession } from '@/lib/auth'
 import { formatDateRange } from '@/lib/format'
 
 // Shell: a full-height trips sidebar on the left; on the right the itinerary timeline stacked
-// above the chat. The chat and timeline are
-// keyed by plan id so switching trips starts them fresh (and aborts a streaming reply).
-// The stage stepper sits above the chat; it's locked while a reply streams, since the
-// assistant's tools depend on the stage the turn started in.
+// above the chat. The chat and timeline are keyed by plan id so switching trips starts them
+// fresh (and aborts a streaming reply). The stage steps span the top of the page and the
+// stage controls sit below the chat; both lock while a reply streams, since the assistant's
+// tools depend on the stage the turn started in.
 
 interface WorkspacePageProps {
     planId?: string
@@ -125,6 +126,10 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 </div>
             </header>
 
+            {/* The planning steps span the whole page; their Next / Back controls sit below
+                the chat. */}
+            {plan && <StageStepper plan={plan} disabled={chatBusy} />}
+
             <div className="grid min-h-0 flex-1 grid-cols-[17rem_minmax(0,1fr)]">
                 <aside className="bg-sidebar min-h-0 border-r">
                     <PlansSidebar
@@ -158,8 +163,8 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                                     </p>
                                 </div>
                             )}
-                            {plan && <StageStepper plan={plan} disabled={chatBusy} />}
                             <div className="min-h-0 flex-1">{renderChatPane()}</div>
+                            {plan && <StageControls plan={plan} disabled={chatBusy} />}
                         </section>
                     }
                 />
