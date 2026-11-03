@@ -1,6 +1,9 @@
-"""Flight provider construction."""
+"""Flight provider construction and the `FlightsDep` dependency."""
 
 import logging
+from typing import Annotated
+
+from fastapi import Depends, Request
 
 from shared.config import Settings
 from shared.flights.fake import FakeFlightProvider
@@ -36,3 +39,12 @@ def create_flight_provider(settings: Settings) -> FlightProvider:
         api_key=settings.serpapi_api_key,
         timeout_seconds=settings.flight_search_timeout_seconds,
     )
+
+
+def get_flights(request: Request) -> FlightProvider:
+    """The app's provider (tests swap `app.state.flights` for a scripted `FakeFlightProvider`)."""
+    provider: FlightProvider = request.app.state.flights
+    return provider
+
+
+FlightsDep = Annotated[FlightProvider, Depends(get_flights)]

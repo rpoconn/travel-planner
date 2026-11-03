@@ -148,6 +148,7 @@ describe('labels', () => {
     it('describes running tools', () => {
         expect(toolRunningLabel('web_search', {})).toBe('Searching the web…')
         expect(toolRunningLabel('remove_item', { item_id: 'x' })).toBe('Preparing a removal…')
+        expect(toolRunningLabel('choose_flights', {})).toBe('Finding the best flights…')
         expect(toolRunningLabel('something_new', {})).toBe('Working…')
     })
 

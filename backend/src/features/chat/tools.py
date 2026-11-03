@@ -18,6 +18,10 @@ plan may have changed since) before writing.
 the flight home as two `add_flight` changes, so a trip gets both legs on one card by
 default. `add_flight` stays for the legs of a multi-city trip, connections and one-ways.
 
+`choose_flights` is the other shortcut: it searches flights itself, picks by travel time
+and then price (see features.chat.flight_choice), and stages the picks as `add_flight`
+changes with the search's own times. Approving a card never searches again.
+
 `web_search` is the only tool that reads instead of writing: it shapes the query with the
 plan's destination/dates and returns the top results as text for the model to cite.
 """
@@ -27,12 +31,19 @@ import re
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
-from typing import Any
+from decimal import Decimal
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from features.chat.flight_choice import (
+    TOP_FLIGHT_OPTIONS,
+    describe_flight,
+    flight_arguments,
+    rank_flights,
+)
 from features.chat.prompts import RETURN_FLIGHT_NUDGE
 from features.chat.schemas import ProposedChange
 from features.itinerary import budget as budget_rules
@@ -61,6 +72,13 @@ from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import PlanUpdate, TravelPlan, active_budget
 from shared.domain import Cost, Money, Place, Travelers
+from shared.flights.types import (
+    FlightCabin,
+    FlightOption,
+    FlightProvider,
+    FlightQuery,
+    FlightSearchError,
+)
 from shared.llm.schema import inline_schema
 from shared.llm.types import LLMToolCall, ToolSpec
 from shared.search.query import shape_query
@@ -122,6 +140,7 @@ class ToolContext:
     user_id: UUID
     plan_id: UUID
     search: SearchProvider
+    flights: FlightProvider
     today: date
     # This turn's proposal card so far: its changes count towards the budget too. Empty
     # when an approved card is applied, where earlier changes are already in the plan.
@@ -150,13 +169,22 @@ class ToolOutcome:
     prepared: tuple[Prepared, ...] = ()
 
 
+@dataclass(frozen=True)
+class Bundle:
+    """What a bundle tool stages, plus anything else the model should be told about it
+    (choose_flights: what it picked and the runners-up)."""
+
+    prepared: tuple[Prepared, ...]
+    note: str = ""
+
+
 class ToolError(Exception):
     """An expected failure; the message is shown to both the model and the user."""
 
 
 RunHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[ToolOutcome]]
 PrepareHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[Prepared]]
-BundleHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[tuple[Prepared, ...]]]
+BundleHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[Bundle]]
 ApplyHandler = Callable[[ToolContext, Prepared], Awaitable[ToolOutcome]]
 
 
@@ -235,6 +263,48 @@ class RoundTripArgs(BaseModel):
 
     outbound: dict[str, Any]
     return_flight: dict[str, Any] = Field(alias="return")
+
+
+def _airport_list(value: Any) -> Any:
+    # Small models send one airport as a bare string ("PHL") or several as "HND, NRT".
+    if isinstance(value, str):
+        return [code for code in re.split(r"[\s,/]+", value.upper()) if code]
+    if isinstance(value, list):
+        return [code.strip().upper() if isinstance(code, str) else code for code in value]
+    return value
+
+
+Airports = Annotated[
+    list[Annotated[str, Field(pattern=r"^[A-Z]{3}$")]],
+    Field(min_length=1, max_length=4),
+    BeforeValidator(_airport_list),
+]
+
+
+class ChooseFlightsArgs(BaseModel):
+    from_airports: Airports | None = Field(
+        default=None,
+        description='IATA codes to fly from, e.g. ["PHL"]. Defaults to the trip origin\'s',
+    )
+    to_airports: Airports | None = Field(
+        default=None,
+        description='IATA codes to fly to, e.g. ["HND", "NRT"] for Tokyo. Defaults to the '
+        "trip destination's",
+    )
+    depart_date: date | None = Field(
+        default=None, description="YYYY-MM-DD. Defaults to the trip's first day"
+    )
+    return_date: date | None = Field(
+        default=None, description="YYYY-MM-DD. Defaults to the trip's last day"
+    )
+    one_way: bool = Field(default=False, description="true only if the user asked for one-way")
+    cabin: FlightCabin = "economy"
+    option: int = Field(
+        default=1,
+        ge=1,
+        le=TOP_FLIGHT_OPTIONS,
+        description="1 = the best flights; 2 or 3 = a runner-up the user asked for instead",
+    )
 
 
 class UpdateItemArgs(BaseModel):
@@ -544,9 +614,21 @@ async def _prepare_leg(ctx: ToolContext, leg: str, arguments: dict[str, Any]) ->
         ) from exc
 
 
+def _mirror_ends(leg: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]:
+    """`leg` with a missing airport taken from the `other` leg: a round trip's legs mirror
+    each other (out PHL -> HND, home HND -> PHL). Small models often send only where each
+    leg leaves from."""
+    filled = dict(leg)
+    for key, other_key in (("from_place", "to_place"), ("to_place", "from_place")):
+        if key not in filled and other_key in other:
+            filled[key] = other[other_key]
+    return filled
+
+
 async def _prepare_round_trip(ctx: ToolContext, arguments: dict[str, Any]) -> tuple[Prepared, ...]:
     args = RoundTripArgs.model_validate(_drop_nulls(arguments))
-    outbound = await _prepare_leg(ctx, "outbound", args.outbound)
+    out_leg, home_leg = _drop_nulls(args.outbound), _drop_nulls(args.return_flight)
+    outbound = await _prepare_leg(ctx, "outbound", _mirror_ends(out_leg, home_leg))
     # The flight home is checked with the flight out already on the card, so the pair has
     # to fit the budget together. The call id is a placeholder: this change isn't kept.
     with_outbound = replace(
@@ -561,7 +643,7 @@ async def _prepare_round_trip(ctx: ToolContext, arguments: dict[str, Any]) -> tu
             ),
         ],
     )
-    home = await _prepare_leg(with_outbound, "return", args.return_flight)
+    home = await _prepare_leg(with_outbound, "return", _mirror_ends(home_leg, out_leg))
     # Aware datetimes (each in its own zone), so they compare as instants.
     if home.payload.start <= outbound.payload.end:
         raise ToolError(
@@ -569,6 +651,140 @@ async def _prepare_round_trip(ctx: ToolContext, arguments: dict[str, Any]) -> tu
             "leaves on the trip's last day"
         )
     return outbound, home
+
+
+async def _round_trip_bundle(ctx: ToolContext, arguments: dict[str, Any]) -> Bundle:
+    return Bundle(await _prepare_round_trip(ctx, arguments))
+
+
+# ---------------------------------------------------------------------------
+# Choosing flights (search, rank, stage the best)
+# ---------------------------------------------------------------------------
+
+
+def _plan_airports(place: dict[str, Any] | None) -> list[str] | None:
+    iata = place.get("iata") if place else None
+    return [iata] if iata else None
+
+
+def _flight_query(args: ChooseFlightsArgs, plan: Plan, today: date) -> FlightQuery:
+    origin = args.from_airports or _plan_airports(plan.origin)
+    destination = args.to_airports or _plan_airports(plan.destination)
+    if origin is None or destination is None:
+        missing = "from_airports" if origin is None else "to_airports"
+        raise ToolError(
+            f"Give {missing}: the IATA codes of the airports, e.g. HND and NRT for Tokyo"
+        )
+    depart = args.depart_date or plan.start_date
+    home = None if args.one_way else args.return_date or plan.end_date
+    if depart is None or (home is None and not args.one_way):
+        raise ToolError(
+            "The trip has no dates yet. Ask the user for them, or give depart_date and return_date"
+        )
+    _reject_past(depart, "depart_date", today)
+    if plan.travelers is None:
+        raise ToolError(
+            "The plan has no travelers yet. Ask how many are going (adults and children) "
+            "before choosing flights"
+        )
+    travelers = Travelers.model_validate(plan.travelers)
+    budget = active_budget(Money.model_validate(plan.budget) if plan.budget else None)
+    try:
+        return FlightQuery(
+            origin=tuple(origin),
+            destination=tuple(destination),
+            depart_date=depart,
+            return_date=home,
+            cabin=args.cabin,
+            # The search only takes adults; children are counted as adults so the price
+            # covers everyone (most international fares for children are close to adults').
+            adults=travelers.adults + travelers.children,
+            currency=budget.currency if budget is not None else "USD",
+        )
+    except ValidationError as exc:
+        raise ToolError(f"Can't search those flights: {summarize_validation_error(exc)}") from exc
+
+
+async def _search_flights(
+    ctx: ToolContext, query: FlightQuery, departure_token: str | None = None
+) -> list[FlightOption]:
+    try:
+        found = await ctx.flights.search(query, departure_token=departure_token)
+    except FlightSearchError as exc:
+        raise ToolError(str(exc)) from exc
+    return rank_flights(found)
+
+
+def _pick(options: list[FlightOption], option: int, what: str) -> FlightOption:
+    if not options:
+        raise ToolError(f"No {what} found. Try other airports or dates, or ask the user")
+    if option > len(options):
+        raise ToolError(f"There is no option {option}; choose 1 to {len(options)}")
+    return options[option - 1]
+
+
+def _choice_note(
+    picked: Sequence[tuple[str, FlightOption]],
+    price: Money | None,
+    runners_up: Sequence[tuple[int, FlightOption]],
+    round_trip: bool,
+) -> str:
+    """What the model is told about the choice, so it can describe it (and the
+    alternatives) without making up a single detail."""
+    lines = ["Chosen by shortest travel time, then lowest price:"]
+    lines += [f"- {leg}: {describe_flight(option, with_price=False)}" for leg, option in picked]
+    whole = "round trip" if round_trip else "one way"
+    if price is not None:
+        lines.append(f"Total price ({whole}, all travelers): {price.amount:,.0f} {price.currency}")
+    if runners_up:
+        lines.append(
+            "Other options for the flight out (prices are the cheapest " + whole + " with "
+            "it). If the user prefers one, call choose_flights with that option number in "
+            "your next reply, not now:"
+        )
+        lines += [f"{number}. {describe_flight(option)}" for number, option in runners_up]
+    return "\n".join(lines)
+
+
+async def _prepare_chosen_flights(ctx: ToolContext, arguments: dict[str, Any]) -> Bundle:
+    args = ChooseFlightsArgs.model_validate(_drop_nulls(arguments))
+    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+    query = _flight_query(args, plan, ctx.today)
+    outbound_options = await _search_flights(ctx, query)
+    out = _pick(outbound_options, args.option, "flights out")
+    runners_up = [
+        (number, option)
+        for number, option in enumerate(outbound_options[:TOP_FLIGHT_OPTIONS], start=1)
+        if option is not out
+    ]
+
+    if query.return_date is None:
+        prepared = await _prepare_leg(
+            ctx, "outbound", flight_arguments(out, query.cabin, out.price)
+        )
+        note = _choice_note([("Flight out", out)], out.price, runners_up, round_trip=False)
+        return Bundle((prepared,), note)
+
+    # A round trip is searched in two steps: the flights out, then the flights home for
+    # the chosen one. Each flight home is priced as the whole trip.
+    if out.departure_token is None:
+        raise ToolError("The flight search gave no way to find flights home for that flight")
+    home = _pick(
+        await _search_flights(ctx, query, departure_token=out.departure_token), 1, "flights home"
+    )
+    price = home.price or out.price
+    # The whole price goes on the flight out and the flight home costs 0, as with any
+    # round-trip fare (the budget checks count both legs together).
+    free = Money(amount=Decimal(0), currency=price.currency) if price is not None else None
+    legs = {
+        "outbound": flight_arguments(out, query.cabin, price),
+        "return": flight_arguments(home, query.cabin, free),
+    }
+    prepared_legs = await _prepare_round_trip(ctx, legs)
+    note = _choice_note(
+        [("Flight out", out), ("Flight home", home)], price, runners_up, round_trip=True
+    )
+    return Bundle(prepared_legs, note)
 
 
 # ---------------------------------------------------------------------------
@@ -900,7 +1116,7 @@ class WriteTool:
 
 @dataclass(frozen=True)
 class BundleTool:
-    """A tool that stages several changes of other write tools (add_round_trip: two
+    """A tool that stages changes of other write tools (add_round_trip, choose_flights:
     add_flight). Proposals only ever hold those changes, so it has no `apply`."""
 
     spec: ToolSpec
@@ -991,10 +1207,23 @@ _ALL_TOOLS: list[Tool] = [
     ),
     BundleTool(
         spec=ToolSpec(
+            name="choose_flights",
+            description=(
+                "Search real flights and propose the best ones: the flight out and the "
+                "flight home, with their real times and price. Use this for a trip's "
+                "flights instead of picking flights yourself. Airports and dates default "
+                "to the trip's, so usually only to_airports is needed."
+            ),
+            parameters=inline_schema(ChooseFlightsArgs),
+        ),
+        prepare=_prepare_chosen_flights,
+    ),
+    BundleTool(
+        spec=ToolSpec(
             name="add_round_trip",
             description=(
-                "Add the flight out and the flight home together. Use this for a trip's "
-                "flights unless the user asked for a one-way or multi-city trip. Each leg: "
+                "Add the flight out and the flight home together, for specific flights "
+                "the user gave you (otherwise use choose_flights). Each leg: "
                 "from_place/to_place need IATA codes; timezone = departure airport's IANA "
                 "zone, end_timezone = arrival airport's; end is the local arrival time "
                 "there, often the next day; cost is that leg's total for everyone. With "
@@ -1002,7 +1231,7 @@ _ALL_TOOLS: list[Tool] = [
             ),
             parameters=_round_trip_parameters(),
         ),
-        prepare=_prepare_round_trip,
+        prepare=_round_trip_bundle,
     ),
     _add_tool(
         "flight",
@@ -1091,11 +1320,12 @@ async def _attempt(name: str, action: Callable[[], Awaitable[ToolOutcome]]) -> T
         return _failure("This plan no longer exists")
 
 
-def _staged(*prepared: Prepared) -> ToolOutcome:
+def _staged(*prepared: Prepared, note: str = "") -> ToolOutcome:
     summary = "; ".join(change.summary for change in prepared)
+    content = STAGED_CONTENT.format(summary=summary)
     return ToolOutcome(
         ok=True,
-        content=STAGED_CONTENT.format(summary=summary),
+        content=f"{content}\n{note}" if note else content,
         summary=f"Proposed: {summary}",
         prepared=prepared,
     )
@@ -1125,7 +1355,8 @@ async def execute(ctx: ToolContext, call: LLMToolCall) -> ToolOutcome:
         if isinstance(tool, ReadTool):
             return await tool.run(ctx, call.arguments)
         if isinstance(tool, BundleTool):
-            return _staged(*await tool.prepare(ctx, call.arguments))
+            bundle = await tool.prepare(ctx, call.arguments)
+            return _staged(*bundle.prepared, note=bundle.note)
         return _staged(await tool.prepare(ctx, call.arguments))
 
     return _logged(call.name, ctx, await _attempt(call.name, action))

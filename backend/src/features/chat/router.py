@@ -15,6 +15,7 @@ from features.plans import service as plans_service
 from features.plans.models import Plan
 from shared.db import SessionDep
 from shared.errors import error_responses
+from shared.flights.provider import FlightsDep
 from shared.search.provider import SearchDep
 
 router = APIRouter(
@@ -90,6 +91,7 @@ async def send_message(
     session: SessionDep,
     llm: LLMDep,
     search: SearchDep,
+    flights: FlightsDep,
 ) -> AsyncIterator[ChatEvent]:
     """Send a message and stream the assistant's answer as server-sent events.
 
@@ -103,6 +105,7 @@ async def send_message(
         session=session,
         llm=llm,
         search=search,
+        flights=flights,
         user_id=user.id,
         plan=plan,
         content=body.content,
@@ -127,6 +130,7 @@ async def decide_proposal(
     session: SessionDep,
     llm: LLMDep,
     search: SearchDep,
+    flights: FlightsDep,
 ) -> AsyncIterator[ChatEvent]:
     """Approve, deny or revise a pending proposal, streaming the outcome like `sendMessage`.
 
@@ -140,6 +144,7 @@ async def decide_proposal(
         session=session,
         llm=llm,
         search=search,
+        flights=flights,
         user_id=user.id,
         plan=plan,
         proposal=proposal,

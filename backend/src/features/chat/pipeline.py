@@ -50,6 +50,7 @@ from features.itinerary import service as itinerary_service
 from features.itinerary.schemas import TimelineWarning
 from features.plans.models import Plan
 from features.plans.schemas import TravelPlan
+from shared.flights.types import FlightProvider
 from shared.llm.types import LLMClient, LLMError, LLMMessage
 from shared.search.types import SearchProvider
 
@@ -221,6 +222,7 @@ async def answer_message(
     session: AsyncSession,
     llm: LLMClient,
     search: SearchProvider,
+    flights: FlightProvider,
     user_id: UUID,
     plan: Plan,
     content: str,
@@ -238,7 +240,14 @@ async def answer_message(
         await service.recent_messages(session, plan_id, limit=AGENT_HISTORY_MESSAGES)
     )
     user_message = await service.add_message(session, plan_id, "user", content)
-    ctx = ToolContext(session=session, user_id=user_id, plan_id=plan_id, search=search, today=today)
+    ctx = ToolContext(
+        session=session,
+        user_id=user_id,
+        plan_id=plan_id,
+        search=search,
+        flights=flights,
+        today=today,
+    )
     reply = _Reply()
 
     try:
@@ -345,6 +354,7 @@ async def decide_proposal(
     session: AsyncSession,
     llm: LLMClient,
     search: SearchProvider,
+    flights: FlightProvider,
     user_id: UUID,
     plan: Plan,
     proposal: Proposal,
@@ -357,7 +367,14 @@ async def decide_proposal(
     changes = [ProposedChange.model_validate(change) for change in proposal.changes]
     # Rendered later (`_llm_history`), so the proposal shows its new status.
     rows = await service.recent_messages(session, plan_id, limit=AGENT_HISTORY_MESSAGES)
-    ctx = ToolContext(session=session, user_id=user_id, plan_id=plan_id, search=search, today=today)
+    ctx = ToolContext(
+        session=session,
+        user_id=user_id,
+        plan_id=plan_id,
+        search=search,
+        flights=flights,
+        today=today,
+    )
     reply = _Reply()
 
     try:

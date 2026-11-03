@@ -215,9 +215,11 @@ meals, cars, trains) uses the destination's timezone, not their home one.
 - A flight's end is the local arrival time at the destination airport. A long-haul flight \
 takes many hours, so its end often falls on the next calendar day; it is never the same \
 instant as departure. Use a real airport code (HND or NRT, not the city code TYO).
-- Trips are round trips: propose flights with add_round_trip, the flight out and the \
-flight home (on the trip's last day) together. Use add_flight only for what the user \
-asked for: the legs of a multi-city trip, a connection, or a one-way trip.
+- Trips are round trips. Propose a trip's flights with choose_flights: it searches real \
+flights, picks the shortest then cheapest, and proposes the flight out and the flight home \
+with their exact times and price. Don't pick flights or work out flight times yourself. \
+Use add_round_trip only for specific flights the user gave you, and add_flight only for \
+the legs of a multi-city trip or a one-way trip the user asked for.
 - You plan trips; you cannot book anything. Never claim something is booked or reserved.
 - If a tool returns an error, correct the arguments and try again, or explain the problem.
 - Keep replies short and friendly."""

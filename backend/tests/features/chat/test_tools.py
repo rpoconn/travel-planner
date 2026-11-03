@@ -1,6 +1,6 @@
 import json
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -19,10 +19,12 @@ from features.chat.tools import (
 )
 from features.itinerary import service as itinerary_service
 from features.plans import service as plans_service
+from shared.flights.fake import FakeFlightProvider
+from shared.flights.types import FlightSearchError
 from shared.llm.types import LLMToolCall
 from shared.search.fake import FakeSearchProvider
 from shared.search.types import SearchError, SearchResult
-from tests.features.chat.conftest import HOTEL_ARGS
+from tests.features.chat.conftest import HOTEL_ARGS, flight_option
 
 
 async def _stage(ctx: ToolContext, name: str, arguments: dict[str, Any]) -> ToolOutcome:
@@ -65,6 +67,7 @@ async def _add_hotel(ctx: ToolContext) -> str:
 def test_tool_names() -> None:
     assert set(TOOLS) == {
         "set_plan_details",
+        "choose_flights",
         "add_round_trip",
         "add_flight",
         "add_lodging",
@@ -938,6 +941,23 @@ async def test_round_trip_legs_without_a_title_are_named_after_their_airports(
     ]
 
 
+async def test_round_trip_legs_missing_an_airport_take_it_from_the_other_leg(
+    ctx: ToolContext,
+) -> None:
+    # As sent by a small model: each leg says only where it leaves from (or, null, where
+    # it lands).
+    outbound = {k: v for k, v in _ROUND_TRIP["outbound"].items() if k != "to_place"}
+    home = {**_ROUND_TRIP["return"], "to_place": None}
+
+    outcome = await _stage(ctx, "add_round_trip", {"outbound": outbound, "return": home})
+
+    assert outcome.ok, outcome.content
+    assert [
+        (p.arguments["from_place"]["iata"], p.arguments["to_place"]["iata"])
+        for p in outcome.prepared
+    ] == [("PHL", "HND"), ("HND", "PHL")]
+
+
 async def test_round_trip_errors_name_the_leg(ctx: ToolContext) -> None:
     broken = {**_ROUND_TRIP, "return": {**_ROUND_TRIP["return"], "start": "soon"}}
 
@@ -964,6 +984,204 @@ def test_round_trip_spec_has_two_flight_legs_without_a_direction() -> None:
         leg = parameters["properties"][key]["properties"]
         assert "carrier" in leg and "end_timezone" in leg
         assert "direction" not in leg
+
+
+# ---------------------------------------------------------------------------
+# Choosing flights (search, rank by travel time then price, stage the best)
+# ---------------------------------------------------------------------------
+
+_SLOW = flight_option(
+    "PHL", "HND", "2027-05-01T08:00", 22 * 60, 800, via="ORD", departure_token="slow"
+)
+_FAST = flight_option("PHL", "HND", "2027-05-01T15:00", 14 * 60 + 30, 1500, departure_token="fast")
+_FAST_CHEAPER = flight_option(
+    "PHL", "HND", "2027-05-01T11:00", 14 * 60 + 30, 1300, departure_token="fast-cheaper"
+)
+_HOME = flight_option("HND", "PHL", "2027-05-08T17:00", 13 * 60, 1400)
+_HOME_SLOW = flight_option("HND", "PHL", "2027-05-08T10:00", 19 * 60, 1250, via="SEA")
+
+
+async def _ready_for_flights(ctx: ToolContext, **details: Any) -> None:
+    outcome = await _run(
+        ctx,
+        "set_plan_details",
+        {
+            "origin": {"name": "Philadelphia", "iata": "PHL"},
+            "travelers": {"adults": 2, "children": 1},
+            **details,
+        },
+    )
+    assert outcome.ok, outcome.content
+
+
+async def test_choose_flights_stages_the_shortest_then_cheapest_round_trip(
+    ctx: ToolContext, fake_flights: FakeFlightProvider
+) -> None:
+    await _ready_for_flights(ctx)
+    fake_flights.queue([_SLOW, _FAST, _FAST_CHEAPER], [_HOME_SLOW, _HOME])
+
+    # One airport as a bare string, as small models send it.
+    outcome = await _stage(ctx, "choose_flights", {"to_airports": "hnd"})
+
+    assert outcome.ok, outcome.content
+    # Searched with the trip's origin, dates and everyone travelling; then the flights
+    # home for the chosen flight out.
+    first, second = fake_flights.searches
+    assert (first.query.origin, first.query.destination) == (("PHL",), ("HND",))
+    assert (first.query.depart_date, first.query.return_date) == (
+        date(2027, 5, 1),
+        date(2027, 5, 8),
+    )
+    assert first.query.adults == 3
+    assert second.departure_token == "fast-cheaper"
+    out, home = outcome.prepared
+    assert (out.arguments["direction"], home.arguments["direction"]) == ("outbound", "return")
+    assert out.arguments["start"] == "2027-05-01T11:00:00-04:00"
+    assert home.arguments["start"] == "2027-05-08T17:00:00+09:00"
+    # The whole round-trip price (from the flight home's search) goes on the flight out.
+    # (USD is the default currency, so normalising leaves it out.)
+    assert out.arguments["cost"] == {"amount": "1400", "basis": "exact"}
+    assert home.arguments["cost"]["amount"] == "0"
+    assert "Total price (round trip, all travelers): 1,400 USD" in outcome.content
+    assert "\n2. ANA NH 100: PHL Sat May 1 15:00" in outcome.content
+    assert "\n3. ANA NH 100, NH 101: PHL Sat May 1 08:00" in outcome.content
+    assert await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id) == []
+
+
+async def test_chosen_flights_keep_their_real_length_across_timezones(
+    ctx: ToolContext, fake_flights: FakeFlightProvider
+) -> None:
+    await _ready_for_flights(ctx)
+    fake_flights.queue([_FAST], [_HOME])
+    staged = await _stage(ctx, "choose_flights", {"to_airports": ["HND"]})
+
+    for prepared in staged.prepared:
+        change = ProposedChange(
+            call_id="call_1",
+            name=prepared.name,
+            arguments=prepared.arguments,
+            summary=prepared.summary,
+        )
+        assert (await apply_change(ctx, change)).ok
+
+    # Approving re-checks the stored changes; it doesn't search again.
+    assert len(fake_flights.searches) == 2
+    items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    assert {item.title: item.end - item.start for item in items} == {
+        "Flight PHL to HND": timedelta(hours=14, minutes=30),
+        "Flight HND to PHL": timedelta(hours=13),
+    }
+
+
+async def test_choose_flights_can_propose_a_runner_up(
+    ctx: ToolContext, fake_flights: FakeFlightProvider
+) -> None:
+    await _ready_for_flights(ctx)
+    fake_flights.queue([_SLOW, _FAST, _FAST_CHEAPER], [_HOME])
+
+    outcome = await _stage(ctx, "choose_flights", {"to_airports": ["HND"], "option": 2})
+
+    assert outcome.ok, outcome.content
+    assert fake_flights.searches[1].departure_token == "fast"
+    assert "\n1. ANA NH 100: PHL Sat May 1 11:00" in outcome.content
+
+
+async def test_choose_flights_one_way_searches_once(
+    ctx: ToolContext, fake_flights: FakeFlightProvider
+) -> None:
+    await _ready_for_flights(ctx)
+    fake_flights.queue([_SLOW, _FAST])
+
+    outcome = await _stage(ctx, "choose_flights", {"to_airports": ["HND"], "one_way": True})
+
+    assert outcome.ok, outcome.content
+    (search,) = fake_flights.searches
+    assert search.query.return_date is None
+    (flight,) = outcome.prepared
+    assert flight.arguments["cost"]["amount"] == "1500"
+    assert "Total price (one way, all travelers): 1,500 USD" in outcome.content
+
+
+@pytest.mark.parametrize(
+    ("details", "arguments", "error"),
+    [
+        # The test plan has no travelers or origin.
+        ({}, {"to_airports": ["HND"]}, "Give from_airports"),
+        (
+            {"origin": {"name": "Philadelphia", "iata": "PHL"}},
+            {"to_airports": ["HND"]},
+            "no travelers",
+        ),
+        # Its destination is "Tokyo", with no airport code.
+        ({"travelers": {"adults": 1}}, {"from_airports": ["PHL"]}, "Give to_airports"),
+        (
+            {"travelers": {"adults": 1}},
+            {"from_airports": ["PHL"], "to_airports": ["HND"], "depart_date": "2026-05-01"},
+            "depart_date 2026-05-01 is in the past",
+        ),
+    ],
+)
+async def test_choose_flights_needs_a_complete_search_before_searching(
+    ctx: ToolContext,
+    fake_flights: FakeFlightProvider,
+    details: dict[str, Any],
+    arguments: dict[str, Any],
+    error: str,
+) -> None:
+    if details:
+        assert (await _run(ctx, "set_plan_details", details)).ok
+
+    outcome = await _stage(ctx, "choose_flights", arguments)
+
+    assert not outcome.ok and error in outcome.content
+    assert fake_flights.searches == []
+
+
+async def test_choose_flights_reports_a_failed_search(
+    ctx: ToolContext, fake_flights: FakeFlightProvider
+) -> None:
+    await _ready_for_flights(ctx)
+    fake_flights.queue(FlightSearchError("Flight search timed out."))
+
+    outcome = await _stage(ctx, "choose_flights", {"to_airports": ["HND"]})
+
+    assert not outcome.ok
+    assert outcome.content == "Error: Flight search timed out."
+
+
+@pytest.mark.parametrize(
+    ("replies", "option", "error"),
+    [
+        ([[]], 1, "No flights out found"),
+        ([[_FAST], []], 1, "No flights home found"),
+        ([[_FAST]], 3, "There is no option 3; choose 1 to 1"),
+    ],
+)
+async def test_choose_flights_without_enough_flights(
+    ctx: ToolContext,
+    fake_flights: FakeFlightProvider,
+    replies: list[Any],
+    option: int,
+    error: str,
+) -> None:
+    await _ready_for_flights(ctx)
+    fake_flights.queue(*replies)
+
+    outcome = await _stage(ctx, "choose_flights", {"to_airports": ["HND"], "option": option})
+
+    assert not outcome.ok and error in outcome.content
+
+
+async def test_chosen_flights_must_fit_the_budget(
+    ctx: ToolContext, fake_flights: FakeFlightProvider
+) -> None:
+    await _ready_for_flights(ctx, budget={"amount": 1000, "currency": "USD"})
+    fake_flights.queue([_FAST], [_HOME])
+
+    outcome = await _stage(ctx, "choose_flights", {"to_airports": ["HND"]})
+
+    assert not outcome.ok
+    assert "400.00 USD over the 1,000.00 USD budget" in outcome.content
 
 
 # ---------------------------------------------------------------------------
