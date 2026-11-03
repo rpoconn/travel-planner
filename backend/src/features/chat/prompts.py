@@ -178,6 +178,21 @@ def parse_gap_line(line: str) -> dict[str, str | None] | None:
     return parts
 
 
+# Asked before any hotel search: without this, "Add a hotel in Paris" (the stage's button)
+# sent models straight to web_search and the first hotel found, with no idea of the user's
+# class, budget or area.
+_LODGING_INSTRUCTIONS = (
+    "Before you search for or propose any lodging, you need the user's preferences: the "
+    "hotel class they want (star rating, or a type such as hotel, apartment or hostel), "
+    "their budget for lodging (per night or for the whole stay), and the neighborhood or "
+    "area they want to stay in. If the conversation does not already give all three, ask "
+    "for the missing ones in one reply, as plain questions (no web_search or add_lodging "
+    'yet), even when the user just said "add a hotel" or "find a hotel"; suggest two or '
+    "three well-known areas to choose from when you know the destination. Only when you "
+    "have them, search with web_search for places matching all three and propose one with "
+    "add_lodging."
+)
+
 _GROUND_INSTRUCTIONS = (
     "For each transfer still needed, ask the user how they want to make it (taxi, train, "
     "rental car, shuttle...), at most three questions at a time; suggest a sensible mode "
@@ -229,6 +244,8 @@ def _stage_block(plan: TravelPlan) -> str:
             "The user skipped flights (they are driving or taking ground transport), so "
             "the ground stage covers the whole journey from home."
         )
+    if stage == "lodging":
+        lines.append(_LODGING_INSTRUCTIONS)
     if stage == "ground" and plan.gaps:
         lines.append(GAPS_MARKER)
         lines.extend(format_gap(gap) for gap in plan.gaps)
@@ -309,7 +326,7 @@ set_plan_details or any add_* tool, make sure the user has told you:
 - travel dates, number of travelers (adults and children), and where they start from;
 - for flights: airline, departure-time and cabin preferences (they apply to the flight \
 home too unless the user says otherwise);
-- for lodging: area, type and budget;
+- for lodging: hotel class (star rating or type), budget and neighborhood or area;
 - for meals: dietary needs, and whether they want a reservation.
 If the plan JSON has no travelers or no dates, ask for them. Never assume one adult and \
 never fill in plausible defaults for anything the user has not said. Ask for what is \

@@ -287,6 +287,19 @@ def test_agent_prompt_says_where_out_of_stage_requests_belong() -> None:
     assert "meals and restaurants to activities" in prompt
 
 
+def test_agent_prompt_asks_for_lodging_preferences_before_searching() -> None:
+    prompt = agent_system_prompt(_plan(stage="lodging"), TODAY)
+
+    # The stage's button says "Add a hotel"; the model must still ask what kind first.
+    assert "Before you search for or propose any lodging" in prompt
+    assert "star rating" in prompt
+    assert "budget for lodging" in prompt
+    assert "neighborhood or area" in prompt
+    assert "Before you search for or propose any lodging" not in agent_system_prompt(
+        _plan(stage="flights"), TODAY
+    )
+
+
 def test_agent_prompt_lists_each_gap_in_the_ground_stage() -> None:
     stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
     plan = _plan(stay, stage="ground", origin=HOME)
