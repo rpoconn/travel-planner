@@ -5,7 +5,9 @@ Read tools (web_search) run immediately. Write tools only validate: each change 
 into the caller's `staged` list, which becomes the reply's proposal card. Nothing in the
 plan changes during a turn, so the plan JSON in the system prompt stays current. A card
 that adds a flight out without one home gets the model a reminder to propose it or ask,
-and a reply that says it proposed something without calling a tool gets one to call it.
+and a reply that says it proposed or added something without calling a tool gets one to
+call it. If it then repeats the claim instead of calling a tool, the repeat is held back
+and replaced by a note telling the user nothing was proposed.
 
 With a `review` callback, the staged changes are checked once the model stops calling
 tools (see features.chat.review). Rejected changes are withdrawn from the card; the model
@@ -24,6 +26,8 @@ from features.chat import tools
 from features.chat.prompts import (
     AGENT_FINAL_ANSWER,
     ALREADY_STAGED,
+    APPROVAL_MARKER,
+    PHANTOM_PROPOSAL_NOTE,
     PHANTOM_PROPOSAL_NUDGE,
     PROMISED_SEARCH_NUDGE,
     agent_system_prompt,
@@ -53,10 +57,16 @@ REVIEW_RETRIES = 1
 # Inserted between the text of two rounds ("Let me add that." ... "Done!").
 _ROUND_SEPARATOR = "\n\n"
 
-# A reply claiming a card: "I've proposed …" (straight or curly apostrophe), or a copy of
-# the history's "[Proposed changes (…)]" note.
+# A reply claiming a card or a change it never made: "I've proposed …", "I've added …",
+# "… has been added to your itinerary", "… is now on your trip" (straight or curly
+# apostrophe), or a copy of the history's "[Proposed changes (…)]" note. qwen3:8b wrote
+# "I've added the following activities to your itinerary" with no tool call at all.
 _CLAIMED_PROPOSAL = re.compile(
-    r"\bI(?:['\u2019]ve| have)?\s+(?:just\s+)?proposed\b|\[Proposed changes\b", re.IGNORECASE
+    r"\bI(?:['\u2019]ve| have)?\s+(?:just\s+|now\s+)?(?:proposed|added|included|scheduled|put)\b"
+    r"|\b(?:has|have)\s+(?:now\s+)?been\s+(?:proposed|added|included|scheduled)\b"
+    r"|\b(?:is|are)\s+now\s+(?:on|in)\s+(?:your|the)\s+(?:itinerary|trip|plan|calendar)\b"
+    r"|\[Proposed changes\b",
+    re.IGNORECASE,
 )
 # "Let me search for \u2026", "I should first search \u2026", "I'll look it up": a search announced
 # in text instead of called (see PROMISED_SEARCH_NUDGE).
@@ -161,6 +171,9 @@ async def run_agent(
     wrote_text = False
     nudged_return = False
     nudged_phantom = False
+    # After an approval the turn only confirms what was applied ("Hotel Okura has been
+    # added"), which is true and calls no tool, so the claim check is skipped.
+    confirming = latest.startswith(APPROVAL_MARKER)
     nudged_search = False
     reviews_done = 0
     # What the last review let through, so an unchanged card isn't reviewed again.
@@ -175,20 +188,35 @@ async def run_agent(
             messages.append(LLMMessage(role="system", content=AGENT_FINAL_ANSWER))
 
         # ---- stream this round's reply ----
+        # The round after the claimed-proposal nudge is held back until it has finished:
+        # if it only repeats the claim, the user gets a note instead of a second copy.
+        held = nudged_phantom and not staged
         content = ""
         calls: list[LLMToolCall] = []
         async for chunk in llm.stream(messages, tools=None if final_round else tool_specs):
             if chunk.content:
-                if not content and wrote_text:
+                if not content and wrote_text and not held:
                     yield TokenEvent(text=_ROUND_SEPARATOR)
                 content += chunk.content
-                yield TokenEvent(text=chunk.content)
+                if not held:
+                    yield TokenEvent(text=chunk.content)
             calls.extend(chunk.tool_calls)
-        wrote_text = wrote_text or bool(content.strip())
 
-        # ---- "I've proposed …" with no card: have the model make the tool calls, once ----
-        phantom = not calls and not final_round and not staged and not nudged_phantom
-        if phantom and _CLAIMED_PROPOSAL.search(content):
+        # ---- "I've proposed/added …" with no card: have the model make the tool calls ----
+        claimed = not calls and not staged and not confirming and _CLAIMED_PROPOSAL.search(content)
+        if claimed and held:
+            # The nudge got the claim again (small models repeat themselves word for
+            # word). The first copy was streamed already; this note corrects it.
+            logger.warning("Reply on plan %s repeats a claimed proposal; noting it", ctx.plan_id)
+            separator = _ROUND_SEPARATOR if wrote_text else ""
+            yield TokenEvent(text=separator + PHANTOM_PROPOSAL_NOTE)
+            return
+        if held and content:
+            if wrote_text:
+                yield TokenEvent(text=_ROUND_SEPARATOR)
+            yield TokenEvent(text=content)
+        wrote_text = wrote_text or bool(content.strip())
+        if claimed and not final_round:
             nudged_phantom = True
             logger.info("Reply on plan %s claims a proposal it never made", ctx.plan_id)
             messages.append(LLMMessage(role="assistant", content=content))

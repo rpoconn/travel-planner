@@ -193,6 +193,21 @@ _LODGING_INSTRUCTIONS = (
     "add_lodging."
 )
 
+# qwen3:8b, asked to add three activities, searched the web and then wrote "I've added
+# the following activities to your itinerary" without calling add_activity once. Unlike
+# flights and lodging, it had nothing telling it how to schedule an activity.
+_ACTIVITIES_INSTRUCTIONS = (
+    "Suggest activities with web_search first and let the user pick. Once they say which "
+    'ones they want ("add those", "sounds good"), call add_activity once per activity '
+    "in the same reply, all on one card; describing them in text adds nothing. Each call "
+    "needs: the place (name and address), a category (sightseeing, food, tour, museum, "
+    "outdoors, nightlife, shopping, relax or other), and a start and end on a trip day "
+    "after the traveller has arrived and before they leave, in the destination's "
+    "timezone. Spread the activities over different days, give each a sensible local "
+    "time and length (about two hours for a museum or sight, 19:00-21:00 for dinner), "
+    "and set source_url to the web result you found it in."
+)
+
 _GROUND_INSTRUCTIONS = (
     "For each transfer still needed, ask the user how they want to make it (taxi, train, "
     "rental car, shuttle...), at most three questions at a time; suggest a sensible mode "
@@ -246,6 +261,8 @@ def _stage_block(plan: TravelPlan) -> str:
         )
     if stage == "lodging":
         lines.append(_LODGING_INSTRUCTIONS)
+    if stage == "activities":
+        lines.append(_ACTIVITIES_INSTRUCTIONS)
     if stage == "ground" and plan.gaps:
         lines.append(GAPS_MARKER)
         lines.extend(format_gap(gap) for gap in plan.gaps)
@@ -392,6 +409,13 @@ PHANTOM_PROPOSAL_NUDGE = (
     "proposal card and nothing to approve. If you meant to propose changes, call the tools "
     "for them now, then add at most one short sentence without repeating yourself. "
     "Otherwise add nothing."
+)
+
+# Shown to the user (after the model's text) when the nudge above got the same claim
+# again with still no tool call: the streamed claim is false, and this says so.
+PHANTOM_PROPOSAL_NOTE = (
+    "Nothing has been proposed yet: I described these changes but did not put them on a "
+    "card for you to approve. Ask me again and I'll propose them properly."
 )
 
 # Told to the model (once a turn) when its reply promises a search but it called no tool,

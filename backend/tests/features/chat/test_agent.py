@@ -8,11 +8,13 @@ from features.chat.agent import MAX_TOOL_ROUNDS, run_agent
 from features.chat.prompts import (
     AGENT_FINAL_ANSWER,
     ALREADY_STAGED,
+    PHANTOM_PROPOSAL_NOTE,
     PHANTOM_PROPOSAL_NUDGE,
     PROMISED_SEARCH_NUDGE,
     RETURN_FLIGHT_NUDGE,
     WITHDRAWN_NOTE,
     agent_system_prompt,
+    approval_applied_message,
     review_feedback,
 )
 from features.chat.review import ReviewFn
@@ -449,11 +451,68 @@ async def test_the_claimed_proposal_nudge_is_given_once_a_turn(ctx: ToolContext)
     llm = FakeLLM([text("I\u2019ve proposed the flight."), text("I proposed it, honest.")])
     staged: list[ProposedChange] = []
 
-    await _run(llm, ctx, staged=staged)
+    events = await _run(llm, ctx, staged=staged)
 
     assert llm.pending == 0
     assert _system_notes(llm) == [PHANTOM_PROPOSAL_NUDGE]
     assert staged == []
+    # The repeated claim is held back; the user gets a correction instead of a second copy.
+    assert _text(events) == f"I\u2019ve proposed the flight.\n\n{PHANTOM_PROPOSAL_NOTE}"
+
+
+# What qwen3:8b wrote (twice) instead of calling add_activity three times.
+ADDED_CLAIM = (
+    "I've added the following activities to your itinerary:\n\n- **TeamLab Planets**\n"
+    "- **Shibuya Sky**\n\nYou can now press Next to move on to ground transport."
+)
+
+
+async def test_a_claimed_addition_without_a_tool_call_gets_the_nudge(ctx: ToolContext) -> None:
+    for claim in (
+        ADDED_CLAIM,
+        "I have included TeamLab Planets in your plan.",
+        "TeamLab Planets has been added to your itinerary.",
+        "These activities are now on your trip.",
+    ):
+        llm = FakeLLM([text(claim), text("Which day suits you for TeamLab?")])
+
+        events = await _run(llm, ctx, "sounds good, lets add those.")
+
+        assert _system_notes(llm) == [PHANTOM_PROPOSAL_NUDGE], claim
+        # A different, honest second reply (no claim) is kept after the first.
+        assert _text(events) == f"{claim}\n\nWhich day suits you for TeamLab?", claim
+
+
+async def test_a_repeated_claim_after_the_nudge_becomes_a_note(ctx: ToolContext) -> None:
+    llm = FakeLLM([text(ADDED_CLAIM), text(ADDED_CLAIM)])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, "sounds good, lets add those.", staged=staged)
+
+    assert staged == []
+    assert llm.pending == 0
+    assert _text(events) == f"{ADDED_CLAIM}\n\n{PHANTOM_PROPOSAL_NOTE}"
+
+
+async def test_the_nudge_round_that_calls_the_tool_keeps_its_text(ctx: ToolContext) -> None:
+    proposing = tool_calls(("add_lodging", HOTEL_ARGS), content="Proposing now.")
+    llm = FakeLLM([text(ADDED_CLAIM), proposing, text("Done.")])
+    staged: list[ProposedChange] = []
+
+    events = await _run(llm, ctx, staged=staged)
+
+    assert [change.name for change in staged] == ["add_lodging"]
+    assert _text(events) == f"{ADDED_CLAIM}\n\nProposing now.\n\nDone."
+
+
+async def test_confirming_an_approval_is_not_a_claimed_proposal(ctx: ToolContext) -> None:
+    confirmation = "Hotel Okura has been added to your itinerary. Press Next for activities."
+    llm = FakeLLM([text(confirmation)])
+
+    events = await _run(llm, ctx, approval_applied_message(["Added lodging Hotel Okura"]))
+
+    assert _system_notes(llm) == []
+    assert _text(events) == confirmation
 
 
 async def test_a_plain_answer_or_a_real_proposal_gets_no_nudge(ctx: ToolContext) -> None:

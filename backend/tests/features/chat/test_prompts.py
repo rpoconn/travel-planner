@@ -287,6 +287,18 @@ def test_agent_prompt_says_where_out_of_stage_requests_belong() -> None:
     assert "meals and restaurants to activities" in prompt
 
 
+def test_agent_prompt_tells_the_activities_stage_how_to_schedule_an_activity() -> None:
+    prompt = agent_system_prompt(_plan(stage="activities"), TODAY)
+
+    # qwen3:8b described three activities as "added" without calling add_activity once.
+    assert "call add_activity once per activity" in prompt
+    assert "describing them in text adds nothing" in prompt
+    assert "start and end on a trip day" in prompt
+    assert "call add_activity once per activity" not in agent_system_prompt(
+        _plan(stage="lodging"), TODAY
+    )
+
+
 def test_agent_prompt_asks_for_lodging_preferences_before_searching() -> None:
     prompt = agent_system_prompt(_plan(stage="lodging"), TODAY)
 
