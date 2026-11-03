@@ -208,7 +208,10 @@ export function ChatPanel({ plan, ref, onBusyChange }: ChatPanelProps) {
                 aria-busy={turn?.status === 'streaming'}
                 className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-4 *:shrink-0"
             >
-                {renderTranscript()}
+                {/* The chat is now full-width, so keep messages at a readable line length. */}
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 *:shrink-0">
+                    {renderTranscript()}
+                </div>
             </div>
 
             <div className="flex flex-col gap-2 px-4 pt-2 pb-4">
@@ -269,7 +272,7 @@ interface EmptyChatProps {
 /** Opening copy per stage; the first stage introduces how the assistant works. */
 function emptyChatText(stage: TravelPlan['stage']): string {
     if (stage === 'basics') {
-        return "Tell me where and when you'd like to go. I'll look things up and propose changes to the itinerary on the right; nothing is added until you approve it."
+        return "Tell me where and when you'd like to go. I'll look things up and propose changes to the itinerary above; nothing is added until you approve it."
     }
     return `${STAGE_META[stage].description} Ask me and I'll propose options; nothing is added until you approve it.`
 }

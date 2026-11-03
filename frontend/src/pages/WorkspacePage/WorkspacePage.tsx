@@ -8,6 +8,7 @@ import { ChatPanel, type ChatPanelHandle } from '@/components/ChatPanel/ChatPane
 import { HomeSetup } from '@/components/HomeSetup/HomeSetup'
 import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
+import { SplitPane } from '@/components/SplitPane/SplitPane'
 import { StageStepper } from '@/components/StageStepper/StageStepper'
 import { ThemeToggle } from '@/components/ThemeToggle/ThemeToggle'
 import { Button } from '@/components/ui/button'
@@ -15,7 +16,8 @@ import { errorMessage } from '@/lib/apiError'
 import { clearSession, useAuthSession } from '@/lib/auth'
 import { formatDateRange } from '@/lib/format'
 
-// Three-pane shell: trips sidebar | chat | itinerary timeline. The chat and timeline are
+// Shell: a full-height trips sidebar on the left; on the right the itinerary timeline stacked
+// above the chat. The chat and timeline are
 // keyed by plan id so switching trips starts them fresh (and aborts a streaming reply).
 // The stage stepper sits above the chat; it's locked while a reply streams, since the
 // assistant's tools depend on the stage the turn started in.
@@ -123,7 +125,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 </div>
             </header>
 
-            <div className="grid min-h-0 flex-1 grid-cols-[17rem_minmax(22rem,1fr)_minmax(0,1.5fr)]">
+            <div className="grid min-h-0 flex-1 grid-cols-[17rem_minmax(0,1fr)]">
                 <aside className="bg-sidebar min-h-0 border-r">
                     <PlansSidebar
                         selectedPlanId={planId}
@@ -132,27 +134,35 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                     />
                 </aside>
 
-                <section aria-label="Chat" className="flex min-h-0 flex-col border-r">
-                    {plan && (
-                        <div className="border-b px-6 py-3">
-                            <h1 className="font-heading truncate text-xl">{plan.title}</h1>
-                            <p className="text-muted-foreground text-xs">
-                                {[
-                                    plan.destination?.name,
-                                    formatDateRange(plan.start_date, plan.end_date),
-                                ]
-                                    .filter(Boolean)
-                                    .join(' · ') || 'Tell the assistant where and when'}
-                            </p>
-                        </div>
-                    )}
-                    {plan && <StageStepper plan={plan} disabled={chatBusy} />}
-                    <div className="min-h-0 flex-1">{renderChatPane()}</div>
-                </section>
-
-                <section aria-label="Itinerary" className="bg-muted/40 min-h-0 min-w-0">
-                    {renderItineraryPane()}
-                </section>
+                {/* Right column: itinerary on top, chat below, with a draggable divider. */}
+                <SplitPane
+                    storageKey="workspace-split"
+                    label="Resize itinerary and chat"
+                    top={
+                        <section aria-label="Itinerary" className="bg-muted/40 h-full min-w-0">
+                            {renderItineraryPane()}
+                        </section>
+                    }
+                    bottom={
+                        <section aria-label="Chat" className="flex h-full min-w-0 flex-col">
+                            {plan && (
+                                <div className="flex items-baseline gap-3 border-b px-6 py-2">
+                                    <h1 className="font-heading truncate text-xl">{plan.title}</h1>
+                                    <p className="text-muted-foreground shrink-0 text-xs">
+                                        {[
+                                            plan.destination?.name,
+                                            formatDateRange(plan.start_date, plan.end_date),
+                                        ]
+                                            .filter(Boolean)
+                                            .join(' · ') || 'Tell the assistant where and when'}
+                                    </p>
+                                </div>
+                            )}
+                            {plan && <StageStepper plan={plan} disabled={chatBusy} />}
+                            <div className="min-h-0 flex-1">{renderChatPane()}</div>
+                        </section>
+                    }
+                />
             </div>
         </div>
     )
