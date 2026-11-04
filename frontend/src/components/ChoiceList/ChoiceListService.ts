@@ -56,3 +56,16 @@ export function nightsHint(action: OfferChoice): string | null {
     const nights = `${String(count)} night${count === 1 ? '' : 's'}`
     return `${nights}, ${formatDateRange(checkIn, checkOut) ?? ''}.`
 }
+
+/**
+ * Which gap a transfer offer is for: "From Home to San Francisco International." The ground
+ * stage asks once per gap with the same question, so consecutive lists need telling apart.
+ * Home is a gap end with no item next to it. Null for any other offer.
+ */
+export function gapHint(action: OfferChoice): string | null {
+    const { gap } = action
+    if (!gap) return null
+    const from = gap.after_item_id === null ? 'Home' : gap.from_place.name
+    const to = gap.before_item_id === null ? 'Home' : gap.to_place.name
+    return `From ${from} to ${to}.`
+}

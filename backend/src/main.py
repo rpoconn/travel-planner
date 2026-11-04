@@ -26,6 +26,7 @@ from shared.hotels.provider import create_hotel_provider
 from shared.logging import configure_logging
 from shared.middleware import BodySizeLimitMiddleware
 from shared.migrations import run_migrations
+from shared.places.provider import create_place_provider
 from shared.rate_limit import AUTH_BUCKET, CHAT_BUCKET, create_rate_limiters
 from shared.search.provider import create_search_provider
 
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     search = create_search_provider(settings)
     flights = create_flight_provider(settings)
     hotels = create_hotel_provider(settings)
+    places = create_place_provider(settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -67,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await _app.state.search.aclose()
         await _app.state.flights.aclose()
         await _app.state.hotels.aclose()
+        await _app.state.places.aclose()
         await engine.dispose()
 
     app = FastAPI(
@@ -87,6 +90,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.flights = flights
     # Used by the lodging stage's search; tests replace it with a `FakeHotelProvider`.
     app.state.hotels = hotels
+    # Used by the activities stage's search; tests replace it with a `FakePlaceProvider`.
+    app.state.places = places
 
     # Read by `enforce_rate_limit`; buckets with a limit of 0 are left out (unlimited).
     app.state.rate_limiters = create_rate_limiters(

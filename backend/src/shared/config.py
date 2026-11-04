@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     hotel_provider: Literal["serpapi", "fake"] = "serpapi"
     hotel_search_timeout_seconds: float = Field(default=30.0, gt=0)
 
+    # Place search for the activities stage: "serpapi" (Google Maps results; the same
+    # SERPAPI_API_KEY) or "fake" (made-up museums and restaurants, no network).
+    places_provider: Literal["serpapi", "fake"] = "serpapi"
+    places_search_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # HTTP
     cors_origins: list[str] = ["http://localhost:5173"]
     # Largest accepted request body; the biggest legitimate one (an item or plan with 5000

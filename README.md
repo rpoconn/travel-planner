@@ -220,6 +220,11 @@ appears on the timeline (and opens in the detail sheet), and the off-topic redir
 - The planner's lodging stage searches Google Hotels through the same SerpApi key
   (`backend/src/shared/hotels/`), one search per run of nights without a place to stay.
   `HOTEL_PROVIDER=fake` makes up places to stay; tests and E2E always use it.
+- The activities stage searches Google Maps through the same key (`backend/src/shared/places/`),
+  one search per interest, run together. The places are ranked and scheduled into the trip's
+  free time by rules (`features/planning/scheduler.py`). `PLACES_PROVIDER=fake` makes up
+  museums and restaurants; tests and E2E always use it. Transfers between places need no
+  search: their ways, times and price estimates come from rules alone.
 
 ## Swapping the model
 

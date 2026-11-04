@@ -9,6 +9,7 @@ import {
     ASK_DATES,
     ASK_DESTINATION,
     OFFER_FLIGHTS_OUT,
+    issue,
     PLAN_ID,
     planAsking,
     planAssessment,
@@ -159,6 +160,29 @@ describe('PlanningPanel', () => {
             url: `http://api.test/plans/${PLAN_ID}/planning/inputs`,
             body: { type: 'pick', offer_id: OFFER_FLIGHTS_OUT.offer_id, candidate_ids: ['2'] },
         })
+    })
+
+    it('lists what is left to fix at review', async () => {
+        mockTranscript([])
+        const missing = issue({ stage: 'lodging', message: 'a place to stay the night of May 3' })
+        renderPanel(
+            travelPlan({
+                stage: 'review',
+                assessment: planAssessment({ stage: 'review', issues: [missing] }),
+            }),
+        )
+
+        const left = await screen.findByRole('region', { name: 'Before you go' })
+        expect(left).toHaveTextContent('Missing a place to stay the night of May 3')
+        expect(within(left).getByRole('button', { name: /^Go to Lodging/ })).toBeEnabled()
+    })
+
+    it('shows no fix list before review', async () => {
+        mockTranscript([])
+        renderPanel(planAsking(ASK_DATES))
+
+        await screen.findByRole('form', { name: 'When are you going?' })
+        expect(screen.queryByRole('region', { name: 'Before you go' })).not.toBeInTheDocument()
     })
 
     it('sends free text, showing it while the planner works', async () => {

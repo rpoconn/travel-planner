@@ -66,6 +66,20 @@ def _enable_sqlite_foreign_keys(dbapi_connection: Any, _connection_record: Any) 
     cursor.close()
 
 
+def _use_sqlite_wal(dbapi_connection: Any, _connection_record: Any) -> None:
+    # Write-ahead logging: readers no longer block a writer's commit (in the default
+    # rollback journal, any open read transaction does). A planning turn holds its session
+    # across a streamed reply or a search, so without it concurrent turns hit "database is
+    # locked". The mode is stored in the database file; setting it again is a no-op.
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.close()
+
+
+# How long a connection waits for another's write lock before "database is locked".
+_SQLITE_LOCK_TIMEOUT_SECONDS = 30
+
+
 def create_engine(database_url: str) -> AsyncEngine:
     if database_url.startswith("sqlite") and ":memory:" in database_url:
         # Every new connection to `:memory:` is a brand-new empty database, so pin the whole
@@ -75,6 +89,11 @@ def create_engine(database_url: str) -> AsyncEngine:
             poolclass=StaticPool,
             connect_args={"check_same_thread": False},
         )
+    elif database_url.startswith("sqlite"):
+        engine = create_async_engine(
+            database_url, connect_args={"timeout": _SQLITE_LOCK_TIMEOUT_SECONDS}
+        )
+        event.listen(engine.sync_engine, "connect", _use_sqlite_wal)
     else:
         engine = create_async_engine(database_url)
 

@@ -6,6 +6,7 @@ import type { TravelPlan } from '@/api/types.gen'
 import { ChoiceList } from '@/components/ChoiceList/ChoiceList'
 import { Composer } from '@/components/Composer/Composer'
 import { ExpectedInputPanel } from '@/components/ExpectedInputPanel/ExpectedInputPanel'
+import { IssuesPanel } from '@/components/IssuesPanel/IssuesPanel'
 import { MessageBubble } from '@/components/MessageBubble/MessageBubble'
 import { StageBar } from '@/components/StageBar/StageBar'
 import { errorMessage } from '@/lib/apiError'
@@ -230,6 +231,10 @@ export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
                                         void submitInput({ type: 'skip', slot: action.slot })
                                     }
                                 />
+                            )}
+                            {/* At review there's nothing left to ask: what's left to fix. */}
+                            {plan.stage === 'review' && (
+                                <IssuesPanel plan={plan} inline disabled={busy} />
                             )}
                             <StageBar
                                 plan={plan}

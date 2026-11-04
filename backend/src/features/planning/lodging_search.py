@@ -203,11 +203,14 @@ def rank_for(
 # ---------------------------------------------------------------------------
 
 
-def _legs(plan: PlanSnapshot) -> list[ItineraryItem]:
+def active_legs(plan: PlanSnapshot) -> list[ItineraryItem]:
+    """The plan's active flights and transfers, in the order they land (shared with the
+    activity and transfer searches)."""
     return legs(item for item in plan.items if item.status != "cancelled")
 
 
-def _destination_zone(plan: PlanSnapshot) -> str | None:
+def destination_zone(plan: PlanSnapshot) -> str | None:
+    """The zone of the destination's main airport, or None when it has none we know."""
     place = plan.destination
     if place is None:
         return None
@@ -218,8 +221,8 @@ def _destination_zone(plan: PlanSnapshot) -> str | None:
 def stay_zone(plan: PlanSnapshot, nights: NightRange) -> str:
     """The zone the traveller is in by the end of check-in day: where the trip's legs have
     them, else the destination's."""
-    destination = _destination_zone(plan)
-    ordered = _legs(plan)
+    destination = destination_zone(plan)
+    ordered = active_legs(plan)
     if ordered:
         probe = datetime.combine(nights.check_in, time(23, 59), ZoneInfo(destination or "UTC"))
         zone = zone_at(probe, ordered)
@@ -239,7 +242,9 @@ def check_in_at(plan: PlanSnapshot, day: date, zone: str, listed: time | None) -
     tz = ZoneInfo(zone)
     at = datetime.combine(day, listed or DEFAULT_CHECK_IN, tz)
     landings = [
-        leg.end for leg in _legs(plan) if leg.end.astimezone(tz).date() == day and leg.end > at
+        leg.end
+        for leg in active_legs(plan)
+        if leg.end.astimezone(tz).date() == day and leg.end > at
     ]
     if landings:
         latest = datetime.combine(day, _LATEST_CHECK_IN, tz)
@@ -254,7 +259,7 @@ def check_out_at(plan: PlanSnapshot, day: date, zone: str, listed: time | None) 
     at = datetime.combine(day, listed or DEFAULT_CHECK_OUT, tz)
     departures = [
         leg.start
-        for leg in _legs(plan)
+        for leg in active_legs(plan)
         if leg.start.astimezone(tz).date() == day and leg.start < at + BEFORE_DEPARTURE
     ]
     if departures:

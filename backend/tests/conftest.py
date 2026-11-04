@@ -24,6 +24,7 @@ def settings() -> Settings:
         # Searches are metered; never let a developer's `.env` key reach SerpApi from tests.
         flight_provider="fake",
         hotel_provider="fake",
+        places_provider="fake",
     )
 
 

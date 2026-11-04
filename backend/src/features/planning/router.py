@@ -36,6 +36,7 @@ from shared.db import SessionDep
 from shared.errors import error_responses
 from shared.flights.provider import FlightsDep
 from shared.hotels.provider import HotelsDep
+from shared.places.provider import PlacesDep
 from shared.search.provider import SearchDep
 
 router = APIRouter(
@@ -109,6 +110,7 @@ def get_turn_context(
     llm: LLMDep,
     flights: FlightsDep,
     hotels: HotelsDep,
+    places: PlacesDep,
     search: SearchDep,
     user: CurrentUser,
     plan: OwnedPlan,
@@ -121,6 +123,7 @@ def get_turn_context(
         today=date.today(),
         flights=flights,
         hotels=hotels,
+        places=places,
         search=search,
     )
 

@@ -4,7 +4,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { OfferChoice } from '@/api/types.gen'
 import { formatDateRange } from '@/lib/format'
-import { OFFER_ACTIVITIES, OFFER_FLIGHTS_OUT, OFFER_LODGING } from '@/test/fixtures'
+import {
+    OFFER_ACTIVITIES,
+    OFFER_FLIGHTS_OUT,
+    OFFER_LODGING,
+    OFFER_TRANSFERS,
+} from '@/test/fixtures'
 
 import { ChoiceList } from './ChoiceList'
 
@@ -67,6 +72,13 @@ describe('ChoiceList', () => {
         const list = screen.getByRole('region', { name: 'Pick a place to stay.' })
         const dates = formatDateRange('2027-05-01', '2027-05-03') ?? ''
         expect(within(list).getByText(`2 nights, ${dates}.`)).toBeInTheDocument()
+    })
+
+    it('says which gap a way to get there is for', () => {
+        renderList(OFFER_TRANSFERS)
+
+        const list = screen.getByRole('region', { name: 'How do you want to get there?' })
+        expect(within(list).getByText('From Home to San Francisco International.')).toBeVisible()
     })
 
     it('disables picking while a turn runs', () => {

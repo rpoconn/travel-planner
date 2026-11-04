@@ -1,0 +1,73 @@
+{
+  "search_metadata": {
+    "status": "Success"
+  },
+  "local_results": [
+    {
+      "position": 1,
+      "title": "Museu Calouste Gulbenkian",
+      "place_id": "ChIJ-gulbenkian",
+      "gps_coordinates": {
+        "latitude": 38.7375,
+        "longitude": -9.1545
+      },
+      "rating": 4.7,
+      "reviews": 23541,
+      "type": "Art museum",
+      "address": "Av. de Berna 45A, 1067-001 Lisboa, Portugal",
+      "operating_hours": {
+        "monday": "10\u202fAM\u20136\u202fPM",
+        "tuesday": "Closed",
+        "wednesday": "10\u202fAM\u20136\u202fPM",
+        "thursday": "10\u202fAM\u20136\u202fPM",
+        "friday": "10\u202fAM\u20136\u202fPM",
+        "saturday": "10\u202fAM\u20136\u202fPM",
+        "sunday": "10\u202fAM\u20136\u202fPM"
+      },
+      "website": "https://gulbenkian.pt/museu/"
+    },
+    {
+      "position": 2,
+      "title": "Taberna da Rua das Flores",
+      "gps_coordinates": {
+        "latitude": 38.7101,
+        "longitude": -9.1426
+      },
+      "rating": 4.5,
+      "reviews": 4210,
+      "price": "\u20ac\u20ac",
+      "type": "Portuguese restaurant",
+      "address": "R. das Flores 103, 1200-194 Lisboa, Portugal",
+      "operating_hours": {
+        "monday": "12\u20133\u202fPM, 6:30\u201311\u202fPM",
+        "tuesday": "12\u20133\u202fPM, 6:30\u201311\u202fPM",
+        "wednesday": "12\u20133\u202fPM, 6:30\u201311\u202fPM",
+        "thursday": "12\u20133\u202fPM, 6:30\u201311\u202fPM",
+        "friday": "12\u20133\u202fPM, 6:30\u201311\u202fPM",
+        "saturday": "12\u20133\u202fPM, 6:30\u201311\u202fPM",
+        "sunday": "Closed"
+      }
+    },
+    {
+      "position": 3,
+      "title": "Park Bar",
+      "rating": 4.2,
+      "reviews": 980,
+      "price": "$10\u201320",
+      "type": "Bar",
+      "operating_hours": {
+        "monday": "Hours vary"
+      }
+    },
+    {
+      "position": 4,
+      "title": "",
+      "rating": 4.0
+    },
+    {
+      "position": 5,
+      "title": "Bad Rating Cafe",
+      "rating": 9.5
+    }
+  ]
+}

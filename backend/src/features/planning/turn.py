@@ -72,6 +72,7 @@ from features.plans.stages import STAGE_LABELS, StageError, apply_stage_change
 from shared.flights.types import FlightProvider
 from shared.hotels.types import HotelProvider
 from shared.llm.types import LLMClient, LLMError
+from shared.places.types import PlaceProvider
 from shared.search.types import SearchProvider
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,7 @@ class TurnContext:
     today: date
     flights: FlightProvider
     hotels: HotelProvider
+    places: PlaceProvider
     # Not searched by the planner; the tool context that checks a pick's changes needs one.
     search: SearchProvider
 
@@ -343,7 +345,11 @@ async def _search(
     yield PlanningStatusEvent(text=f"{action.label}…")
     try:
         search_ctx = SearchContext(
-            session=ctx.session, today=ctx.today, flights=ctx.flights, hotels=ctx.hotels
+            session=ctx.session,
+            today=ctx.today,
+            flights=ctx.flights,
+            hotels=ctx.hotels,
+            places=ctx.places,
         )
         candidates = await run_search(search_ctx, plan, action)
     except SearchFailedError as exc:

@@ -32,6 +32,7 @@ from shared.domain import Money, Place
 from shared.flights.fake import FakeFlightProvider
 from shared.hotels.fake import FakeHotelProvider
 from shared.hotels.types import HotelOption, HotelSearchError
+from shared.places.fake import FakePlaceProvider
 from tests.features.itinerary.factories import NRT, SFO, TOKYO_TZ, flight
 from tests.features.plans.builders import outbound_flight, snapshot
 
@@ -56,6 +57,7 @@ def _ctx(hotels: FakeHotelProvider) -> SearchContext:
         today=TODAY,
         flights=FakeFlightProvider(),
         hotels=hotels,
+        places=FakePlaceProvider(),
     )
 
 

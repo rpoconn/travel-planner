@@ -145,3 +145,104 @@ test('finds a place to stay for the trip, then moves on to activities', async ({
     ).toBeVisible()
     await expect(question(page, 'What do you like to do?')).toBeVisible()
 })
+
+// ----- the whole trip -----
+
+/** Basics by form and by the offline fake's phrases: Lisbon, a long weekend, two adults. */
+async function answerBasics(page: Page) {
+    const where = question(page, 'Where are you going?')
+    await where.getByRole('textbox', { name: 'Destination' }).fill('Lisbon')
+    await where.getByRole('button', { name: 'Continue' }).click()
+    await expect(question(page, 'When are you going?')).toBeVisible()
+    await sendChatMessage(page, 'a long weekend next month')
+    const who = question(page, "Who's coming?")
+    await who.getByRole('spinbutton', { name: 'Adults' }).fill('2')
+    await who.getByRole('button', { name: 'Continue' }).click()
+    await question(page, 'Do you have a budget for the whole trip?')
+        .getByRole('button', { name: 'Skip' })
+        .click()
+}
+
+/** Flights both ways and a hotel for every night, taking the first of each list. */
+async function bookFlightsAndStay(page: Page) {
+    const how = question(page, 'How do you like to fly?')
+    await how.getByRole('radio', { name: 'Economy' }).click()
+    await how.getByRole('button', { name: 'Continue' }).click()
+    const out = page.getByRole('region', { name: 'Pick your flight out.' })
+    await out
+        .getByRole('button', { name: /^Pick / })
+        .first()
+        .click()
+    const home = page.getByRole('region', { name: 'Pick your flight home.' })
+    await home
+        .getByRole('button', { name: /^Pick / })
+        .first()
+        .click()
+    await expect(question(page, 'What kind of place do you want to stay in?')).toBeVisible()
+    await sendChatMessage(page, 'a midrange hotel')
+    const stays = page.getByRole('region', { name: 'Pick a place to stay.' })
+    await stays
+        .getByRole('button', { name: /^Pick / })
+        .first()
+        .click()
+}
+
+test('plans a whole trip, home to home, with forms and picks', async ({ page }) => {
+    await answerBasics(page)
+    await bookFlightsAndStay(page)
+
+    // Activities: free text for the interests, then several picks sent together.
+    await expect(question(page, 'What do you like to do?')).toBeVisible()
+    await sendChatMessage(page, 'museums and food')
+    const todo = page.getByRole('region', { name: "Pick the things you'd like to do." })
+    await todo.getByRole('button', { name: 'Add Example Art Museum' }).click()
+    await todo.getByRole('button', { name: 'Add Example Bistro' }).click()
+    await todo.getByRole('button', { name: 'Add 2 picks' }).click()
+    await expect(
+        page.getByRole('separator', { name: 'Activities done. Next up: ground transport.' }),
+    ).toBeVisible()
+
+    // Transfers: one list per gap, each saying which gap it's for, until none are left.
+    const ways = page.getByRole('region', { name: 'How do you want to get there?' })
+    await expect(ways).toContainText('From Home to')
+    const done = page.getByRole('separator', { name: 'Ground transport done. Next up: review.' })
+    for (let gap = 0; gap < 12 && !(await done.isVisible()); gap += 1) {
+        const before = await ways.textContent()
+        await ways
+            .getByRole('button', { name: /^Pick / })
+            .first()
+            .click()
+        // The next gap's list (or the move to review) replaces this one once the pick is in.
+        await expect
+            .poll(async () => (await done.isVisible()) || (await ways.textContent()) !== before)
+            .toBe(true)
+    }
+    await expect(done).toBeVisible()
+
+    // Review: nothing left to fix, and the trip is complete.
+    await expect(page.getByRole('region', { name: 'Before you go' })).toContainText(
+        'Nothing left to fix',
+    )
+    await expect(page.getByText('Trip complete')).toBeVisible()
+    await expect(page.getByRole('button', { name: /things? to check/ })).toHaveCount(0)
+})
+
+test('goes back a stage and continues where it left off', async ({ page }) => {
+    await answerBasics(page)
+    await bookFlightsAndStay(page)
+    await expect(question(page, 'What do you like to do?')).toBeVisible()
+
+    // Back from activities: lodging is done, so the planner offers to continue.
+    await page.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Continue to Activities' })).toBeVisible()
+    await expect(question(page, 'What do you like to do?')).toHaveCount(0)
+
+    // Jump back further with the stepper. Every stage since is still done, so continuing
+    // moves through them all in one go, back to the question it was asking.
+    await page.getByRole('button', { name: /^Go back to Basics/ }).click()
+    await page.getByRole('button', { name: 'Continue to Flights' }).click()
+    await expect(
+        page.getByRole('separator', { name: 'Lodging done. Next up: activities.' }),
+    ).toHaveCount(2)
+    await expect(question(page, 'What do you like to do?')).toBeVisible()
+})

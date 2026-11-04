@@ -115,6 +115,21 @@ const FIXTURE_CODES: Record<PlanStage, IssueCode> = {
     review: 'stage_incomplete',
 }
 
+/** A planner issue; by default something missing from lodging. */
+export function issue(overrides: Partial<Issue> = {}): Issue {
+    const stage = overrides.stage ?? 'lodging'
+    return {
+        code: FIXTURE_CODES[stage],
+        stage,
+        severity: 'blocking',
+        message: 'a place to stay the night of May 3',
+        date: null,
+        item_ids: [],
+        gap: null,
+        ...overrides,
+    }
+}
+
 function stageStatus(stage: PlanStage, missing: string[]): StageStatus {
     const issues: Issue[] = missing.map((message) => ({
         code: FIXTURE_CODES[stage],
@@ -548,6 +563,27 @@ export const OFFER_LODGING: OfferChoice = {
     max_picks: 1,
     gap: null,
     nights: { check_in: '2027-05-01', check_out: '2027-05-03' },
+}
+
+export const OFFER_TRANSFERS: OfferChoice = {
+    type: 'offer_choice',
+    offer_id: 'bbbbbbbb-0000-0000-0000-000000000004',
+    slot: 'transfer',
+    stage: 'ground',
+    prompt: 'How do you want to get there?',
+    candidates: [
+        candidate({
+            id: '1',
+            title: 'Taxi to San Francisco International',
+            subtitle: 'From Home (San Francisco)',
+            details: ['May 1, 08:15-09:00', 'About 45 min', 'About 55.00 USD (estimate)'],
+            price: null,
+        }),
+    ],
+    min_picks: 1,
+    max_picks: 1,
+    gap: gap(),
+    nights: null,
 }
 
 /** A plan in `stage` whose engine shows `action`'s choices next. */

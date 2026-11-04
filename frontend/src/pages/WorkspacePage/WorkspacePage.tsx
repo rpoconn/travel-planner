@@ -7,6 +7,7 @@ import { getPlanOptions } from '@/api/@tanstack/react-query.gen'
 import { ChatPanel, type ChatPanelHandle } from '@/components/ChatPanel/ChatPanel'
 import { EmptyPane } from '@/components/EmptyPane/EmptyPane'
 import { HomeSetup } from '@/components/HomeSetup/HomeSetup'
+import { IssuesPanel } from '@/components/IssuesPanel/IssuesPanel'
 import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
 import { PlanningPanel } from '@/components/PlanningPanel/PlanningPanel'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
@@ -25,7 +26,8 @@ import { planningEngineEnabled } from '@/lib/planningEngine'
 // fresh (and aborts a streaming reply). The stage steps span the top of the page and lock
 // while a reply streams, since the assistant's tools depend on the stage the turn started in.
 // The Back / Next controls live inline in the chat transcript (see ChatPanel). The itinerary's
-// "things to check" sit at the right end of the stage bar, leaving the timeline its room.
+// "things to check" sit at the right end of the stage bar, leaving the timeline its room: the
+// timeline's warnings in the chat flow, the planner's issues in the planning flow.
 
 interface WorkspacePageProps {
     planId?: string
@@ -88,20 +90,20 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
             {plan && (
                 <div className="flex items-center gap-4 border-b pr-4">
                     <StageStepper plan={plan} disabled={chatBusy} />
-                    <TimelineWarnings
-                        key={plan.id}
-                        planId={plan.id}
-                        // "Fix it" asks the chat assistant, which the planning flow doesn't
-                        // have; without a handler the warnings show no Fix it buttons.
-                        onRequestFix={
-                            planningEngine
-                                ? undefined
-                                : (warning) => {
-                                      chatRef.current?.sendFix(warning)
-                                  }
-                        }
-                        fixDisabled={chatBusy}
-                    />
+                    {/* The planning flow lists the engine's issues, with "Go to" a stage to fix
+                        them; the chat flow lists the timeline's warnings, with "Fix it". */}
+                    {planningEngine ? (
+                        <IssuesPanel key={plan.id} plan={plan} disabled={chatBusy} />
+                    ) : (
+                        <TimelineWarnings
+                            key={plan.id}
+                            planId={plan.id}
+                            onRequestFix={(warning) => {
+                                chatRef.current?.sendFix(warning)
+                            }}
+                            fixDisabled={chatBusy}
+                        />
+                    )}
                 </div>
             )}
 

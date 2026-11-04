@@ -27,7 +27,9 @@ def main() -> None:
     args = parser.parse_args()
     origins: list[str] = args.cors_origins or ["http://localhost:5174"]
 
-    for path in (E2E_DB, E2E_DB.with_name(f"{E2E_DB.name}-journal")):
+    # The database and its journal or write-ahead log files.
+    sidecars = [E2E_DB.with_name(f"{E2E_DB.name}-{suffix}") for suffix in ("journal", "wal", "shm")]
+    for path in (E2E_DB, *sidecars):
         path.unlink(missing_ok=True)
 
     # Environment variables beat `.env`, so a developer's local settings can't leak in.
@@ -39,6 +41,7 @@ def main() -> None:
             "SEARCH_PROVIDER": "fake",
             "FLIGHT_PROVIDER": "fake",
             "HOTEL_PROVIDER": "fake",
+            "PLACES_PROVIDER": "fake",
             "CORS_ORIGINS": json.dumps(origins),
             "BCRYPT_ROUNDS": "4",
             "JWT_SECRET": "e2e-only-secret-that-is-at-least-32-bytes",

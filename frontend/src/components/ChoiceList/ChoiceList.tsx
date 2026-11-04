@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 
 import {
     canSubmit,
+    gapHint,
     isMulti,
     nightsHint,
     pickHint,
@@ -14,7 +15,8 @@ import {
     toggleId,
 } from './ChoiceListService'
 
-// The planner's pending choices: the open offer's candidates, best first. Picking is the
+// The planner's pending choices: the open offer's candidates, best first, under the
+// question and what it's for (which nights, which gap). Picking is the
 // approval, so a single pick is sent as soon as a card's Pick is pressed; a multi pick
 // (activities) toggles cards and sends them with one button. The server checks the pick
 // against the offer again. Mount with `key={action.offer_id}` so a new offer starts empty.
@@ -34,6 +36,7 @@ export function ChoiceList({ action, disabled = false, onPick }: ChoiceListProps
     const multi = isMulti(action)
     const hint = pickHint(action)
     const nights = nightsHint(action)
+    const route = gapHint(action)
 
     // ----- event handlers -----
     function pick(id: string) {
@@ -53,6 +56,7 @@ export function ChoiceList({ action, disabled = false, onPick }: ChoiceListProps
             <div>
                 <p className="font-heading text-base">{action.prompt}</p>
                 {nights && <p className="text-muted-foreground text-xs">{nights}</p>}
+                {route && <p className="text-muted-foreground text-xs">{route}</p>}
                 {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
             </div>
 

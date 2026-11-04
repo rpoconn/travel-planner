@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import { formatDateRange } from '@/lib/format'
-import { OFFER_ACTIVITIES, OFFER_FLIGHTS_OUT, OFFER_LODGING } from '@/test/fixtures'
+import {
+    gap,
+    OFFER_ACTIVITIES,
+    OFFER_FLIGHTS_OUT,
+    OFFER_LODGING,
+    OFFER_TRANSFERS,
+} from '@/test/fixtures'
 
 import {
     canSubmit,
     isMulti,
+    gapHint,
     nightsHint,
     pickHint,
     submitLabel,
@@ -66,5 +73,24 @@ describe('nightsHint', () => {
 
     it('is nothing for an offer without nights', () => {
         expect(nightsHint(OFFER_FLIGHTS_OUT)).toBeNull()
+    })
+})
+
+describe('gapHint', () => {
+    it('says which gap a transfer offer is for', () => {
+        expect(gapHint(OFFER_TRANSFERS)).toBe('From Home to San Francisco International.')
+        const back = {
+            ...OFFER_TRANSFERS,
+            gap: gap({
+                from_place: { name: 'Hotel Okura' },
+                after_item_id: 'lodging-1',
+                before_item_id: null,
+            }),
+        }
+        expect(gapHint(back)).toBe('From Hotel Okura to Home.')
+    })
+
+    it('is nothing for an offer without a gap', () => {
+        expect(gapHint(OFFER_LODGING)).toBeNull()
     })
 })

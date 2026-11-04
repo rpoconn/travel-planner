@@ -11,6 +11,7 @@ from features.planning.schemas import Candidate, RunSearch
 from features.plans.schemas import PlanSnapshot
 from shared.flights.types import FlightProvider
 from shared.hotels.types import HotelProvider
+from shared.places.types import PlaceProvider
 
 
 class SearchFailedError(Exception):
@@ -23,6 +24,7 @@ class SearchContext:
     today: date
     flights: FlightProvider
     hotels: HotelProvider
+    places: PlaceProvider
 
 
 # A runner returns the candidates for one `RunSearch`, best first (empty when none fit).
