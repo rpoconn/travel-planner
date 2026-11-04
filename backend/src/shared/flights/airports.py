@@ -4,6 +4,7 @@ Flight search results give times in each airport's local time with no zone attac
 the zone is looked up here to make them aware.
 """
 
+from dataclasses import dataclass
 from functools import cache
 
 import airportsdata
@@ -22,50 +23,64 @@ def airport_timezone(iata: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# City → airports
+# Cities
 # ---------------------------------------------------------------------------
 
+
+@dataclass(frozen=True)
+class City:
+    """A city whose airports are known by hand: one served by several airports, or that
+    shares its name with smaller places elsewhere ("Paris, TX", "Rome, NY")."""
+
+    names: tuple[str, ...]  # casefolded name and aliases
+    airports: tuple[str, ...]  # most important first; a search uses the first few
+    metro: str | None = None  # the metropolitan-area code fares quote, e.g. TYO
+
+
 # A flight search needs airport codes, but a trip's origin and destination are usually a
-# city ("Lisbon"). Cities served by several airports, or that share a name with smaller
-# places elsewhere ("Paris, TX", "Rome, NY"), are listed here so the search covers the
-# right ones; the rest are looked up by city name in the bundled data.
-_CITY_AIRPORTS: dict[str, tuple[str, ...]] = {
-    "bangkok": ("BKK", "DMK"),
-    "beijing": ("PEK", "PKX"),
-    "berlin": ("BER",),
-    "buenos aires": ("EZE", "AEP"),
-    "chicago": ("ORD", "MDW"),
-    "dallas": ("DFW", "DAL"),
-    "houston": ("IAH", "HOU"),
-    "istanbul": ("IST", "SAW"),
-    "london": ("LHR", "LGW", "STN", "LCY"),
-    "los angeles": ("LAX",),
-    "miami": ("MIA", "FLL"),
-    "milan": ("MXP", "LIN", "BGY"),
-    "montreal": ("YUL",),
-    "moscow": ("SVO", "DME", "VKO"),
-    "new york": ("JFK", "EWR", "LGA"),
-    "new york city": ("JFK", "EWR", "LGA"),
-    "osaka": ("KIX", "ITM"),
-    "paris": ("CDG", "ORY"),
-    "philadelphia": ("PHL",),
-    "rio de janeiro": ("GIG", "SDU"),
-    "rome": ("FCO", "CIA"),
-    "san francisco": ("SFO", "OAK"),
-    "sao paulo": ("GRU", "CGH"),
-    "são paulo": ("GRU", "CGH"),
-    "seoul": ("ICN", "GMP"),
-    "shanghai": ("PVG", "SHA"),
-    "stockholm": ("ARN", "BMA"),
-    "tokyo": ("HND", "NRT"),
-    "toronto": ("YYZ", "YTZ"),
-    "venice": ("VCE",),
-    "washington": ("IAD", "DCA", "BWI"),
-    "washington dc": ("IAD", "DCA", "BWI"),
-}
+# city ("Lisbon"). Cities listed here are searched at their airports; the rest are looked
+# up by city name in the bundled data. The metro codes are also what `itinerary.airports`
+# rejects on input and uses to treat a city's airports as one place.
+CITIES: tuple[City, ...] = (
+    City(("bangkok",), ("BKK", "DMK")),
+    City(("beijing",), ("PEK", "PKX"), metro="BJS"),
+    City(("berlin",), ("BER",)),
+    City(("buenos aires",), ("EZE", "AEP"), metro="BUE"),
+    City(("chicago",), ("ORD", "MDW"), metro="CHI"),
+    City(("dallas",), ("DFW", "DAL")),
+    City(("detroit",), ("DTW",), metro="DTT"),
+    City(("houston",), ("IAH", "HOU")),
+    City(("istanbul",), ("IST", "SAW")),
+    City(("jakarta",), ("CGK", "HLP"), metro="JKT"),
+    City(("london",), ("LHR", "LGW", "STN", "LCY", "LTN", "SEN"), metro="LON"),
+    City(("los angeles",), ("LAX",)),
+    City(("miami",), ("MIA", "FLL")),
+    City(("milan",), ("MXP", "LIN", "BGY"), metro="MIL"),
+    City(("montreal",), ("YUL",), metro="YMQ"),
+    City(("moscow",), ("SVO", "DME", "VKO"), metro="MOW"),
+    City(("new york", "new york city"), ("JFK", "EWR", "LGA"), metro="NYC"),
+    City(("osaka",), ("KIX", "ITM"), metro="OSA"),
+    City(("paris",), ("CDG", "ORY"), metro="PAR"),
+    City(("philadelphia",), ("PHL",)),
+    City(("rio de janeiro",), ("GIG", "SDU"), metro="RIO"),
+    City(("rome",), ("FCO", "CIA"), metro="ROM"),
+    City(("san francisco",), ("SFO", "OAK")),
+    City(("são paulo", "sao paulo"), ("GRU", "CGH", "VCP"), metro="SAO"),
+    City(("seoul",), ("ICN", "GMP"), metro="SEL"),
+    City(("shanghai",), ("PVG", "SHA")),
+    City(("stockholm",), ("ARN", "BMA"), metro="STO"),
+    City(("tokyo",), ("HND", "NRT"), metro="TYO"),
+    City(("toronto",), ("YYZ", "YTZ"), metro="YTO"),
+    City(("venice",), ("VCE",)),
+    City(("washington", "washington dc"), ("IAD", "DCA", "BWI"), metro="WAS"),
+)
 
 # A search takes at most this many airports per end (`FlightQuery`).
 MAX_AIRPORTS = 4
+
+_CITY_AIRPORTS: dict[str, tuple[str, ...]] = {
+    name: city.airports[:MAX_AIRPORTS] for city in CITIES for name in city.names
+}
 
 
 def _by_city(city: str) -> tuple[str, ...]:

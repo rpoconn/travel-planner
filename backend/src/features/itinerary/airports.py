@@ -12,34 +12,18 @@ different airport than its code is rejected too.
 
 import re
 
+from shared.flights.airports import CITIES
+
 # ---------------------------------------------------------------------------
 # Data
 # ---------------------------------------------------------------------------
 
+# Metro code → its airports, from the city table.
 METRO_AIRPORTS: dict[str, tuple[str, ...]] = {
-    "BJS": ("PEK", "PKX"),
-    "BUE": ("EZE", "AEP"),
-    "CHI": ("ORD", "MDW"),
-    "DTT": ("DTW",),
-    "JKT": ("CGK", "HLP"),
-    "LON": ("LHR", "LGW", "STN", "LTN", "LCY", "SEN"),
-    "MIL": ("MXP", "LIN", "BGY"),
-    "MOW": ("SVO", "DME", "VKO"),
-    "NYC": ("JFK", "EWR", "LGA"),
-    "OSA": ("KIX", "ITM"),
-    "PAR": ("CDG", "ORY"),
-    "RIO": ("GIG", "SDU"),
-    "ROM": ("FCO", "CIA"),
-    "SAO": ("GRU", "CGH", "VCP"),
-    "SEL": ("ICN", "GMP"),
-    "STO": ("ARN", "BMA"),
-    "TYO": ("HND", "NRT"),
-    "WAS": ("IAD", "DCA", "BWI"),
-    "YMQ": ("YUL",),
-    "YTO": ("YYZ", "YTZ"),
+    city.metro: city.airports for city in CITIES if city.metro is not None
 }
 
-# Words that identify an airport by name, for the airports of the cities above. Only names
+# Words that identify an airport by name, for the airports of the metro areas. Only names
 # that can't mean anything else: never the city name itself ("Tokyo"), which both share.
 AIRPORT_NAMES: dict[str, tuple[str, ...]] = {
     "AEP": ("aeroparque",),

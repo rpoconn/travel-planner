@@ -97,6 +97,9 @@ def _option(hour: int, minutes: int, price: int, stops: int = 0) -> FlightOption
     [
         (("Lisbon",), ("LIS",)),
         (("Tokyo",), ("HND", "NRT")),
+        # A city with more airports than a search takes gets its busiest ones.
+        (("London",), ("LHR", "LGW", "STN", "LCY")),
+        (("Sao Paulo",), ("GRU", "CGH", "VCP")),
         # Small fields share the name; the international airport is the one people use.
         (("Philadelphia",), ("PHL",)),
         # An airport code works as a name too, and a city wins over a street address.
