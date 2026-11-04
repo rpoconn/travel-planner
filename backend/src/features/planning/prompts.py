@@ -1,8 +1,9 @@
-"""The planning flow's two prompts: the slot extractor (structured output) and the short
-answer to a question (plain streamed text that is never parsed)."""
+"""The planning flow's prompts: the slot extractor and the pick reader (structured output),
+and the short answer to a question (plain streamed text that is never parsed)."""
 
 from datetime import date
 
+from features.planning.schemas import OfferChoice
 from features.planning.slots import SlotSpec
 from features.plans.schemas import PlanSnapshot
 from features.plans.stages import STAGE_LABELS
@@ -41,6 +42,34 @@ def extractor_messages(
         '- "status": "question" and no value, when the message asks something instead.\n'
         '- "status": "unrelated" and no value, for anything else.\n'
         "Only use what the message says; never guess a value it doesn't give."
+    )
+    return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=content)]
+
+
+def _option_line(index: int, action: OfferChoice) -> str:
+    candidate = action.candidates[index]
+    parts = [candidate.title, candidate.subtitle, *candidate.details, *candidate.warnings]
+    if candidate.price is not None:
+        parts.append(f"{candidate.price.amount:,.0f} {candidate.price.currency}")
+    return f'- id "{candidate.id}" (option {index + 1}): ' + " | ".join(p for p in parts if p)
+
+
+def pick_messages(action: OfferChoice, content: str, plan: PlanSnapshot) -> list[LLMMessage]:
+    options = "\n".join(_option_line(index, action) for index in range(len(action.candidates)))
+    if action.max_picks > 1:
+        how_many = f"between {action.min_picks} and {action.max_picks} of them"
+    else:
+        how_many = "one of them"
+    system = (
+        "You read one message from someone planning a trip and decide whether it picks from "
+        f'these options, offered for "{action.prompt}" ({how_many}):\n{options}\n'
+        f"The trip so far:\n{trip_summary(plan)}\n\n"
+        "Reply with JSON:\n"
+        '- "status": "answered" and the "candidate_ids" picked, when the message picks '
+        '(by position like "the second one", by airline, time, price, or name).\n'
+        '- "status": "question" and no ids, when the message asks something instead.\n'
+        '- "status": "unrelated" and no ids, for anything else.\n'
+        "Only use ids from the list, and only pick what the message asks for."
     )
     return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=content)]
 

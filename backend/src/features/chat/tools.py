@@ -1541,3 +1541,15 @@ async def apply_change(ctx: ToolContext, change: ProposedChange) -> ToolOutcome:
         return await tool.apply(ctx, await tool.prepare(ctx, change.arguments))
 
     return _logged(change.name, ctx, await _attempt(change.name, action))
+
+
+# Advice for the model at the end of some failures. The planning flow shows a failure to the
+# user instead, who picks from a list and has no "option" to change or user to ask.
+_MODEL_HELP = (_NO_COST_HELP, _OVER_LIMIT_HELP, _OVER_BUDGET_HELP, _ROUTE_HELP)
+
+
+def for_people(message: str) -> str:
+    """A failure's message without the advice addressed to the model."""
+    for help_text in _MODEL_HELP:
+        message = message.replace(f". {help_text}", "")
+    return message

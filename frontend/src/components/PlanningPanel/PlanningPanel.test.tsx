@@ -8,9 +8,11 @@ import type { PlanningMessage, TravelPlan } from '@/api/types.gen'
 import {
     ASK_DATES,
     ASK_DESTINATION,
+    OFFER_FLIGHTS_OUT,
     PLAN_ID,
     planAsking,
     planAssessment,
+    planChoosing,
     planningMessage,
     sdkOk,
     travelPlan,
@@ -128,6 +130,35 @@ describe('PlanningPanel', () => {
         await user.click(await screen.findByRole('button', { name: 'Skip' }))
 
         expect((await sentRequest(fetchSpy)).body).toEqual({ type: 'skip', slot: 'budget' })
+    })
+
+    it('shows the pending choices once, and sends a pick', async () => {
+        mockTranscript([
+            planningMessage({
+                id: 'm5',
+                kind: 'choices',
+                content: 'Pick your flight out.',
+                payload: OFFER_FLIGHTS_OUT,
+            }),
+        ])
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(sseResponse([{ type: 'done', plan: travelPlan() }]))
+        const { user } = renderPanel(planChoosing(OFFER_FLIGHTS_OUT))
+
+        const choices = await screen.findByRole('region', { name: 'Pick your flight out.' })
+        // The list shows the choices, so the stored copy of its prompt isn't repeated.
+        expect(screen.getAllByText('Pick your flight out.')).toHaveLength(1)
+        expect(screen.getByRole('textbox', { name: 'Message' })).toHaveAttribute(
+            'placeholder',
+            'Pick one above, or say which ("the second one").',
+        )
+        await user.click(within(choices).getByRole('button', { name: 'Pick Example Air EX 102' }))
+
+        expect(await sentRequest(fetchSpy)).toEqual({
+            url: `http://api.test/plans/${PLAN_ID}/planning/inputs`,
+            body: { type: 'pick', offer_id: OFFER_FLIGHTS_OUT.offer_id, candidate_ids: ['2'] },
+        })
     })
 
     it('sends free text, showing it while the planner works', async () => {

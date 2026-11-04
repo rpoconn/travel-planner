@@ -60,3 +60,56 @@ test('answers a question, then asks the pending one again', async ({ page }) => 
     // The question is asked again under the answer, and the plan is unchanged.
     await expect(question(page, 'Where are you going?')).toBeVisible()
 })
+
+test('picks the flights out and home by list and by free text, then moves on', async ({ page }) => {
+    // Basics, quickly: the origin is the user's home already.
+    const where = question(page, 'Where are you going?')
+    await where.getByRole('textbox', { name: 'Destination' }).fill('Lisbon')
+    await where.getByRole('button', { name: 'Continue' }).click()
+    await expect(question(page, 'When are you going?')).toBeVisible()
+    await sendChatMessage(page, 'next month for a week')
+    const who = question(page, "Who's coming?")
+    await who.getByRole('spinbutton', { name: 'Adults' }).fill('2')
+    await who.getByRole('button', { name: 'Continue' }).click()
+    await question(page, 'Do you have a budget for the whole trip?')
+        .getByRole('button', { name: 'Skip' })
+        .click()
+
+    // Answering the preferences runs the search (the offline fake's canned flights).
+    const how = question(page, 'How do you like to fly?')
+    await how.getByRole('radio', { name: 'Economy' }).click()
+    await how.getByRole('button', { name: 'Continue' }).click()
+    const out = page.getByRole('region', { name: 'Pick your flight out.' })
+    await expect(out.getByRole('article')).toHaveCount(2)
+
+    // Free text picks from the list ("the second one"), and the flights home are listed.
+    await sendChatMessage(page, 'the second one')
+    await expect(conversation(page)).toContainText('Got it: Example Air EX 102.')
+    const home = page.getByRole('region', { name: 'Pick your flight home.' })
+    await home.getByRole('button', { name: 'Pick Example Air EX 102' }).click()
+
+    // Both flights are in: the planner moves on to lodging by itself.
+    await expect(
+        page.getByRole('separator', { name: 'Flights done. Next up: lodging.' }),
+    ).toBeVisible()
+    await expect(question(page, 'What kind of place do you want to stay in?')).toBeVisible()
+})
+
+test('skips flights from the stage bar', async ({ page }) => {
+    const where = question(page, 'Where are you going?')
+    await where.getByRole('textbox', { name: 'Destination' }).fill('Lisbon')
+    await where.getByRole('button', { name: 'Continue' }).click()
+    await expect(question(page, 'When are you going?')).toBeVisible()
+    await sendChatMessage(page, 'a long weekend next month')
+    const who = question(page, "Who's coming?")
+    await who.getByRole('spinbutton', { name: 'Adults' }).fill('1')
+    await who.getByRole('button', { name: 'Continue' }).click()
+    await question(page, 'Do you have a budget for the whole trip?')
+        .getByRole('button', { name: 'Skip' })
+        .click()
+    await expect(question(page, 'How do you like to fly?')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Skip flights' }).click()
+
+    await expect(question(page, 'What kind of place do you want to stay in?')).toBeVisible()
+})

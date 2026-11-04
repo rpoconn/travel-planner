@@ -1,0 +1,46 @@
+import { describe, expect, it } from 'vitest'
+
+import { OFFER_ACTIVITIES, OFFER_FLIGHTS_OUT } from '@/test/fixtures'
+
+import { canSubmit, isMulti, pickHint, submitLabel, toggleId } from './ChoiceListService'
+
+describe('isMulti', () => {
+    it('is true when the offer takes several picks', () => {
+        expect(isMulti(OFFER_ACTIVITIES)).toBe(true)
+        expect(isMulti(OFFER_FLIGHTS_OUT)).toBe(false)
+    })
+})
+
+describe('toggleId', () => {
+    it('adds and removes an id', () => {
+        expect(toggleId(['1'], '2', 3)).toEqual(['1', '2'])
+        expect(toggleId(['1', '2'], '1', 3)).toEqual(['2'])
+    })
+
+    it('ignores an add past the most the offer takes', () => {
+        expect(toggleId(['1', '2'], '3', 2)).toEqual(['1', '2'])
+    })
+})
+
+describe('canSubmit', () => {
+    it('needs a count within the offer bounds', () => {
+        expect(canSubmit([], OFFER_ACTIVITIES)).toBe(false)
+        expect(canSubmit(['1'], OFFER_ACTIVITIES)).toBe(true)
+        expect(canSubmit(['1', '2', '3'], OFFER_ACTIVITIES)).toBe(true)
+    })
+})
+
+describe('submitLabel', () => {
+    it('says what is still needed, then how many it adds', () => {
+        expect(submitLabel([], OFFER_ACTIVITIES)).toBe('Pick at least 1')
+        expect(submitLabel(['1'], OFFER_ACTIVITIES)).toBe('Add 1 pick')
+        expect(submitLabel(['1', '3'], OFFER_ACTIVITIES)).toBe('Add 2 picks')
+    })
+})
+
+describe('pickHint', () => {
+    it('gives the bounds of a multi pick only', () => {
+        expect(pickHint(OFFER_ACTIVITIES)).toBe('Pick 1 to 3.')
+        expect(pickHint(OFFER_FLIGHTS_OUT)).toBeNull()
+    })
+})

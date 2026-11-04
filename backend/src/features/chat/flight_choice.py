@@ -46,7 +46,7 @@ def format_minutes(minutes: int) -> str:
     return f"{hours}h" if rest == 0 else f"{hours}h {rest}m"
 
 
-def _stops(option: FlightOption) -> str:
+def stops_label(option: FlightOption) -> str:
     if not option.layovers:
         return "nonstop"
     where = ", ".join(
@@ -60,7 +60,7 @@ def _price(price: Money | None) -> str:
     return f"{price.amount:,.0f} {price.currency}" if price is not None else "no price"
 
 
-def _local(stop: FlightStop) -> str:
+def local_time(stop: FlightStop) -> str:
     # `day` rather than `%-d`, which Windows' strftime doesn't support.
     return f"{stop.iata} {stop.time:%a %b} {stop.time.day} {stop.time:%H:%M}"
 
@@ -71,8 +71,8 @@ def describe_flight(option: FlightOption, *, with_price: bool = True) -> str:
     numbers = ", ".join(s.flight_number for s in option.segments if s.flight_number)
     airline = " / ".join(option.airlines) + (f" {numbers}" if numbers else "")
     line = (
-        f"{airline}: {_local(option.departure)} -> {_local(option.arrival)}, "
-        f"{format_minutes(option.total_duration_minutes)}, {_stops(option)}"
+        f"{airline}: {local_time(option.departure)} -> {local_time(option.arrival)}, "
+        f"{format_minutes(option.total_duration_minutes)}, {stops_label(option)}"
     )
     return f"{line}, {_price(option.price)}" if with_price else line
 
@@ -105,7 +105,7 @@ def flight_arguments(
         arguments["flight_number"] = ", ".join(numbers)
     if option.layovers:
         arguments["notes"] = f"Flight time {format_minutes(option.total_duration_minutes)}, " + (
-            _stops(option)
+            stops_label(option)
         )
     if cost is not None:
         # A price from the search itself, not a guess.

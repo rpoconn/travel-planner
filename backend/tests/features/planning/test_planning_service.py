@@ -29,7 +29,7 @@ CANDIDATES = [
     Candidate(
         id=f"c{index}",
         title=f"Flight {index}",
-        change=CandidateChange(name="add_flight", arguments={}, summary=f"Add flight {index}"),
+        changes=[CandidateChange(name="add_flight", arguments={}, summary=f"Add flight {index}")],
     )
     for index in (1, 2)
 ]

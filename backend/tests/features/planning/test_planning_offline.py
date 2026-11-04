@@ -3,8 +3,8 @@
 from datetime import date
 
 from features.chat.schemas import GuardrailVerdict
-from features.planning.extractor import extraction_schema
-from features.planning.offline import OFFLINE_ANSWER, extract_reply, planning_reply
+from features.planning.extractor import PICK_SCHEMA, extraction_schema
+from features.planning.offline import OFFLINE_ANSWER, extract_reply, pick_reply, planning_reply
 from features.planning.prompts import question_messages
 from features.plans.schemas import SlotName
 from shared.llm.fake import FakeRequest
@@ -58,3 +58,18 @@ def test_other_requests_are_left_to_the_chat_fake() -> None:
 
     assert planning_reply(guardrail) is None
     assert planning_reply(agent) is None
+
+
+def test_a_pick_is_read_by_position() -> None:
+    assert pick_reply("The second one.") == {"status": "answered", "candidate_ids": ["2"]}
+    assert pick_reply("first")["candidate_ids"] == ["1"]
+    assert pick_reply("Which is shortest?")["status"] == "question"
+    assert pick_reply("anything works")["status"] == "unrelated"
+
+
+def test_a_pick_request_is_recognised_by_its_schema() -> None:
+    messages = [LLMMessage(role="user", content="the third one")]
+
+    reply = planning_reply(FakeRequest(messages, [], PICK_SCHEMA, streamed=False, think=False))
+
+    assert reply is not None and '"3"' in reply.content

@@ -114,13 +114,20 @@ class CandidateChange(BaseModel):
 class Candidate(BaseModel):
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
-    id: str  # stable within its offer
+    id: str  # stable within its offer: "1", "2"... so "the second one" maps to an id
     title: str
     subtitle: str = ""
     details: list[str] = Field(default_factory=list)
+    # How it falls short of what the user asked for, e.g. "1 stop, not nonstop".
+    warnings: list[str] = Field(default_factory=list)
     price: Money | None = None
     source_url: str | None = None
-    change: CandidateChange
+    # Applied all-or-nothing, in order. Usually one; a round trip's flight home also
+    # moves the whole fare onto the flight out (an update, then the add).
+    changes: list[CandidateChange] = Field(min_length=1)
+    # The provider's token for the search that follows picking this one: a round trip's
+    # flight out lists its flights home with it.
+    follow_up_token: str | None = None
 
 
 class Offer(BaseModel):
@@ -241,7 +248,16 @@ class SlotSkip(BaseModel):
     slot: SlotName
 
 
-PlanningInput = Annotated[SlotAnswer | SlotSkip, Field(discriminator="type")]
+class ChoicePick(BaseModel):
+    """Pick from the open offer: picking is the approval. The ids must be the offer's, and
+    as many as its pick slot takes."""
+
+    type: Literal["pick"] = "pick"
+    offer_id: UUID
+    candidate_ids: list[str] = Field(min_length=1)
+
+
+PlanningInput = Annotated[SlotAnswer | SlotSkip | ChoicePick, Field(discriminator="type")]
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +277,18 @@ class AnswerRecord(BaseModel):
     skipped: bool = False
 
 
+class PickRecord(BaseModel):
+    """What the user picked from an offer (message kind "pick")."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    type: Literal["pick"] = "pick"
+    offer_id: UUID
+    slot: SlotName
+    candidate_ids: list[str]
+    titles: list[str]  # the picked candidates' titles, in the order picked
+
+
 class StageRecord(BaseModel):
     """The plan moved to another stage (message kind "stage")."""
 
@@ -270,9 +298,9 @@ class StageRecord(BaseModel):
 
 
 # kind "expected_input" → AskInput, "choices" → OfferChoice, "input" → AnswerRecord,
-# "stage" → StageRecord. Other kinds carry no payload.
+# "pick" → PickRecord, "stage" → StageRecord. Other kinds carry no payload.
 MessagePayload = Annotated[
-    AskInput | OfferChoice | AnswerRecord | StageRecord,
+    AskInput | OfferChoice | AnswerRecord | PickRecord | StageRecord,
     Field(discriminator="type"),
 ]
 

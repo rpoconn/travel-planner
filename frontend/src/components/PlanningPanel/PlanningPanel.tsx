@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { getPlanQueryKey, listPlanningMessagesOptions } from '@/api/@tanstack/react-query.gen'
 import type { TravelPlan } from '@/api/types.gen'
+import { ChoiceList } from '@/components/ChoiceList/ChoiceList'
 import { Composer } from '@/components/Composer/Composer'
 import { ExpectedInputPanel } from '@/components/ExpectedInputPanel/ExpectedInputPanel'
 import { MessageBubble } from '@/components/MessageBubble/MessageBubble'
@@ -22,7 +23,8 @@ import {
 import { composerPlaceholder, mergeTranscript, visibleMessages } from './PlanningPanelService'
 
 // The rules-driven planning flow: the transcript, then the planner's pending question as a
-// form, then the stage bar, with the composer underneath for free text. What comes next is
+// form (or its choices to pick from), then the stage bar, with the composer underneath for
+// free text. What comes next is
 // always `plan.assessment.next_action`, so the form and buttons follow the server.
 // Every turn (a form answer, free text, Continue) streams the messages the server stores;
 // once it ends the transcript is refetched. Mount with `key={plan.id}`.
@@ -196,6 +198,20 @@ export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
                                     kind="message"
                                     content={turn.streamingText || (turn.activity ?? '')}
                                     streaming
+                                />
+                            )}
+                            {action.type === 'offer_choice' && (
+                                <ChoiceList
+                                    key={action.offer_id}
+                                    action={action}
+                                    disabled={busy}
+                                    onPick={(candidateIds) =>
+                                        void submitInput({
+                                            type: 'pick',
+                                            offer_id: action.offer_id,
+                                            candidate_ids: candidateIds,
+                                        })
+                                    }
                                 />
                             )}
                             {action.type === 'ask_input' && (

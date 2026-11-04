@@ -317,12 +317,23 @@ export type Candidate = {
      * Details
      */
     details: Array<string>;
+    /**
+     * Warnings
+     */
+    warnings: Array<string>;
     price: MoneyOutput | null;
     /**
      * Source Url
      */
     source_url: string | null;
-    change: CandidateChange;
+    /**
+     * Changes
+     */
+    changes: Array<CandidateChange>;
+    /**
+     * Follow Up Token
+     */
+    follow_up_token: string | null;
 };
 
 /**
@@ -421,6 +432,27 @@ export type ChatProposal = {
      * Decided At
      */
     decided_at: string | null;
+};
+
+/**
+ * ChoicePick
+ *
+ * Pick from the open offer: picking is the approval. The ids must be the offer's, and
+ * as many as its pick slot takes.
+ */
+export type ChoicePick = {
+    /**
+     * Type
+     */
+    type?: 'pick';
+    /**
+     * Offer Id
+     */
+    offer_id: string;
+    /**
+     * Candidate Ids
+     */
+    candidate_ids: Array<string>;
 };
 
 /**
@@ -1364,6 +1396,31 @@ export type OfferChoice = {
 };
 
 /**
+ * PickRecord
+ *
+ * What the user picked from an offer (message kind "pick").
+ */
+export type PickRecord = {
+    /**
+     * Type
+     */
+    type: 'pick';
+    /**
+     * Offer Id
+     */
+    offer_id: string;
+    slot: SlotName;
+    /**
+     * Candidate Ids
+     */
+    candidate_ids: Array<string>;
+    /**
+     * Titles
+     */
+    titles: Array<string>;
+};
+
+/**
  * Place
  */
 export type Place = {
@@ -1655,6 +1712,8 @@ export type PlanningMessage = {
     } & OfferChoice) | ({
         type: 'answer';
     } & AnswerRecord) | ({
+        type: 'pick';
+    } & PickRecord) | ({
         type: 'stage';
     } & StageRecord) | null;
     /**
@@ -3502,7 +3561,9 @@ export type SubmitPlanningInputData = {
         type: 'answer';
     } & SlotAnswer) | ({
         type: 'skip';
-    } & SlotSkip);
+    } & SlotSkip) | ({
+        type: 'pick';
+    } & ChoicePick);
     path: {
         /**
          * Plan Id

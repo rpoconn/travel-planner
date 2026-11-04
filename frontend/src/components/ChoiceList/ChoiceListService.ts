@@ -1,0 +1,41 @@
+import type { OfferChoice } from '@/api/types.gen'
+
+// Pure helpers for ChoiceList: whether a list picks one option at once or several, and the
+// selection rules for several.
+
+// ----- mode -----
+
+/** Several options can be picked, so cards toggle and a button sends the selection. */
+export function isMulti(action: OfferChoice): boolean {
+    return action.max_picks > 1
+}
+
+// ----- selection -----
+
+/**
+ * `selected` with `id` toggled. Adding past `max` is ignored (the list says how many it
+ * takes), so a full selection only shrinks until something is removed.
+ */
+export function toggleId(selected: readonly string[], id: string, max: number): string[] {
+    if (selected.includes(id)) return selected.filter((picked) => picked !== id)
+    if (selected.length >= max) return [...selected]
+    return [...selected, id]
+}
+
+/** The selection is a pick the offer allows. */
+export function canSubmit(selected: readonly string[], action: OfferChoice): boolean {
+    return selected.length >= action.min_picks && selected.length <= action.max_picks
+}
+
+/** "Add 2 picks", or what's still needed: "Pick at least 1". */
+export function submitLabel(selected: readonly string[], action: OfferChoice): string {
+    const count = selected.length
+    if (count < action.min_picks) return `Pick at least ${String(action.min_picks)}`
+    return `Add ${String(count)} pick${count === 1 ? '' : 's'}`
+}
+
+/** What the list takes, under its prompt: "Pick 1 to 3." Nothing for a single pick. */
+export function pickHint(action: OfferChoice): string | null {
+    if (!isMulti(action)) return null
+    return `Pick ${String(action.min_picks)} to ${String(action.max_picks)}.`
+}

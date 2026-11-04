@@ -4,9 +4,12 @@ A turn starts from one trigger:
 
 - `Answer` / `Skip`: a submitted form (already checked against the pending slot by the
   router). No model call: the answer is written to the plan as is.
+- `Pick`: candidates picked from the open offer (checked by the router). Picking is the
+  approval: their changes are validated and written (`planning.picks`).
 - `Text`: free text from the composer. With an input pending, the extractor reads it as
-  that slot's answer; anything else gets the slot's fixed nudge, or a short answer when it
-  is a question. With nothing pending it is a question about the trip.
+  that slot's answer, and with choices pending as a pick ("the second one"); anything else
+  gets the slot's fixed nudge, or a short answer when it is a question. With nothing
+  pending it is a question about the trip.
 - `Continue`: no input; just drive (the "Find flights" / "Retry" / "Continue" button).
 
 Then `_drive` loops `{snapshot → assessment → act}`: it advances finished stages, runs
@@ -46,14 +49,17 @@ from features.planning.events import (
     PlanningStatusEvent,
     PlanningTokenEvent,
 )
-from features.planning.extractor import extract
+from features.planning.extractor import extract, extract_pick
+from features.planning.picks import PickContext, PickError, apply_pick, describe_pick
 from features.planning.prompts import question_messages
 from features.planning.schemas import (
     AdvanceStage,
     AnswerRecord,
     AskInput,
+    Candidate,
     Complete,
     OfferChoice,
+    PickRecord,
     RunSearch,
     StageRecord,
     TravelPlan,
@@ -63,7 +69,9 @@ from features.planning.slots import SLOTS, SlotSpec
 from features.plans import service as plans_service
 from features.plans.schemas import PlanSnapshot, PlanStage, SlotName, StageChange
 from features.plans.stages import STAGE_LABELS, StageError, apply_stage_change
+from shared.flights.types import FlightProvider
 from shared.llm.types import LLMClient, LLMError
+from shared.search.types import SearchProvider
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +95,9 @@ class TurnContext:
     user_id: UUID
     plan_id: UUID
     today: date
+    flights: FlightProvider
+    # Not searched by the planner; the tool context that checks a pick's changes needs one.
+    search: SearchProvider
 
 
 @dataclass(frozen=True)
@@ -101,6 +112,12 @@ class Skip:
 
 
 @dataclass(frozen=True)
+class Pick:
+    action: OfferChoice  # the pending offer, as the router checked it
+    candidates: list[Candidate]  # already checked with `picks.picked_candidates`
+
+
+@dataclass(frozen=True)
 class Text:
     content: str
 
@@ -110,7 +127,7 @@ class Continue:
     pass
 
 
-Trigger = Answer | Skip | Text | Continue
+Trigger = Answer | Skip | Pick | Text | Continue
 
 
 @dataclass
@@ -190,6 +207,46 @@ async def _skip(ctx: TurnContext, trigger: Skip) -> AsyncIterator[PlanningEvent]
 
 
 # ---------------------------------------------------------------------------
+# Picks
+# ---------------------------------------------------------------------------
+
+
+async def _write_pick(
+    ctx: TurnContext, plan: PlanSnapshot, action: OfferChoice, candidates: list[Candidate]
+) -> AsyncIterator[PlanningEvent]:
+    """Apply a pick; a change that doesn't fit becomes a note and nothing is written (the
+    same choices are shown again)."""
+    pick_ctx = PickContext(
+        session=ctx.session,
+        user_id=ctx.user_id,
+        plan_id=ctx.plan_id,
+        today=ctx.today,
+        search=ctx.search,
+        flights=ctx.flights,
+    )
+    try:
+        await apply_pick(pick_ctx, plan, action, candidates)
+    except PickError as exc:
+        note = f"That one can't be added: {exc}. Pick another, or go back and change the trip."
+        yield await _store(ctx, "assistant", note, kind="nudge")
+        return
+    yield PlanningPlanEvent(plan=await _snapshot(ctx))
+
+
+async def _form_pick(ctx: TurnContext, trigger: Pick) -> AsyncIterator[PlanningEvent]:
+    record = PickRecord(
+        offer_id=trigger.action.offer_id,
+        slot=trigger.action.slot,
+        candidate_ids=[candidate.id for candidate in trigger.candidates],
+        titles=[candidate.title for candidate in trigger.candidates],
+    )
+    content = describe_pick(trigger.candidates)
+    yield await _store(ctx, "user", content, kind="pick", payload=record)
+    async for event in _write_pick(ctx, await _snapshot(ctx), trigger.action, trigger.candidates):
+        yield event
+
+
+# ---------------------------------------------------------------------------
 # Free text
 # ---------------------------------------------------------------------------
 
@@ -235,8 +292,24 @@ async def _free_text(
         return
 
     if isinstance(action, OfferChoice):
-        # Reading a pick from free text ("the second one") arrives with the pick path.
-        yield await _store(ctx, "assistant", SLOTS[action.slot].nudge, kind="nudge")
+        spec = SLOTS[action.slot]
+        pick = await extract_pick(ctx.llm, action, content, plan)
+        if pick.candidates is not None:
+            got = f"Got it: {describe_pick(pick.candidates)}."
+            yield await _store(ctx, "assistant", got)
+            async for event in _write_pick(ctx, plan, action, pick.candidates):
+                yield event
+            outcome.drive = True
+        elif pick.error is not None:
+            note = f"That doesn't work: {pick.error}."
+            yield await _store(ctx, "assistant", note, kind="nudge")
+            outcome.drive = True  # shows the choices again
+        elif pick.status == "question":
+            async for event in _answer_question(ctx, plan, content, spec):
+                yield event
+            outcome.drive = True
+        else:
+            yield await _store(ctx, "assistant", spec.nudge, kind="nudge")
         return
 
     # Nothing to answer (a search to run, a stage to continue, or the trip is done). Not
@@ -267,7 +340,8 @@ async def _search(
     action stays a `RunSearch`, so the UI offers Retry)."""
     yield PlanningStatusEvent(text=f"{action.label}…")
     try:
-        candidates = await run_search(SearchContext(ctx.session, ctx.today), plan, action)
+        search_ctx = SearchContext(session=ctx.session, today=ctx.today, flights=ctx.flights)
+        candidates = await run_search(search_ctx, plan, action)
     except SearchFailedError as exc:
         yield await _store(ctx, "system", str(exc), kind="error")
         return
@@ -337,6 +411,9 @@ async def run_turn(ctx: TurnContext, trigger: Trigger) -> AsyncIterator[Planning
                     yield event
             case Skip():
                 async for event in _skip(ctx, trigger):
+                    yield event
+            case Pick():
+                async for event in _form_pick(ctx, trigger):
                     yield event
             case Text():
                 yield await _store(ctx, "user", trigger.content)

@@ -1589,7 +1589,7 @@
           "planning"
         ],
         "summary": "Submit Input",
-        "description": "Answer (or skip) the pending form. No model call: the answer is stored, the plan\nupdated, and the planner moves on, streaming `PlanningEvent`s that end in `done`.",
+        "description": "Answer (or skip) the pending form, or pick from the pending choices. No model call:\nthe answer or pick is stored, the plan updated, and the planner moves on (running the\nnext search, if any), streaming `PlanningEvent`s that end in `done`.",
         "operationId": "submitPlanningInput",
         "security": [
           {
@@ -1619,13 +1619,17 @@
                   },
                   {
                     "$ref": "#/components/schemas/SlotSkip"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChoicePick"
                   }
                 ],
                 "discriminator": {
                   "propertyName": "type",
                   "mapping": {
                     "answer": "#/components/schemas/SlotAnswer",
-                    "skip": "#/components/schemas/SlotSkip"
+                    "skip": "#/components/schemas/SlotSkip",
+                    "pick": "#/components/schemas/ChoicePick"
                   }
                 },
                 "title": "Body"
@@ -1746,7 +1750,7 @@
           "planning"
         ],
         "summary": "Send Message",
-        "description": "Free text. While a form is pending it is read as that form's answer (or answered as\na question, or nudged back to the question); otherwise it is a question about the trip.",
+        "description": "Free text. While a form is pending it is read as that form's answer, and while\nchoices are pending as a pick (or answered as a question, or nudged back to the\nquestion); otherwise it is a question about the trip.",
         "operationId": "sendPlanningMessage",
         "security": [
           {
@@ -2656,6 +2660,13 @@
             "type": "array",
             "title": "Details"
           },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
           "price": {
             "anyOf": [
               {
@@ -2677,8 +2688,24 @@
             ],
             "title": "Source Url"
           },
-          "change": {
-            "$ref": "#/components/schemas/CandidateChange"
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateChange"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Changes"
+          },
+          "follow_up_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Token"
           }
         },
         "type": "object",
@@ -2687,9 +2714,11 @@
           "title",
           "subtitle",
           "details",
+          "warnings",
           "price",
           "source_url",
-          "change"
+          "changes",
+          "follow_up_token"
         ],
         "title": "Candidate"
       },
@@ -2866,6 +2895,36 @@
         ],
         "title": "ChatProposal",
         "description": "The changes the assistant proposed in one reply, applied all-or-nothing on approval."
+      },
+      "ChoicePick": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "pick",
+            "title": "Type",
+            "default": "pick"
+          },
+          "offer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Offer Id"
+          },
+          "candidate_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Candidate Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offer_id",
+          "candidate_ids"
+        ],
+        "title": "ChoicePick",
+        "description": "Pick from the open offer: picking is the approval. The ids must be the offer's, and\nas many as its pick slot takes."
       },
       "Complete": {
         "properties": {
@@ -4756,6 +4815,48 @@
         "title": "OfferChoice",
         "description": "Show the open offer's candidates; picking is the approval."
       },
+      "PickRecord": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "pick",
+            "title": "Type",
+            "default": "pick"
+          },
+          "offer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Offer Id"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/SlotName"
+          },
+          "candidate_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Candidate Ids"
+          },
+          "titles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Titles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "offer_id",
+          "slot",
+          "candidate_ids",
+          "titles"
+        ],
+        "title": "PickRecord",
+        "description": "What the user picked from an offer (message kind \"pick\")."
+      },
       "Place": {
         "properties": {
           "name": {
@@ -5401,6 +5502,9 @@
                     "$ref": "#/components/schemas/AnswerRecord"
                   },
                   {
+                    "$ref": "#/components/schemas/PickRecord"
+                  },
+                  {
                     "$ref": "#/components/schemas/StageRecord"
                   }
                 ],
@@ -5410,6 +5514,7 @@
                     "answer": "#/components/schemas/AnswerRecord",
                     "ask_input": "#/components/schemas/AskInput",
                     "offer_choice": "#/components/schemas/OfferChoice",
+                    "pick": "#/components/schemas/PickRecord",
                     "stage": "#/components/schemas/StageRecord"
                   }
                 }

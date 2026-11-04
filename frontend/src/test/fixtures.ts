@@ -1,6 +1,7 @@
 import type {
     ActivityItem,
     AskInput,
+    Candidate,
     ChatMessage,
     ChatProposal,
     FlightItem,
@@ -8,6 +9,7 @@ import type {
     Issue,
     IssueCode,
     LodgingItem,
+    OfferChoice,
     Place,
     PlanAssessment,
     PlanningMessage,
@@ -468,6 +470,66 @@ export const ASK_FLIGHT_PREFERENCES: AskInput = {
 
 /** A plan in `stage` whose engine asks `action` next. */
 export function planAsking(action: AskInput, overrides: Partial<TravelPlan> = {}): TravelPlan {
+    return travelPlan({
+        stage: action.stage,
+        assessment: planAssessment({ stage: action.stage, next_action: action }),
+        ...overrides,
+    })
+}
+
+/** An option in the planner's choices; by default the first canned flight out. */
+export function candidate(overrides: Partial<Candidate> = {}): Candidate {
+    return {
+        id: '1',
+        title: 'Example Air EX 101',
+        subtitle: 'PHL Sat May 1 09:00 → LIS Sat May 1 22:00',
+        details: ['13h', 'nonstop'],
+        warnings: [],
+        price: { amount: '1800', currency: 'USD' },
+        source_url: null,
+        changes: [{ name: 'add_flight', arguments: {}, summary: 'Add flight out PHL → LIS' }],
+        follow_up_token: null,
+        ...overrides,
+    }
+}
+
+/** The flights out to pick from: two canned options. */
+export const OFFER_FLIGHTS_OUT: OfferChoice = {
+    type: 'offer_choice',
+    offer_id: 'bbbbbbbb-0000-0000-0000-000000000001',
+    slot: 'flight_outbound',
+    stage: 'flights',
+    prompt: 'Pick your flight out.',
+    candidates: [
+        candidate(),
+        candidate({ id: '2', title: 'Example Air EX 102', subtitle: 'PHL Sat May 1 18:30' }),
+    ],
+    min_picks: 1,
+    max_picks: 1,
+    gap: null,
+    nights: null,
+}
+
+/** Things to do: pick one to three of three. */
+export const OFFER_ACTIVITIES: OfferChoice = {
+    type: 'offer_choice',
+    offer_id: 'bbbbbbbb-0000-0000-0000-000000000002',
+    slot: 'activities',
+    stage: 'activities',
+    prompt: "Pick the things you'd like to do.",
+    candidates: [
+        candidate({ id: '1', title: 'Tile museum', price: null }),
+        candidate({ id: '2', title: 'Fado night', price: null }),
+        candidate({ id: '3', title: 'Tram 28', price: null }),
+    ],
+    min_picks: 1,
+    max_picks: 3,
+    gap: null,
+    nights: null,
+}
+
+/** A plan in `stage` whose engine shows `action`'s choices next. */
+export function planChoosing(action: OfferChoice, overrides: Partial<TravelPlan> = {}): TravelPlan {
     return travelPlan({
         stage: action.stage,
         assessment: planAssessment({ stage: action.stage, next_action: action }),

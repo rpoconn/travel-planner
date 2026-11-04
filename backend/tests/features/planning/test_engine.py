@@ -57,7 +57,7 @@ def _offer(
     candidate = Candidate(
         id="c1",
         title="Option one",
-        change=CandidateChange(name="add_item", arguments={}, summary="Add option one"),
+        changes=[CandidateChange(name="add_item", arguments={}, summary="Add option one")],
     )
     return Offer(
         id=uuid4(),

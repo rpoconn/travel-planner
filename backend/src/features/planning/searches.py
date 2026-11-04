@@ -1,35 +1,24 @@
 """Searches that turn a `RunSearch` into an offer's candidates.
 
-Each search kind has a runner; Phase 3 onwards adds them (flights, then lodging, activities
-and transfers). Until a kind has one, running it fails like a provider outage would, so the
+Each search kind has a runner: flights now, then lodging, activities and transfers in
+later phases. Until a kind has one, running it fails like a provider outage would, so the
 UI shows Retry and the rest of the flow is unaffected.
 """
 
 import hashlib
 import json
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from datetime import date
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from features.planning import flight_search
 from features.planning.schemas import Candidate, RunSearch, SearchKind
+from features.planning.search_types import Runner, SearchContext, SearchFailedError
 from features.plans.schemas import PlanSnapshot
 
+__all__ = ["SearchContext", "SearchFailedError", "query_hash", "run_search"]
 
-class SearchFailedError(Exception):
-    """The search couldn't produce candidates. The message is shown to the user."""
-
-
-@dataclass(frozen=True)
-class SearchContext:
-    session: AsyncSession
-    today: date
-
-
-Runner = Callable[[SearchContext, PlanSnapshot, RunSearch], Awaitable[list[Candidate]]]
-
-_RUNNERS: dict[SearchKind, Runner] = {}
+_RUNNERS: dict[SearchKind, Runner] = {
+    "flights_outbound": flight_search.outbound_flights,
+    "flights_return": flight_search.return_flights,
+}
 
 
 def query_hash(plan: PlanSnapshot, action: RunSearch) -> str:

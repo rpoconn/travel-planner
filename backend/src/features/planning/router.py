@@ -18,12 +18,24 @@ from features.chat.dependencies import LLMDep, limit_chat_messages
 from features.planning import service as planning_service
 from features.planning.answers import AnswerError, parse_answer
 from features.planning.events import PlanningEvent, PlanningMessage, PlanningText
-from features.planning.schemas import AskInput, PlanningInput, SlotSkip
-from features.planning.turn import Answer, Continue, Skip, Text, Trigger, TurnContext, run_turn
+from features.planning.picks import PickError, picked_candidates
+from features.planning.schemas import AskInput, ChoicePick, OfferChoice, PlanningInput, SlotSkip
+from features.planning.turn import (
+    Answer,
+    Continue,
+    Pick,
+    Skip,
+    Text,
+    Trigger,
+    TurnContext,
+    run_turn,
+)
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from shared.db import SessionDep
 from shared.errors import error_responses
+from shared.flights.provider import FlightsDep
+from shared.search.provider import SearchDep
 
 router = APIRouter(
     prefix="/plans/{plan_id}/planning",
@@ -47,16 +59,31 @@ async def get_owned_plan(plan_id: UUID, user: CurrentUser, session: SessionDep) 
 OwnedPlan = Annotated[Plan, Depends(get_owned_plan)]
 
 
+_STALE = "That question isn't the one being asked any more. Reload to see the latest."
+
+
+def _checked_pick(body: ChoicePick, action: OfferChoice) -> Pick:
+    try:
+        candidates = picked_candidates(action, body.candidate_ids)
+    except PickError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    return Pick(action=action, candidates=candidates)
+
+
 async def get_checked_input(body: PlanningInput, plan: OwnedPlan, session: SessionDep) -> Trigger:
-    """The submitted form as a turn trigger: 409 unless its slot is the one being asked,
-    422 when the value doesn't fit the slot (or a required slot is skipped)."""
+    """The submitted form or pick as a turn trigger: 409 unless it answers what is being
+    asked (the slot, or the open offer), 422 when the value doesn't fit the slot, a required
+    slot is skipped, or the pick isn't one the offer allows."""
     snapshot = await planning_service.snapshot(session, plan)
     action = snapshot.assessment.next_action
+    if isinstance(body, ChoicePick):
+        if not isinstance(action, OfferChoice) or action.offer_id != body.offer_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
+        return _checked_pick(body, action)
     if not isinstance(action, AskInput) or action.slot != body.slot:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="That question isn't the one being asked any more. Reload to see the latest.",
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
     if isinstance(body, SlotSkip):
         if not action.optional:
             raise HTTPException(
@@ -76,10 +103,26 @@ async def get_checked_input(body: PlanningInput, plan: OwnedPlan, session: Sessi
 CheckedInput = Annotated[Trigger, Depends(get_checked_input)]
 
 
-def _context(session: SessionDep, llm: LLMDep, user: CurrentUser, plan: Plan) -> TurnContext:
+def get_turn_context(
+    session: SessionDep,
+    llm: LLMDep,
+    flights: FlightsDep,
+    search: SearchDep,
+    user: CurrentUser,
+    plan: OwnedPlan,
+) -> TurnContext:
     return TurnContext(
-        session=session, llm=llm, user_id=user.id, plan_id=plan.id, today=date.today()
+        session=session,
+        llm=llm,
+        user_id=user.id,
+        plan_id=plan.id,
+        today=date.today(),
+        flights=flights,
+        search=search,
     )
+
+
+Turn = Annotated[TurnContext, Depends(get_turn_context)]
 
 
 # ---------------------------------------------------------------------------
@@ -102,12 +145,11 @@ async def list_messages(
     response_class=EventSourceResponse,
     responses=error_responses(status.HTTP_409_CONFLICT, status.HTTP_422_UNPROCESSABLE_CONTENT),
 )
-async def submit_input(
-    trigger: CheckedInput, plan: OwnedPlan, user: CurrentUser, session: SessionDep, llm: LLMDep
-) -> AsyncIterator[PlanningEvent]:
-    """Answer (or skip) the pending form. No model call: the answer is stored, the plan
-    updated, and the planner moves on, streaming `PlanningEvent`s that end in `done`."""
-    async for event in run_turn(_context(session, llm, user, plan), trigger):
+async def submit_input(trigger: CheckedInput, turn: Turn) -> AsyncIterator[PlanningEvent]:
+    """Answer (or skip) the pending form, or pick from the pending choices. No model call:
+    the answer or pick is stored, the plan updated, and the planner moves on (running the
+    next search, if any), streaming `PlanningEvent`s that end in `done`."""
+    async for event in run_turn(turn, trigger):
         yield event
 
 
@@ -118,12 +160,11 @@ async def submit_input(
     responses=error_responses(status.HTTP_429_TOO_MANY_REQUESTS),
     dependencies=[Depends(limit_chat_messages)],
 )
-async def send_message(
-    body: PlanningText, plan: OwnedPlan, user: CurrentUser, session: SessionDep, llm: LLMDep
-) -> AsyncIterator[PlanningEvent]:
-    """Free text. While a form is pending it is read as that form's answer (or answered as
-    a question, or nudged back to the question); otherwise it is a question about the trip."""
-    async for event in run_turn(_context(session, llm, user, plan), Text(content=body.content)):
+async def send_message(body: PlanningText, turn: Turn) -> AsyncIterator[PlanningEvent]:
+    """Free text. While a form is pending it is read as that form's answer, and while
+    choices are pending as a pick (or answered as a question, or nudged back to the
+    question); otherwise it is a question about the trip."""
+    async for event in run_turn(turn, Text(content=body.content)):
         yield event
 
 
@@ -134,10 +175,8 @@ async def send_message(
     responses=error_responses(status.HTTP_429_TOO_MANY_REQUESTS),
     dependencies=[Depends(limit_chat_messages)],
 )
-async def continue_planning(
-    plan: OwnedPlan, user: CurrentUser, session: SessionDep, llm: LLMDep
-) -> AsyncIterator[PlanningEvent]:
+async def continue_planning(turn: Turn) -> AsyncIterator[PlanningEvent]:
     """Let the planner act with no new input: move on from a finished stage, run (or retry)
     a search, or show the pending form again."""
-    async for event in run_turn(_context(session, llm, user, plan), Continue()):
+    async for event in run_turn(turn, Continue()):
         yield event

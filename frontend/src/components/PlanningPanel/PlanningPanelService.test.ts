@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ASK_DATES, ASK_DESTINATION, planningMessage } from '@/test/fixtures'
+import { ASK_DATES, ASK_DESTINATION, OFFER_FLIGHTS_OUT, planningMessage } from '@/test/fixtures'
 
 import { composerPlaceholder, mergeTranscript, visibleMessages } from './PlanningPanelService'
 
@@ -36,10 +36,32 @@ describe('visibleMessages', () => {
     })
 })
 
+describe('visibleMessages with choices', () => {
+    const shown = planningMessage({
+        id: 'm4',
+        kind: 'choices',
+        content: 'Pick your flight out.',
+        payload: OFFER_FLIGHTS_OUT,
+    })
+
+    it('leaves out the last choices when the list shows the same offer', () => {
+        expect(visibleMessages([ANSWER, shown], OFFER_FLIGHTS_OUT)).toEqual([ANSWER])
+    })
+
+    it('keeps choices from another offer', () => {
+        const newer = { ...OFFER_FLIGHTS_OUT, offer_id: 'bbbbbbbb-0000-0000-0000-000000000009' }
+
+        expect(visibleMessages([ANSWER, shown], newer)).toHaveLength(2)
+    })
+})
+
 describe('composerPlaceholder', () => {
     it('repeats the pending question', () => {
         expect(composerPlaceholder(ASK_DATES)).toBe(
             'When are you going? Type it here, or use the form.',
+        )
+        expect(composerPlaceholder(OFFER_FLIGHTS_OUT)).toBe(
+            'Pick one above, or say which ("the second one").',
         )
         expect(composerPlaceholder({ type: 'complete' })).toBe('Ask anything about your trip…')
     })

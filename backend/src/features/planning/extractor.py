@@ -1,4 +1,5 @@
-"""The slot extractor: turns free text typed while an input is pending into that slot's value.
+"""The slot extractor: turns free text typed while an input is pending into that slot's value,
+or, while choices are pending, into the candidates it picks.
 
 The model is asked for `{status, value}` constrained to a JSON schema built from the slot's
 value model, with thinking off. Its reply is parsed in two steps, so a value that has the
@@ -16,7 +17,9 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, Field, ValidationError, create_model
 
 from features.planning.answers import AnswerError, parse_answer
-from features.planning.prompts import extractor_messages
+from features.planning.picks import PickError, picked_candidates
+from features.planning.prompts import extractor_messages, pick_messages
+from features.planning.schemas import Candidate, OfferChoice
 from features.planning.slots import SLOTS
 from features.plans.schemas import PlanSnapshot, SlotName
 from shared.llm.schema import inline_schema
@@ -50,9 +53,28 @@ class Extraction:
     error: str | None = None  # answered, but the value breaks the slot's rules
 
 
+class PickReply(BaseModel):
+    """The pick reader's reply. The ids are checked against the offer afterwards."""
+
+    status: ExtractionStatus = Field(description=_STATUS_DESCRIPTION)
+    candidate_ids: list[str] = Field(
+        default_factory=list, description="The ids of the options the message picks"
+    )
+
+
+@dataclass(frozen=True)
+class PickExtraction:
+    status: ExtractionStatus
+    candidates: list[Candidate] | None = None  # answered, and the pick fits the offer
+    error: str | None = None  # answered, but not with a pick the offer allows
+
+
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
+
+# The pick reader's schema is the same for every offer: the options are in the prompt.
+PICK_SCHEMA: dict[str, Any] = inline_schema(PickReply)
 
 
 @cache
@@ -108,3 +130,37 @@ async def extract(
 
     logger.error("Extractor failed %d times for %s; answering with the nudge", MAX_ATTEMPTS, slot)
     return Extraction(status="unrelated")
+
+
+async def extract_pick(
+    llm: LLMClient, action: OfferChoice, content: str, plan: PlanSnapshot
+) -> PickExtraction:
+    """Read `content` as a pick from the pending offer ("the second one"). Fails closed to
+    `unrelated` like `extract`; `LLMError` propagates."""
+    messages = pick_messages(action, content, plan)
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        reply = await llm.chat(messages, format=PICK_SCHEMA, think=False)
+        try:
+            raw = PickReply.model_validate_json(reply.content)
+        except ValidationError as exc:
+            logger.warning(
+                "Pick reader returned malformed output (attempt %d/%d): %s",
+                attempt,
+                MAX_ATTEMPTS,
+                exc.errors(include_url=False)[:3],
+            )
+            continue
+        logger.info("Pick reader read %s as %s", action.slot, raw.status)
+        if raw.status != "answered":
+            return PickExtraction(status=raw.status)
+        if not raw.candidate_ids:
+            return PickExtraction(status="unrelated")
+        try:
+            return PickExtraction(
+                status="answered", candidates=picked_candidates(action, raw.candidate_ids)
+            )
+        except PickError as exc:
+            return PickExtraction(status="answered", error=str(exc))
+
+    logger.error("Pick reader failed %d times; answering with the nudge", MAX_ATTEMPTS)
+    return PickExtraction(status="unrelated")

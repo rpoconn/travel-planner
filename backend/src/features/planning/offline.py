@@ -5,6 +5,8 @@ Playwright suite), so free text works with no model.
   name the slot. The latest user message is looked up, case-folded, in a small phrase
   table for that slot; a match is answered, text ending in "?" is a question, and anything
   else is unrelated.
+- Pick requests (`extractor.PICK_SCHEMA`) read "the first one", "the second one"... as
+  that option's id; the ids are positions ("1", "2"), as the searches number them.
 - Question requests (`prompts.QA_INTRO`) get a fixed answer.
 
 Anything else returns None, so the chat flow's own fake (`chat.offline`) handles it.
@@ -114,8 +116,26 @@ def extract_reply(slot: SlotName, content: str, today: date) -> dict[str, Any]:
     return {"status": "unrelated", "value": None}
 
 
+_ORDINALS = ("first", "second", "third", "fourth", "fifth")
+
+
+def pick_reply(content: str) -> dict[str, Any]:
+    phrase = content.strip().rstrip(".!").casefold().removeprefix("the ").removesuffix(" one")
+    if phrase in _ORDINALS:
+        return {"status": "answered", "candidate_ids": [str(_ORDINALS.index(phrase) + 1)]}
+    if content.strip().endswith("?"):
+        return {"status": "question", "candidate_ids": []}
+    return {"status": "unrelated", "candidate_ids": []}
+
+
+def _is_pick_schema(schema: dict[str, Any]) -> bool:
+    return set(schema.get("properties", {})) == {"status", "candidate_ids"}
+
+
 def planning_reply(request: FakeRequest) -> LLMMessage | None:
     """The fake's reply to a planning request, or None when the request isn't one."""
+    if request.format is not None and _is_pick_schema(request.format):
+        return json_reply(pick_reply(_latest_user_text(request)))
     if request.format is not None:
         slot = _slot_for_schema(request.format)
         if slot is None:

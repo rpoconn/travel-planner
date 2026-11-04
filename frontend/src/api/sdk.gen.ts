@@ -286,8 +286,9 @@ export const listPlanningMessages = <ThrowOnError extends boolean = false>(optio
 /**
  * Submit Input
  *
- * Answer (or skip) the pending form. No model call: the answer is stored, the plan
- * updated, and the planner moves on, streaming `PlanningEvent`s that end in `done`.
+ * Answer (or skip) the pending form, or pick from the pending choices. No model call:
+ * the answer or pick is stored, the plan updated, and the planner moves on (running the
+ * next search, if any), streaming `PlanningEvent`s that end in `done`.
  */
 export const submitPlanningInput = <ThrowOnError extends boolean = false>(options: Options<SubmitPlanningInputData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<SubmitPlanningInputResponses>> => (options.client ?? client).sse.post<SubmitPlanningInputResponses, SubmitPlanningInputErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -302,8 +303,9 @@ export const submitPlanningInput = <ThrowOnError extends boolean = false>(option
 /**
  * Send Message
  *
- * Free text. While a form is pending it is read as that form's answer (or answered as
- * a question, or nudged back to the question); otherwise it is a question about the trip.
+ * Free text. While a form is pending it is read as that form's answer, and while
+ * choices are pending as a pick (or answered as a question, or nudged back to the
+ * question); otherwise it is a question about the trip.
  */
 export const sendPlanningMessage = <ThrowOnError extends boolean = false>(options: Options<SendPlanningMessageData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<SendPlanningMessageResponses>> => (options.client ?? client).sse.post<SendPlanningMessageResponses, SendPlanningMessageErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
