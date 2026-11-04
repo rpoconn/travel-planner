@@ -8,6 +8,7 @@ import { ChatPanel, type ChatPanelHandle } from '@/components/ChatPanel/ChatPane
 import { EmptyPane } from '@/components/EmptyPane/EmptyPane'
 import { HomeSetup } from '@/components/HomeSetup/HomeSetup'
 import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
+import { PlanningPanel } from '@/components/PlanningPanel/PlanningPanel'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
 import { SplitPane } from '@/components/SplitPane/SplitPane'
 import { StageStepper } from '@/components/StageStepper/StageStepper'
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/apiError'
 import { clearSession, useAuthSession } from '@/lib/auth'
 import { formatDateRange } from '@/lib/format'
+import { planningEngineEnabled } from '@/lib/planningEngine'
 
 // Shell: a full-height trips sidebar on the left; on the right the itinerary timeline stacked
 // above the chat. The chat and timeline are keyed by plan id so switching trips starts them
@@ -42,6 +44,8 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
     // disabled while it streams a reply.
     const chatRef = useRef<ChatPanelHandle>(null)
     const [chatBusy, setChatBusy] = useState(false)
+    // Until the chat flow is removed, an env switch picks which flow the right pane runs.
+    const planningEngine = planningEngineEnabled()
 
     // ----- event handlers -----
     function handleSelectPlan(id: string) {
@@ -87,9 +91,15 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                     <TimelineWarnings
                         key={plan.id}
                         planId={plan.id}
-                        onRequestFix={(warning) => {
-                            chatRef.current?.sendFix(warning)
-                        }}
+                        // "Fix it" asks the chat assistant, which the planning flow doesn't
+                        // have; without a handler the warnings show no Fix it buttons.
+                        onRequestFix={
+                            planningEngine
+                                ? undefined
+                                : (warning) => {
+                                      chatRef.current?.sendFix(warning)
+                                  }
+                        }
                         fixDisabled={chatBusy}
                     />
                 </div>
@@ -150,6 +160,12 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                                     <p role="alert" className="text-destructive p-6 text-sm">
                                         {errorMessage(planQuery.error, "Couldn't load this trip")}
                                     </p>
+                                ) : planningEngine ? (
+                                    <PlanningPanel
+                                        key={planQuery.data.id}
+                                        plan={planQuery.data}
+                                        onBusyChange={setChatBusy}
+                                    />
                                 ) : (
                                     <ChatPanel
                                         key={planQuery.data.id}

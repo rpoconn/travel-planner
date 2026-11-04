@@ -1,4 +1,4 @@
-import { CircleAlert, Compass } from 'lucide-react'
+import { CircleAlert, Compass, Flag } from 'lucide-react'
 
 import type { ChatMessage } from '@/api/types.gen'
 import { ToolChip } from '@/components/ToolChip/ToolChip'
@@ -6,9 +6,10 @@ import { TypingDots } from '@/components/TypingDots/TypingDots'
 import type { ToolActivity } from '@/lib/chatTurn'
 
 // One transcript entry. Renders stored messages and the live, streaming reply the same way:
-// user bubbles on the right (including decisions on a proposal card), assistant replies on
-// the left with tool chips above the text, off-topic redirects as a soft hint card, and
-// failures as an error notice.
+// user bubbles on the right (including decisions on a proposal card and planning form
+// answers), assistant replies on the left with tool chips above the text (a planning
+// question, `expected_input`, reads as one too), off-topic redirects and planning nudges as
+// a soft hint card, a planning stage move as a divider, and failures as an error notice.
 
 // ----- types -----
 
@@ -39,6 +40,25 @@ export function MessageBubble({
         )
     }
 
+    if (kind === 'stage') {
+        // The planner moved on to another stage: a divider, not a message.
+        return (
+            <div
+                role="separator"
+                aria-label={content}
+                data-role="system"
+                className="text-muted-foreground flex items-center gap-3 py-1 text-xs"
+            >
+                <span className="bg-border h-px flex-1" aria-hidden />
+                <span className="flex items-center gap-1.5">
+                    <Flag className="size-3.5" aria-hidden />
+                    {content}
+                </span>
+                <span className="bg-border h-px flex-1" aria-hidden />
+            </div>
+        )
+    }
+
     if (role === 'system' || kind === 'error') {
         return (
             <div
@@ -51,10 +71,11 @@ export function MessageBubble({
         )
     }
 
-    if (kind === 'redirect') {
+    if (kind === 'redirect' || kind === 'nudge') {
         return (
             <aside
-                aria-label="Off-topic reply"
+                // A nudge steers free text back to the planner's pending question.
+                aria-label={kind === 'nudge' ? 'Back to the question' : 'Off-topic reply'}
                 data-role="assistant"
                 className="border-terracotta/40 bg-accent/60 text-accent-foreground flex max-w-[85%] items-start gap-3 rounded-2xl border border-dashed px-4 py-3 text-sm"
             >

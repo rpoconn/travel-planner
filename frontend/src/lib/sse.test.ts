@@ -2,10 +2,21 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { client } from '@/api/client.gen'
 import { getSession, setSessionFromToken } from '@/lib/auth'
-import { chatMessage, PLAN_ID, tokenResponse, travelPlan } from '@/test/fixtures'
+import { chatMessage, PLAN_ID, planningMessage, tokenResponse, travelPlan } from '@/test/fixtures'
 import { jsonResponse, sseResponse } from '@/test/sse'
 
-import { ChatRequestError, parseChatEvent, streamChat, streamDecision, type ChatEvent } from './sse'
+import {
+    ChatRequestError,
+    parseChatEvent,
+    parsePlanningEvent,
+    streamChat,
+    streamDecision,
+    streamPlanningChat,
+    streamPlanningContinue,
+    streamPlanningInput,
+    type ChatEvent,
+    type PlanningEvent,
+} from './sse'
 
 // ----- setup -----
 
@@ -27,8 +38,8 @@ const EVENTS: ChatEvent[] = [
     { type: 'done', message: chatMessage() },
 ]
 
-async function collect(stream: AsyncGenerator<ChatEvent>): Promise<ChatEvent[]> {
-    const events: ChatEvent[] = []
+async function collect<E>(stream: AsyncGenerator<E>): Promise<E[]> {
+    const events: E[] = []
     for await (const event of stream) events.push(event)
     return events
 }
@@ -163,5 +174,80 @@ describe('streamDecision', () => {
         await expect(
             collect(streamDecision(PLAN_ID, 'p1', { action: 'approve' })),
         ).rejects.toMatchObject({ status: 409, message: 'This proposal was already denied' })
+    })
+})
+
+// ----- planning flow -----
+
+const PLANNING_EVENTS: PlanningEvent[] = [
+    {
+        type: 'message',
+        message: planningMessage({ role: 'user', kind: 'input', content: 'Lisbon' }),
+    },
+    { type: 'plan_updated', plan: travelPlan({ version: 2 }) },
+    { type: 'status', text: 'Find flights out…' },
+    { type: 'token', text: 'Lovely ' },
+    { type: 'done', plan: travelPlan({ version: 2 }) },
+]
+
+describe('parsePlanningEvent', () => {
+    it('accepts the planning event types only', () => {
+        expect(parsePlanningEvent({ type: 'status', text: 'x' })).toEqual({
+            type: 'status',
+            text: 'x',
+        })
+        expect(parsePlanningEvent({ type: 'guardrail', on_topic: true })).toBeNull()
+        expect(parsePlanningEvent(null)).toBeNull()
+    })
+})
+
+describe('planning streams', () => {
+    it('POSTs a form answer to the inputs route and yields its events', async () => {
+        client.setConfig({ auth: () => 'test-token' })
+        const fetchSpy = mockFetch(sseResponse([...PLANNING_EVENTS, { type: 'guardrail' }]))
+        const body = {
+            type: 'answer' as const,
+            slot: 'destination' as const,
+            value: { destination: { name: 'Lisbon' } },
+        }
+
+        const events = await collect(streamPlanningInput(PLAN_ID, body))
+
+        expect(events).toEqual(PLANNING_EVENTS)
+        const request = fetchSpy.mock.calls[0]?.[0] as Request
+        expect(request.method).toBe('POST')
+        expect(request.url).toBe(`http://api.test/plans/${PLAN_ID}/planning/inputs`)
+        expect(request.headers.get('Authorization')).toBe('Bearer test-token')
+        expect(await request.json()).toEqual(body)
+    })
+
+    it('POSTs free text to the planning chat', async () => {
+        const fetchSpy = mockFetch(sseResponse(PLANNING_EVENTS))
+
+        await collect(streamPlanningChat(PLAN_ID, 'two adults'))
+
+        const request = fetchSpy.mock.calls[0]?.[0] as Request
+        expect(request.url).toBe(`http://api.test/plans/${PLAN_ID}/planning/chat`)
+        expect(await request.json()).toEqual({ content: 'two adults' })
+    })
+
+    it('POSTs continue with no body', async () => {
+        const fetchSpy = mockFetch(sseResponse(PLANNING_EVENTS))
+
+        await collect(streamPlanningContinue(PLAN_ID))
+
+        const request = fetchSpy.mock.calls[0]?.[0] as Request
+        expect(request.method).toBe('POST')
+        expect(request.url).toBe(`http://api.test/plans/${PLAN_ID}/planning/continue`)
+    })
+
+    it('reports a stale form (409) with the detail', async () => {
+        mockFetch(
+            jsonResponse({ detail: "That question isn't the one being asked any more." }, 409),
+        )
+
+        await expect(
+            collect(streamPlanningInput(PLAN_ID, { type: 'skip', slot: 'budget' })),
+        ).rejects.toMatchObject({ status: 409 })
     })
 })

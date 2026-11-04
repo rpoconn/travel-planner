@@ -1,10 +1,23 @@
-import { decideProposal, sendMessage } from '@/api/sdk.gen'
+import {
+    continuePlanning,
+    decideProposal,
+    sendMessage,
+    sendPlanningMessage,
+    submitPlanningInput,
+} from '@/api/sdk.gen'
 import type {
     DoneEvent,
     ErrorEvent,
     GuardrailEvent,
+    PlanningDoneEvent,
+    PlanningErrorEvent,
+    PlanningMessageEvent,
+    PlanningPlanEvent,
+    PlanningStatusEvent,
+    PlanningTokenEvent,
     PlanUpdatedEvent,
     ProposalDecision,
+    SubmitPlanningInputData,
     TokenEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -13,10 +26,11 @@ import type {
 import { errorMessage } from '@/lib/apiError'
 import { clearSession } from '@/lib/auth'
 
-// Chat streaming over the generated SDK's SSE client: sending a message and answering a
-// proposal card both stream the same events. hey-api types each stream item as
-// `unknown` (it ignores OpenAPI 3.2 `itemSchema`), so the event union is rebuilt here from
-// the generated event types and every item is narrowed on its `type` tag.
+// Streaming over the generated SDK's SSE client, for both flows: the chat flow (sending a
+// message, answering a proposal card) and the planning flow (a form answer, free text,
+// continue). hey-api types each stream item as `unknown` (it ignores OpenAPI 3.2
+// `itemSchema`), so each flow's event union is rebuilt here from the generated event types
+// and every item is narrowed on its `type` tag.
 
 // ----- types -----
 
@@ -28,6 +42,17 @@ export type ChatEvent =
     | PlanUpdatedEvent
     | DoneEvent
     | ErrorEvent
+
+export type PlanningEvent =
+    | PlanningStatusEvent
+    | PlanningTokenEvent
+    | PlanningMessageEvent
+    | PlanningPlanEvent
+    | PlanningDoneEvent
+    | PlanningErrorEvent
+
+/** A form answer or skip, as `submitPlanningInput` takes it. */
+export type PlanningInputBody = SubmitPlanningInputData['body']
 
 /** The request itself failed (404, 422, 401, network) before any event arrived. */
 export class ChatRequestError extends Error {
@@ -58,9 +83,27 @@ const CHAT_EVENT_TYPES: ReadonlySet<string> = new Set<ChatEvent['type']>([
  * implies the rest of the shape. Unknown tags (a newer server) are skipped, not fatal.
  */
 export function parseChatEvent(data: unknown): ChatEvent | null {
-    if (typeof data !== 'object' || data === null) return null
+    return hasType(data, CHAT_EVENT_TYPES) ? (data as ChatEvent) : null
+}
+
+const PLANNING_EVENT_TYPES: ReadonlySet<string> = new Set<PlanningEvent['type']>([
+    'status',
+    'token',
+    'message',
+    'plan_updated',
+    'done',
+    'error',
+])
+
+/** Narrow one decoded payload to a PlanningEvent, or null (same rules as parseChatEvent). */
+export function parsePlanningEvent(data: unknown): PlanningEvent | null {
+    return hasType(data, PLANNING_EVENT_TYPES) ? (data as PlanningEvent) : null
+}
+
+function hasType(data: unknown, types: ReadonlySet<string>): boolean {
+    if (typeof data !== 'object' || data === null) return false
     const { type } = data as { type?: unknown }
-    return typeof type === 'string' && CHAT_EVENT_TYPES.has(type) ? (data as ChatEvent) : null
+    return typeof type === 'string' && types.has(type)
 }
 
 // ----- transport -----
@@ -99,13 +142,15 @@ interface SseRequestOptions {
 type StartStream = (options: SseRequestOptions) => Promise<{ stream: AsyncIterable<unknown> }>
 
 /**
- * Run `start` and yield its events as they stream in. Throws a ChatRequestError (or a fetch
- * TypeError when offline) if the request fails; ends quietly when `signal` aborts.
+ * Run `start` and yield its events (those `parse` recognises) as they stream in. Throws a
+ * ChatRequestError (or a fetch TypeError when offline) if the request fails; ends quietly
+ * when `signal` aborts.
  */
-async function* streamEvents(
+async function* streamEvents<E>(
     start: StartStream,
     signal: AbortSignal | undefined,
-): AsyncGenerator<ChatEvent, void, undefined> {
+    parse: (data: unknown) => E | null,
+): AsyncGenerator<E, void, undefined> {
     // The SSE client reports connection failures through this callback instead of throwing.
     let failure: unknown = null
 
@@ -120,7 +165,7 @@ async function* streamEvents(
     })
 
     for await (const data of stream) {
-        const event = parseChatEvent(data)
+        const event = parse(data)
         if (event) yield event
     }
 
@@ -149,6 +194,7 @@ export function streamChat(
                 ...options,
             }),
         signal,
+        parseChatEvent,
     )
 }
 
@@ -170,5 +216,51 @@ export function streamDecision(
                 ...options,
             }),
         signal,
+        parseChatEvent,
+    )
+}
+
+// ----- planning flow -----
+
+interface StreamOptions {
+    signal?: AbortSignal
+}
+
+/** Answer or skip the pending form; yields the turn's events (see streamEvents). */
+export function streamPlanningInput(
+    planId: string,
+    body: PlanningInputBody,
+    { signal }: StreamOptions = {},
+): AsyncGenerator<PlanningEvent, void, undefined> {
+    return streamEvents(
+        (options) => submitPlanningInput({ path: { plan_id: planId }, body, ...options }),
+        signal,
+        parsePlanningEvent,
+    )
+}
+
+/** Send free text to the planner: read as the pending form's answer, or a question. */
+export function streamPlanningChat(
+    planId: string,
+    content: string,
+    { signal }: StreamOptions = {},
+): AsyncGenerator<PlanningEvent, void, undefined> {
+    return streamEvents(
+        (options) =>
+            sendPlanningMessage({ path: { plan_id: planId }, body: { content }, ...options }),
+        signal,
+        parsePlanningEvent,
+    )
+}
+
+/** Let the planner act with no input: move on, run or retry a search, re-ask the form. */
+export function streamPlanningContinue(
+    planId: string,
+    { signal }: StreamOptions = {},
+): AsyncGenerator<PlanningEvent, void, undefined> {
+    return streamEvents(
+        (options) => continuePlanning({ path: { plan_id: planId }, ...options }),
+        signal,
+        parsePlanningEvent,
     )
 }

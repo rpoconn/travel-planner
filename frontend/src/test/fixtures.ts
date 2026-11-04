@@ -1,5 +1,6 @@
 import type {
     ActivityItem,
+    AskInput,
     ChatMessage,
     ChatProposal,
     FlightItem,
@@ -9,6 +10,7 @@ import type {
     LodgingItem,
     Place,
     PlanAssessment,
+    PlanningMessage,
     PlanStage,
     PlanSummary,
     StageStatus,
@@ -343,4 +345,132 @@ export function chatProposal(overrides: Partial<ChatProposal> = {}): ChatProposa
         decided_at: null,
         ...overrides,
     }
+}
+
+// ----- planning flow -----
+
+/** A planning transcript entry; by default the assistant asking where the trip goes. */
+export function planningMessage(overrides: Partial<PlanningMessage> = {}): PlanningMessage {
+    return {
+        id: 'planning-1',
+        plan_id: PLAN_ID,
+        role: 'assistant',
+        kind: 'message',
+        content: 'Where are you going?',
+        payload: null,
+        created_at: '2026-10-01T12:00:00Z',
+        ...overrides,
+    }
+}
+
+/** The pending destination question, as the engine asks it for a new plan. */
+export const ASK_DESTINATION: AskInput = {
+    type: 'ask_input',
+    slot: 'destination',
+    stage: 'basics',
+    prompt: 'Where are you going?',
+    fields: [
+        {
+            name: 'destination',
+            label: 'Destination',
+            kind: 'place',
+            required: true,
+            options: [],
+            min: null,
+            max: null,
+            placeholder: 'Lisbon',
+        },
+    ],
+    optional: false,
+    prefill: {},
+}
+
+export const ASK_DATES: AskInput = {
+    type: 'ask_input',
+    slot: 'dates',
+    stage: 'basics',
+    prompt: 'When are you going?',
+    fields: [
+        {
+            name: 'dates',
+            label: 'Trip dates',
+            kind: 'date_range',
+            required: true,
+            options: [],
+            min: null,
+            max: null,
+            placeholder: '',
+        },
+    ],
+    optional: false,
+    prefill: {},
+}
+
+export const ASK_BUDGET: AskInput = {
+    type: 'ask_input',
+    slot: 'budget',
+    stage: 'basics',
+    prompt: 'Do you have a budget for the whole trip?',
+    fields: [
+        {
+            name: 'budget',
+            label: 'Total budget',
+            kind: 'money',
+            required: true,
+            options: [],
+            min: null,
+            max: null,
+            placeholder: '',
+        },
+    ],
+    optional: true,
+    prefill: {},
+}
+
+/** Flight preferences: two required choices and one optional choice with an "Any" (null). */
+export const ASK_FLIGHT_PREFERENCES: AskInput = {
+    type: 'ask_input',
+    slot: 'flight_preferences',
+    stage: 'flights',
+    prompt: 'How do you like to fly?',
+    fields: [
+        {
+            name: 'cabin',
+            label: 'Cabin',
+            kind: 'choice',
+            required: true,
+            options: [
+                { value: 'economy', label: 'Economy' },
+                { value: 'business', label: 'Business' },
+            ],
+            min: null,
+            max: null,
+            placeholder: '',
+        },
+        {
+            name: 'max_stops',
+            label: 'Stops',
+            kind: 'choice',
+            required: false,
+            options: [
+                { value: 0, label: 'Nonstop' },
+                { value: 1, label: 'Up to 1 stop' },
+                { value: null, label: 'Any' },
+            ],
+            min: null,
+            max: null,
+            placeholder: '',
+        },
+    ],
+    optional: false,
+    prefill: {},
+}
+
+/** A plan in `stage` whose engine asks `action` next. */
+export function planAsking(action: AskInput, overrides: Partial<TravelPlan> = {}): TravelPlan {
+    return travelPlan({
+        stage: action.stage,
+        assessment: planAssessment({ stage: action.stage, next_action: action }),
+        ...overrides,
+    })
 }

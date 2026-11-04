@@ -4,7 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as sdk from '@/api/sdk.gen'
 import { getSession, setSessionFromToken } from '@/lib/auth'
-import { planSummary, sdkOk, tokenResponse, tokyoTimeline, travelPlan } from '@/test/fixtures'
+import {
+    ASK_DESTINATION,
+    planAsking,
+    planSummary,
+    sdkOk,
+    tokenResponse,
+    tokyoTimeline,
+    travelPlan,
+} from '@/test/fixtures'
 import { renderWithRouter } from '@/test/render'
 import { controlledSseResponse } from '@/test/sse'
 
@@ -106,6 +114,25 @@ describe('WorkspacePage', () => {
         expect(within(controls).getByRole('button', { name: 'Skip flights' })).toBeEnabled()
         // Ada has no home yet, so the header offers to set one.
         expect(screen.getByRole('button', { name: 'Set home' })).toBeInTheDocument()
+    })
+
+    it('runs the planning flow instead of the chat when the switch is on', async () => {
+        vi.stubEnv('VITE_PLANNING_ENGINE', 'true')
+        vi.spyOn(sdk, 'getPlan').mockResolvedValue(sdkOk(planAsking(ASK_DESTINATION)))
+        const transcript = vi.spyOn(sdk, 'listPlanningMessages').mockResolvedValue(sdkOk([]))
+
+        try {
+            await renderWithRouter(<WorkspacePage planId={travelPlan().id} />)
+
+            const chat = screen.getByRole('region', { name: 'Chat' })
+            expect(
+                await within(chat).findByRole('form', { name: 'Where are you going?' }),
+            ).toBeInTheDocument()
+            expect(transcript).toHaveBeenCalled()
+            expect(sdk.listMessages).not.toHaveBeenCalled()
+        } finally {
+            vi.unstubAllEnvs()
+        }
     })
 
     it('shows an error when the plan cannot be loaded', async () => {

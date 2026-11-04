@@ -1,10 +1,11 @@
 """Run the API for the Playwright E2E suite: offline LLM + search, a fresh database each run.
 
-Usage: `uv run python scripts/e2e_server.py [--port 8765] [--cors-origin http://localhost:5174]`
+Usage: `uv run python scripts/e2e_server.py [--port 8765] [--cors-origin http://localhost:5174]...`
 (started by `frontend/playwright.config.ts`; there's normally no need to run it by hand).
 """
 
 import argparse
+import json
 import logging
 import os
 from pathlib import Path
@@ -21,8 +22,10 @@ logger = logging.getLogger("e2e_server")
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--cors-origin", default="http://localhost:5174")
+    # Repeatable: the suite runs one UI per planning flow, each on its own port.
+    parser.add_argument("--cors-origin", action="append", dest="cors_origins")
     args = parser.parse_args()
+    origins: list[str] = args.cors_origins or ["http://localhost:5174"]
 
     for path in (E2E_DB, E2E_DB.with_name(f"{E2E_DB.name}-journal")):
         path.unlink(missing_ok=True)
@@ -35,7 +38,7 @@ def main() -> None:
             "LLM_PROVIDER": "fake",
             "SEARCH_PROVIDER": "fake",
             "FLIGHT_PROVIDER": "fake",
-            "CORS_ORIGINS": f'["{args.cors_origin}"]',
+            "CORS_ORIGINS": json.dumps(origins),
             "BCRYPT_ROUNDS": "4",
             "JWT_SECRET": "e2e-only-secret-that-is-at-least-32-bytes",
             "LOG_LEVEL": "WARNING",
