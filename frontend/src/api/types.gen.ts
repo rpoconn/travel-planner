@@ -243,6 +243,29 @@ export type AdvanceStage = {
 };
 
 /**
+ * AnswerRecord
+ *
+ * A user's answer to an input slot (message kind "input").
+ */
+export type AnswerRecord = {
+    /**
+     * Type
+     */
+    type: 'answer';
+    slot: SlotName;
+    /**
+     * Value
+     */
+    value: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Skipped
+     */
+    skipped: boolean;
+};
+
+/**
  * AskInput
  *
  * Show the slot's form. `prefill` holds values the plan already has.
@@ -344,7 +367,7 @@ export type ChatMessage = {
     /**
      * Kind
      */
-    kind: 'message' | 'redirect' | 'error' | 'decision';
+    kind: 'message' | 'redirect' | 'error' | 'decision' | 'nudge' | 'input' | 'pick' | 'expected_input' | 'choices' | 'stage';
     /**
      * Content
      */
@@ -1567,6 +1590,151 @@ export type PlanUpdatedEvent = {
 };
 
 /**
+ * PlanningDoneEvent
+ *
+ * The turn finished; `plan` (with its assessment) is what the UI shows next.
+ */
+export type PlanningDoneEvent = {
+    /**
+     * Type
+     */
+    type: 'done';
+    plan: TravelPlan;
+};
+
+/**
+ * PlanningErrorEvent
+ *
+ * The turn failed; `message` is the stored notice, when it could be saved.
+ */
+export type PlanningErrorEvent = {
+    /**
+     * Type
+     */
+    type: 'error';
+    /**
+     * Detail
+     */
+    detail: string;
+    message: PlanningMessage | null;
+};
+
+/**
+ * PlanningMessage
+ *
+ * One transcript entry. `payload` holds the form, choices or answer it showed.
+ */
+export type PlanningMessage = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Plan Id
+     */
+    plan_id: string;
+    /**
+     * Role
+     */
+    role: 'user' | 'assistant' | 'system';
+    /**
+     * Kind
+     */
+    kind: 'message' | 'redirect' | 'error' | 'decision' | 'nudge' | 'input' | 'pick' | 'expected_input' | 'choices' | 'stage';
+    /**
+     * Content
+     */
+    content: string;
+    /**
+     * Payload
+     */
+    payload: ({
+        type: 'ask_input';
+    } & AskInput) | ({
+        type: 'offer_choice';
+    } & OfferChoice) | ({
+        type: 'answer';
+    } & AnswerRecord) | ({
+        type: 'stage';
+    } & StageRecord) | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * PlanningMessageEvent
+ *
+ * A message was stored: the user's input, the assistant's reply or nudge, the next
+ * form or choices, a stage divider. Clients append it to the transcript.
+ */
+export type PlanningMessageEvent = {
+    /**
+     * Type
+     */
+    type: 'message';
+    message: PlanningMessage;
+};
+
+/**
+ * PlanningPlanEvent
+ *
+ * The plan changed (an answer, a pick, a stage move).
+ */
+export type PlanningPlanEvent = {
+    /**
+     * Type
+     */
+    type: 'plan_updated';
+    plan: TravelPlan;
+};
+
+/**
+ * PlanningStatusEvent
+ *
+ * Something slow is running, e.g. "Finding flights out…". Not stored.
+ */
+export type PlanningStatusEvent = {
+    /**
+     * Type
+     */
+    type: 'status';
+    /**
+     * Text
+     */
+    text: string;
+};
+
+/**
+ * PlanningText
+ *
+ * Free text typed into the composer (`POST /plans/{id}/planning/chat`).
+ */
+export type PlanningText = {
+    /**
+     * Content
+     */
+    content: string;
+};
+
+/**
+ * PlanningTokenEvent
+ *
+ * Part of the assistant's streamed answer to a question; the stored message follows.
+ */
+export type PlanningTokenEvent = {
+    /**
+     * Type
+     */
+    type: 'token';
+    /**
+     * Text
+     */
+    text: string;
+};
+
+/**
  * ProposalDecision
  *
  * The user's answer to a proposal card. `message` is the free text of "Other…".
@@ -1662,6 +1830,26 @@ export type SendMessage = {
 };
 
 /**
+ * SlotAnswer
+ *
+ * The pending input slot's form, filled in. `value` is checked against the slot's
+ * value model (`planning.answers.parse_answer`), so its shape depends on `slot`.
+ */
+export type SlotAnswer = {
+    /**
+     * Type
+     */
+    type?: 'answer';
+    slot: SlotName;
+    /**
+     * Value
+     */
+    value: {
+        [key: string]: unknown;
+    };
+};
+
+/**
  * SlotName
  *
  * Every input the planning flow asks for (`planning.slots` holds the registry). It
@@ -1690,6 +1878,19 @@ export const SlotName = {
  * lives here because a plan stores which optional slots the user declined.
  */
 export type SlotName = typeof SlotName[keyof typeof SlotName];
+
+/**
+ * SlotSkip
+ *
+ * Skip the pending input slot; only optional slots (the budget) can be skipped.
+ */
+export type SlotSkip = {
+    /**
+     * Type
+     */
+    type?: 'skip';
+    slot: SlotName;
+};
 
 /**
  * SpendingLimit
@@ -1742,6 +1943,20 @@ export type StageChange = {
      */
     action: 'next' | 'back' | 'skip_flights' | 'go_to';
     stage?: PlanStage | null;
+};
+
+/**
+ * StageRecord
+ *
+ * The plan moved to another stage (message kind "stage").
+ */
+export type StageRecord = {
+    /**
+     * Type
+     */
+    type?: 'stage';
+    from_stage: PlanStage;
+    to_stage: PlanStage;
 };
 
 /**
@@ -2398,6 +2613,32 @@ export type WarningToFix = {
  * PlanUpdatedEvent
  */
 export type PlanUpdatedEventWritable = {
+    /**
+     * Type
+     */
+    type: 'plan_updated';
+    plan: TravelPlanWritable;
+};
+
+/**
+ * PlanningDoneEvent
+ *
+ * The turn finished; `plan` (with its assessment) is what the UI shows next.
+ */
+export type PlanningDoneEventWritable = {
+    /**
+     * Type
+     */
+    type: 'done';
+    plan: TravelPlanWritable;
+};
+
+/**
+ * PlanningPlanEvent
+ *
+ * The plan changed (an answer, a pick, a stage move).
+ */
+export type PlanningPlanEventWritable = {
     /**
      * Type
      */
@@ -3207,6 +3448,173 @@ export type DecideProposalErrors = {
 export type DecideProposalError = DecideProposalErrors[keyof DecideProposalErrors];
 
 export type DecideProposalResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ListPlanningMessagesData = {
+    body?: never;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/planning/messages';
+};
+
+export type ListPlanningMessagesErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListPlanningMessagesError = ListPlanningMessagesErrors[keyof ListPlanningMessagesErrors];
+
+export type ListPlanningMessagesResponses = {
+    /**
+     * Response Listplanningmessages
+     *
+     * Successful Response
+     */
+    200: Array<PlanningMessage>;
+};
+
+export type ListPlanningMessagesResponse = ListPlanningMessagesResponses[keyof ListPlanningMessagesResponses];
+
+export type SubmitPlanningInputData = {
+    /**
+     * Body
+     */
+    body: ({
+        type: 'answer';
+    } & SlotAnswer) | ({
+        type: 'skip';
+    } & SlotSkip);
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/planning/inputs';
+};
+
+export type SubmitPlanningInputErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Unprocessable Content
+     */
+    422: ErrorResponse;
+};
+
+export type SubmitPlanningInputError = SubmitPlanningInputErrors[keyof SubmitPlanningInputErrors];
+
+export type SubmitPlanningInputResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type SendPlanningMessageData = {
+    body: PlanningText;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/planning/chat';
+};
+
+export type SendPlanningMessageErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
+};
+
+export type SendPlanningMessageError = SendPlanningMessageErrors[keyof SendPlanningMessageErrors];
+
+export type SendPlanningMessageResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ContinuePlanningData = {
+    body?: never;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/planning/continue';
+};
+
+export type ContinuePlanningErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
+};
+
+export type ContinuePlanningError = ContinuePlanningErrors[keyof ContinuePlanningErrors];
+
+export type ContinuePlanningResponses = {
     /**
      * Successful Response
      */

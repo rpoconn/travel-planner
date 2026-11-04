@@ -17,6 +17,7 @@ from features.chat.router import router as chat_router
 from features.health.router import API_VERSION
 from features.health.router import router as health_router
 from features.itinerary.router import router as itinerary_router
+from features.planning.router import router as planning_router
 from features.plans.router import router as plans_router
 from shared.config import Settings, get_settings
 from shared.db import create_engine, create_sessionmaker
@@ -109,6 +110,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(plans_router)
     app.include_router(itinerary_router)
     app.include_router(chat_router)
+    # The rules-driven planning flow, beside the chat flow until it replaces it.
+    app.include_router(planning_router)
 
     logger.info(
         "App created (environment=%s, llm=%s, model=%s, search=%s)",

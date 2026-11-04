@@ -1509,6 +1509,510 @@
           }
         }
       }
+    },
+    "/plans/{plan_id}/planning/messages": {
+      "get": {
+        "tags": [
+          "planning"
+        ],
+        "summary": "List Messages",
+        "description": "The plan's transcript, oldest first, with each message's form, choices or answer.",
+        "operationId": "listPlanningMessages",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlanningMessage"
+                  },
+                  "title": "Response Listplanningmessages"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/planning/inputs": {
+      "post": {
+        "tags": [
+          "planning"
+        ],
+        "summary": "Submit Input",
+        "description": "Answer (or skip) the pending form. No model call: the answer is stored, the plan\nupdated, and the planner moves on, streaming `PlanningEvent`s that end in `done`.",
+        "operationId": "submitPlanningInput",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SlotAnswer"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlotSkip"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "type",
+                  "mapping": {
+                    "answer": "#/components/schemas/SlotAnswer",
+                    "skip": "#/components/schemas/SlotSkip"
+                  }
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/PlanningStatusEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningTokenEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningMessageEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningPlanEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningDoneEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        ],
+                        "discriminator": {
+                          "propertyName": "type",
+                          "mapping": {
+                            "status": "#/components/schemas/PlanningStatusEvent",
+                            "token": "#/components/schemas/PlanningTokenEvent",
+                            "message": "#/components/schemas/PlanningMessageEvent",
+                            "plan_updated": "#/components/schemas/PlanningPlanEvent",
+                            "done": "#/components/schemas/PlanningDoneEvent",
+                            "error": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        },
+                        "title": "Streamitem Submitplanninginput"
+                      }
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/planning/chat": {
+      "post": {
+        "tags": [
+          "planning"
+        ],
+        "summary": "Send Message",
+        "description": "Free text. While a form is pending it is read as that form's answer (or answered as\na question, or nudged back to the question); otherwise it is a question about the trip.",
+        "operationId": "sendPlanningMessage",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanningText"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/PlanningStatusEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningTokenEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningMessageEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningPlanEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningDoneEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        ],
+                        "discriminator": {
+                          "propertyName": "type",
+                          "mapping": {
+                            "status": "#/components/schemas/PlanningStatusEvent",
+                            "token": "#/components/schemas/PlanningTokenEvent",
+                            "message": "#/components/schemas/PlanningMessageEvent",
+                            "plan_updated": "#/components/schemas/PlanningPlanEvent",
+                            "done": "#/components/schemas/PlanningDoneEvent",
+                            "error": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        },
+                        "title": "Streamitem Sendplanningmessage"
+                      }
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "429": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/planning/continue": {
+      "post": {
+        "tags": [
+          "planning"
+        ],
+        "summary": "Continue Planning",
+        "description": "Let the planner act with no new input: move on from a finished stage, run (or retry)\na search, or show the pending form again.",
+        "operationId": "continuePlanning",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/PlanningStatusEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningTokenEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningMessageEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningPlanEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningDoneEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        ],
+                        "discriminator": {
+                          "propertyName": "type",
+                          "mapping": {
+                            "status": "#/components/schemas/PlanningStatusEvent",
+                            "token": "#/components/schemas/PlanningTokenEvent",
+                            "message": "#/components/schemas/PlanningMessageEvent",
+                            "plan_updated": "#/components/schemas/PlanningPlanEvent",
+                            "done": "#/components/schemas/PlanningDoneEvent",
+                            "error": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        },
+                        "title": "Streamitem Continueplanning"
+                      }
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "429": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2042,6 +2546,45 @@
         "title": "AdvanceStage",
         "description": "The current stage is done. The turn pipeline acts on this at once, so a client only\nsees it on a stage the user went back to: it then offers to continue."
       },
+      "AnswerRecord": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "answer",
+            "title": "Type",
+            "default": "answer"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/SlotName"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "skipped": {
+            "type": "boolean",
+            "title": "Skipped",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "slot",
+          "value",
+          "skipped"
+        ],
+        "title": "AnswerRecord",
+        "description": "A user's answer to an input slot (message kind \"input\")."
+      },
       "AskInput": {
         "properties": {
           "type": {
@@ -2202,7 +2745,13 @@
               "message",
               "redirect",
               "error",
-              "decision"
+              "decision",
+              "nudge",
+              "input",
+              "pick",
+              "expected_input",
+              "choices",
+              "stage"
             ],
             "title": "Kind"
           },
@@ -4745,6 +5294,249 @@
         ],
         "title": "PlanUpdatedEvent"
       },
+      "PlanningDoneEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "done",
+            "title": "Type",
+            "default": "done"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/TravelPlan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "plan"
+        ],
+        "title": "PlanningDoneEvent",
+        "description": "The turn finished; `plan` (with its assessment) is what the UI shows next."
+      },
+      "PlanningErrorEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "error",
+            "title": "Type",
+            "default": "error"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanningMessage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "detail",
+          "message"
+        ],
+        "title": "PlanningErrorEvent",
+        "description": "The turn failed; `message` is the stored notice, when it could be saved."
+      },
+      "PlanningMessage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Plan Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant",
+              "system"
+            ],
+            "title": "Role"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "message",
+              "redirect",
+              "error",
+              "decision",
+              "nudge",
+              "input",
+              "pick",
+              "expected_input",
+              "choices",
+              "stage"
+            ],
+            "title": "Kind"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/AskInput"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OfferChoice"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AnswerRecord"
+                  },
+                  {
+                    "$ref": "#/components/schemas/StageRecord"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "type",
+                  "mapping": {
+                    "answer": "#/components/schemas/AnswerRecord",
+                    "ask_input": "#/components/schemas/AskInput",
+                    "offer_choice": "#/components/schemas/OfferChoice",
+                    "stage": "#/components/schemas/StageRecord"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "role",
+          "kind",
+          "content",
+          "payload",
+          "created_at"
+        ],
+        "title": "PlanningMessage",
+        "description": "One transcript entry. `payload` holds the form, choices or answer it showed."
+      },
+      "PlanningMessageEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "message",
+            "title": "Type",
+            "default": "message"
+          },
+          "message": {
+            "$ref": "#/components/schemas/PlanningMessage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "message"
+        ],
+        "title": "PlanningMessageEvent",
+        "description": "A message was stored: the user's input, the assistant's reply or nudge, the next\nform or choices, a stage divider. Clients append it to the transcript."
+      },
+      "PlanningPlanEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "plan_updated",
+            "title": "Type",
+            "default": "plan_updated"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/TravelPlan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "plan"
+        ],
+        "title": "PlanningPlanEvent",
+        "description": "The plan changed (an answer, a pick, a stage move)."
+      },
+      "PlanningStatusEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "status",
+            "title": "Type",
+            "default": "status"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text"
+        ],
+        "title": "PlanningStatusEvent",
+        "description": "Something slow is running, e.g. \"Finding flights out\u2026\". Not stored."
+      },
+      "PlanningText": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "PlanningText",
+        "description": "Free text typed into the composer (`POST /plans/{id}/planning/chat`)."
+      },
+      "PlanningTokenEvent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "token",
+            "title": "Type",
+            "default": "token"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text"
+        ],
+        "title": "PlanningTokenEvent",
+        "description": "Part of the assistant's streamed answer to a question; the stored message follows."
+      },
       "ProposalDecision": {
         "properties": {
           "action": {
@@ -4922,6 +5714,31 @@
         ],
         "title": "SendMessage"
       },
+      "SlotAnswer": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "answer",
+            "title": "Type",
+            "default": "answer"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/SlotName"
+          },
+          "value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slot",
+          "value"
+        ],
+        "title": "SlotAnswer",
+        "description": "The pending input slot's form, filled in. `value` is checked against the slot's\nvalue model (`planning.answers.parse_answer`), so its shape depends on `slot`."
+      },
       "SlotName": {
         "type": "string",
         "enum": [
@@ -4941,6 +5758,25 @@
         ],
         "title": "SlotName",
         "description": "Every input the planning flow asks for (`planning.slots` holds the registry). It\nlives here because a plan stores which optional slots the user declined."
+      },
+      "SlotSkip": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "skip",
+            "title": "Type",
+            "default": "skip"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/SlotName"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slot"
+        ],
+        "title": "SlotSkip",
+        "description": "Skip the pending input slot; only optional slots (the budget) can be skipped."
       },
       "SpendingLimit-Input": {
         "properties": {
@@ -5033,6 +5869,29 @@
         ],
         "title": "StageChange",
         "description": "Move the plan through the workflow: `next` (only when the current stage is ready),\n`back`, `skip_flights` (from the flights stage, for a trip without flying) or `go_to`\nan earlier `stage`."
+      },
+      "StageRecord": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "stage",
+            "title": "Type",
+            "default": "stage"
+          },
+          "from_stage": {
+            "$ref": "#/components/schemas/PlanStage"
+          },
+          "to_stage": {
+            "$ref": "#/components/schemas/PlanStage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from_stage",
+          "to_stage"
+        ],
+        "title": "StageRecord",
+        "description": "The plan moved to another stage (message kind \"stage\")."
       },
       "StageStatus": {
         "properties": {

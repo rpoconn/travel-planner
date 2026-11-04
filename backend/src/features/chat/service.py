@@ -5,6 +5,7 @@ import logging
 from collections.abc import Sequence
 from uuid import UUID
 
+from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,13 +73,17 @@ async def add_message(
     *,
     kind: MessageKind = "message",
     tool_calls: Sequence[ToolTrace] = (),
+    payload: BaseModel | None = None,
 ) -> Message:
+    """Store one message. `payload` is a planning message's structured content (the form,
+    choices or answer it showed), kept as JSON so the transcript re-renders it."""
     message = Message(
         plan_id=plan_id,
         role=role,
         kind=kind,
         content=content,
         tool_calls=[trace.model_dump(mode="json") for trace in tool_calls],
+        payload=payload.model_dump(mode="json") if payload is not None else None,
         # Set explicitly: reading an unloaded relationship would need a lazy load.
         proposal=None,
     )

@@ -25,7 +25,22 @@ MessageRole = Literal["user", "assistant", "system"]
 # "redirect": the guardrail judged the user's message off-topic and the assistant steered
 # back to trip planning. "error": a stored system notice that answering failed.
 # "decision": the user's answer to a proposal card (approve / deny / free-text revision).
-MessageKind = Literal["message", "redirect", "error", "decision"]
+# The rest are the planning engine's (`planning.events.PlanningMessage`): "nudge", the fixed
+# reply to free text that doesn't answer the pending input; "input", the user's answer to a
+# form (or a skip); "pick", a choice from an offer; "expected_input" / "choices", the form or
+# the candidates shown; "stage", moving on to another stage.
+MessageKind = Literal[
+    "message",
+    "redirect",
+    "error",
+    "decision",
+    "nudge",
+    "input",
+    "pick",
+    "expected_input",
+    "choices",
+    "stage",
+]
 # pending: waiting for the user. approved / denied / revised: the user's decision.
 # superseded: a newer proposal replaced it before a decision. failed: approved, but a change
 # no longer validated against the plan, so nothing was applied.

@@ -5,18 +5,24 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from features.chat.offline import offline_reply
+from features.planning.offline import planning_reply
 from shared.config import Settings
-from shared.llm.fake import FakeLLM
+from shared.llm.fake import FakeLLM, FakeRequest
 from shared.llm.ollama_client import OllamaClient
-from shared.llm.types import LLMClient
+from shared.llm.types import LLMClient, LLMMessage
 from shared.rate_limit import CHAT_BUCKET, enforce_rate_limit
 from shared.security import CurrentUserId
+
+
+def _offline_reply(request: FakeRequest) -> LLMMessage:
+    # The planning flow's requests first; everything else is the chat flow's.
+    return planning_reply(request) or offline_reply(request)
 
 
 def create_llm(settings: Settings) -> LLMClient:
     """Build the client for `settings.llm_provider`; `create_app` stores it on app.state."""
     if settings.llm_provider == "fake":
-        return FakeLLM(fallback=offline_reply)
+        return FakeLLM(fallback=_offline_reply)
     return OllamaClient(
         host=settings.ollama_url,
         model=settings.ollama_model,

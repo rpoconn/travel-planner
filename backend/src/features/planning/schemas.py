@@ -220,6 +220,63 @@ class PlanAssessment(BaseModel):
     can_advance: bool  # the current stage's checklist is complete
 
 
+# ---------------------------------------------------------------------------
+# Inputs: what the planning flow's forms send (`POST /plans/{id}/planning/inputs`)
+# ---------------------------------------------------------------------------
+
+
+class SlotAnswer(BaseModel):
+    """The pending input slot's form, filled in. `value` is checked against the slot's
+    value model (`planning.answers.parse_answer`), so its shape depends on `slot`."""
+
+    type: Literal["answer"] = "answer"
+    slot: SlotName
+    value: dict[str, Any]
+
+
+class SlotSkip(BaseModel):
+    """Skip the pending input slot; only optional slots (the budget) can be skipped."""
+
+    type: Literal["skip"] = "skip"
+    slot: SlotName
+
+
+PlanningInput = Annotated[SlotAnswer | SlotSkip, Field(discriminator="type")]
+
+
+# ---------------------------------------------------------------------------
+# Transcript payloads: the structured content a planning message carries, so the
+# transcript re-renders forms, choices and answers after a reload
+# ---------------------------------------------------------------------------
+
+
+class AnswerRecord(BaseModel):
+    """A user's answer to an input slot (message kind "input")."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    type: Literal["answer"] = "answer"
+    slot: SlotName
+    value: dict[str, Any] | None = None  # the validated answer; None when skipped
+    skipped: bool = False
+
+
+class StageRecord(BaseModel):
+    """The plan moved to another stage (message kind "stage")."""
+
+    type: Literal["stage"] = "stage"
+    from_stage: PlanStage
+    to_stage: PlanStage
+
+
+# kind "expected_input" → AskInput, "choices" → OfferChoice, "input" → AnswerRecord,
+# "stage" → StageRecord. Other kinds carry no payload.
+MessagePayload = Annotated[
+    AskInput | OfferChoice | AnswerRecord | StageRecord,
+    Field(discriminator="type"),
+]
+
+
 class TravelPlan(PlanSnapshot):
     """The full plan as the API returns it: details, items, stage checklists, gaps, and
     the planning engine's assessment (built by `planning.service.snapshot`)."""

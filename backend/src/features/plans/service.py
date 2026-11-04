@@ -9,7 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.plans.models import Plan
-from features.plans.schemas import PlanCreate, PlanStage, PlanUpdate, check_date_range
+from features.plans.schemas import (
+    PlanCreate,
+    PlanPreferences,
+    PlanStage,
+    PlanUpdate,
+    check_date_range,
+)
 from shared.db import utc_now
 from shared.domain import Place
 
@@ -96,6 +102,18 @@ async def update_plan(
     check_update(plan, patch)
     for name in patch.model_fields_set:
         setattr(plan, name, _column_value(getattr(patch, name)))
+    mark_changed(plan)
+    await session.commit()
+    return plan
+
+
+async def update_preferences(
+    session: AsyncSession, user_id: UUID, plan_id: UUID, preferences: PlanPreferences
+) -> Plan:
+    """Replace the plan's search preferences (and declined slots). Bumps `version`, so an
+    offer made under the old preferences is stale and the search runs again."""
+    plan = await get_plan(session, user_id, plan_id)
+    plan.preferences = preferences.model_dump(mode="json")
     mark_changed(plan)
     await session.commit()
     return plan
