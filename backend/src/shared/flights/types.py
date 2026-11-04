@@ -7,7 +7,8 @@ the model) has to work out a date or convert a timezone.
 """
 
 from datetime import date, datetime
-from typing import Annotated, Literal, Protocol, Self
+from enum import StrEnum
+from typing import Annotated, Protocol, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -17,8 +18,16 @@ from shared.domain import Money
 # Query
 # ---------------------------------------------------------------------------
 
-# The same cabins as an itinerary flight's `cabin`.
-FlightCabin = Literal["economy", "premium", "business", "first"]
+
+# A flight's cabin class, for searches, flight preferences and itinerary flights. (No class
+# docstring: it would land in the extractor's and the tools' schemas.)
+class FlightCabin(StrEnum):
+    ECONOMY = "economy"
+    PREMIUM = "premium"
+    BUSINESS = "business"
+    FIRST = "first"
+
+
 AirportCode = Annotated[str, Field(pattern=r"^[A-Z]{3}$")]
 # A few airports per end, e.g. both of Tokyo's (HND, NRT).
 AirportCodes = Annotated[tuple[AirportCode, ...], Field(min_length=1, max_length=4)]
@@ -35,7 +44,7 @@ class FlightQuery(BaseModel):
     destination: AirportCodes
     depart_date: date
     return_date: date | None = None
-    cabin: FlightCabin = "economy"
+    cabin: FlightCabin = FlightCabin.ECONOMY
     adults: int = Field(default=1, ge=1, le=9)
     currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
 

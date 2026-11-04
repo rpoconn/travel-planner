@@ -5,12 +5,13 @@ into the slot's `value_model`) or a `pick` (choosing from an offer's candidates)
 engine walks each stage's slots in order; the first one the plan still lacks is asked.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, get_args
 
 from pydantic import BaseModel
 
-from features.itinerary.schemas import ActivityCategory, Cabin, LodgingKind
+from features.itinerary.schemas import ActivityCategory, LodgingKind
 from features.planning.schemas import (
     BudgetAnswer,
     DatesAnswer,
@@ -29,6 +30,7 @@ from features.plans.schemas import (
     SlotName,
 )
 from shared.domain import Travelers
+from shared.flights.types import FlightCabin
 
 SlotKind = Literal["input", "pick"]
 
@@ -52,7 +54,7 @@ class SlotSpec:
     max_picks: int = 1
 
 
-def _options(values: tuple[str, ...]) -> list[FieldOption]:
+def _options(values: Sequence[str]) -> list[FieldOption]:
     """Choice options labelled from their values: "car_rental" → "Car rental"."""
     return [FieldOption(value=v, label=v.replace("_", " ").capitalize()) for v in values]
 
@@ -131,7 +133,7 @@ _SLOTS: tuple[SlotSpec, ...] = (
         value_model=FlightPreferencesAnswer,
         fields=(
             FieldSpec(
-                name="cabin", label="Cabin", kind="choice", options=_options(get_args(Cabin))
+                name="cabin", label="Cabin", kind="choice", options=_options(list(FlightCabin))
             ),
             FieldSpec(
                 name="max_stops",

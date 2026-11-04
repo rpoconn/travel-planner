@@ -8,6 +8,7 @@ import pytest
 from features.chat.schemas import ProposedChange
 from features.chat.tools import TOOLS, ToolContext, ToolOutcome, apply_change, check_change
 from features.itinerary import service as itinerary_service
+from features.itinerary.schemas import ItemType
 from features.plans import service as plans_service
 from features.plans.schemas import PlanUpdate
 from tests.features.chat.conftest import HOTEL_ARGS
@@ -51,7 +52,7 @@ async def _add_hotel(ctx: ToolContext) -> str:
     outcome = await _run(ctx, "add_lodging", HOTEL_ARGS)
     assert outcome.ok, outcome.summary
     items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
-    return next(str(item.id) for item in items if item.type == "lodging")
+    return next(str(item.id) for item in items if item.type == ItemType.LODGING)
 
 
 async def _update_plan(ctx: ToolContext, **fields: Any) -> None:
@@ -177,7 +178,7 @@ async def test_add_lodging_creates_an_assistant_item(ctx: ToolContext) -> None:
     assert outcome.ok
     assert outcome.summary == "Added lodging “Hotel Okura”"
     (item,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
-    assert item.type == "lodging"
+    assert item.type == ItemType.LODGING
     assert item.created_by == "assistant"
 
 

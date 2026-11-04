@@ -2634,6 +2634,16 @@
         "title": "FieldSpec",
         "description": "One input on a slot's form. `name` is the key in the slot's value."
       },
+      "FlightCabin": {
+        "type": "string",
+        "enum": [
+          "economy",
+          "premium",
+          "business",
+          "first"
+        ],
+        "title": "FlightCabin"
+      },
       "FlightItem": {
         "properties": {
           "id": {
@@ -2777,14 +2787,7 @@
             "description": "Arrival airport; `iata` is required"
           },
           "cabin": {
-            "type": "string",
-            "enum": [
-              "economy",
-              "premium",
-              "business",
-              "first"
-            ],
-            "title": "Cabin",
+            "$ref": "#/components/schemas/FlightCabin",
             "default": "economy"
           },
           "direction": {
@@ -2957,14 +2960,7 @@
             "description": "Arrival airport; `iata` is required"
           },
           "cabin": {
-            "type": "string",
-            "enum": [
-              "economy",
-              "premium",
-              "business",
-              "first"
-            ],
-            "title": "Cabin",
+            "$ref": "#/components/schemas/FlightCabin",
             "default": "economy"
           },
           "direction": {
@@ -3177,19 +3173,12 @@
           "cabin": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "economy",
-                  "premium",
-                  "business",
-                  "first"
-                ]
+                "$ref": "#/components/schemas/FlightCabin"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Cabin"
+            ]
           },
           "direction": {
             "anyOf": [
@@ -3232,14 +3221,7 @@
       "FlightPreferences": {
         "properties": {
           "cabin": {
-            "type": "string",
-            "enum": [
-              "economy",
-              "premium",
-              "business",
-              "first"
-            ],
-            "title": "Cabin",
+            "$ref": "#/components/schemas/FlightCabin",
             "default": "economy"
           },
           "max_stops": {

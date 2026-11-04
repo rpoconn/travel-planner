@@ -28,6 +28,7 @@ from shared.domain import Money, Place, Travelers
 from shared.flights.airports import city_airports
 from shared.flights.fake import FakeFlightProvider
 from shared.flights.types import (
+    FlightCabin,
     FlightLayover,
     FlightOption,
     FlightSearchError,
@@ -112,7 +113,7 @@ def test_city_airports(names: tuple[str | None, ...], airports: tuple[str, ...])
 
 def test_the_query_is_a_round_trip_for_everyone_in_the_chosen_cabin() -> None:
     plan = _plan(
-        FlightPreferences(cabin="business"),
+        FlightPreferences(cabin=FlightCabin.BUSINESS),
         travelers=Travelers(adults=2, children=1),
         budget=Money(amount=Decimal(9000), currency="EUR"),
     )

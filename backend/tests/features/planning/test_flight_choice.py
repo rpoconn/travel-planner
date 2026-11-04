@@ -10,6 +10,7 @@ from features.planning.flight_choice import (
     stops_label,
 )
 from shared.domain import Money
+from shared.flights.types import FlightCabin
 from tests.shared.flights.builders import flight_option
 
 # ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ def test_an_unpriced_flight_ranks_after_priced_ones_of_the_same_length() -> None
 def test_flight_arguments_keep_each_airports_local_time_and_zone() -> None:
     option = flight_option("PHL", "HND", "2027-05-01T15:00", 14 * 60 + 30, 1200)
 
-    arguments = flight_arguments(option, "economy", option.price)
+    arguments = flight_arguments(option, FlightCabin.ECONOMY, option.price)
 
     assert arguments["start"] == "2027-05-01T15:00:00-04:00"
     assert arguments["timezone"] == "America/New_York"
@@ -64,7 +65,7 @@ def test_flight_arguments_keep_each_airports_local_time_and_zone() -> None:
 def test_a_connection_is_one_flight_with_its_layovers() -> None:
     option = flight_option("PHL", "HND", "2027-05-01T08:00", 18 * 60, 900, via="ORD")
 
-    arguments = flight_arguments(option, "business", None)
+    arguments = flight_arguments(option, FlightCabin.BUSINESS, None)
 
     assert (arguments["from_place"]["iata"], arguments["to_place"]["iata"]) == ("PHL", "HND")
     assert arguments["layovers"] == [{"name": "ORD Airport", "iata": "ORD"}]
@@ -96,6 +97,6 @@ def test_format_minutes() -> None:
 def test_flight_arguments_cost_uses_the_given_price() -> None:
     option = flight_option("PHL", "HND", "2027-05-01T15:00", 14 * 60, 1200)
 
-    arguments = flight_arguments(option, "economy", Money(amount=Decimal(0)))
+    arguments = flight_arguments(option, FlightCabin.ECONOMY, Money(amount=Decimal(0)))
 
     assert arguments["cost"]["amount"] == "0"

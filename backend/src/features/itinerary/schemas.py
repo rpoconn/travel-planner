@@ -13,6 +13,7 @@ before a rule existed still load.
 
 import datetime as dt
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Annotated, Literal, Self
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -28,12 +29,22 @@ from pydantic import (
 
 from features.itinerary.airports import metro_code_error, name_code_error
 from shared.domain import Cost, IssueCode, Money, Place
+from shared.flights.types import FlightCabin
 
 # ---------------------------------------------------------------------------
 # Field types
 # ---------------------------------------------------------------------------
 
-ItemType = Literal["flight", "lodging", "activity", "transfer"]
+
+class ItemType(StrEnum):
+    """The kinds of itinerary item; each item model's `type` discriminator is one."""
+
+    FLIGHT = "flight"
+    LODGING = "lodging"
+    ACTIVITY = "activity"
+    TRANSFER = "transfer"
+
+
 ItemStatus = Literal["proposed", "confirmed", "cancelled"]
 ItemCreator = Literal["user", "assistant"]
 ItemTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -41,7 +52,6 @@ ItemNotes = Annotated[str, Field(max_length=5000)]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]
 SourceUrl = Annotated[str, Field(max_length=2000)]
 
-Cabin = Literal["economy", "premium", "business", "first"]
 FlightDirection = Literal["outbound", "return", "internal"]
 LodgingKind = Literal["hotel", "hostel", "rental", "resort", "other"]
 ActivityCategory = Literal[
@@ -201,12 +211,12 @@ _MIN_TRANSFER = timedelta(minutes=1)
 class FlightFields(ItemFields):
     """Fields of a flight, shared by the create input and the stored item."""
 
-    type: Literal["flight"]
+    type: Literal[ItemType.FLIGHT]
     carrier: ShortText = Field(description="Airline name")
     flight_number: ShortText | None = Field(default=None, description="e.g. AA 167")
     from_place: Place = Field(description="Departure airport; `iata` is required")
     to_place: Place = Field(description="Arrival airport; `iata` is required")
-    cabin: Cabin = "economy"
+    cabin: FlightCabin = FlightCabin.ECONOMY
     direction: FlightDirection = Field(
         description="outbound = leaving home, return = going home, internal = within the trip"
     )
@@ -236,7 +246,7 @@ class FlightItemCreate(FlightFields):
 class LodgingItemCreate(ItemFields):
     """`start` is check-in, `end` is check-out."""
 
-    type: Literal["lodging"]
+    type: Literal[ItemType.LODGING]
     place: Place
     room_type: ShortText | None = None
     nightly_rate: Money | None = None
@@ -244,7 +254,7 @@ class LodgingItemCreate(ItemFields):
 
 
 class ActivityItemCreate(ItemFields):
-    type: Literal["activity"]
+    type: Literal[ItemType.ACTIVITY]
     place: Place
     category: ActivityCategory
     booking_required: bool = False
@@ -253,7 +263,7 @@ class ActivityItemCreate(ItemFields):
 class TransferFields(ItemFields):
     """Fields of a transfer, shared by the create input and the stored item."""
 
-    type: Literal["transfer"]
+    type: Literal[ItemType.TRANSFER]
     mode: TransferMode
     from_place: Place
     to_place: Place
@@ -335,18 +345,18 @@ class ItemPatchFields(BaseModel):
 
 
 class FlightItemPatch(ItemPatchFields):
-    type: Literal["flight"]
+    type: Literal[ItemType.FLIGHT]
     carrier: ShortText | None = None
     flight_number: ShortText | None = None
     from_place: Place | None = None
     to_place: Place | None = None
-    cabin: Cabin | None = None
+    cabin: FlightCabin | None = None
     direction: FlightDirection | None = None
     layovers: list[Place] | None = Field(default=None, max_length=5)
 
 
 class LodgingItemPatch(ItemPatchFields):
-    type: Literal["lodging"]
+    type: Literal[ItemType.LODGING]
     place: Place | None = None
     room_type: ShortText | None = None
     nightly_rate: Money | None = None
@@ -354,14 +364,14 @@ class LodgingItemPatch(ItemPatchFields):
 
 
 class ActivityItemPatch(ItemPatchFields):
-    type: Literal["activity"]
+    type: Literal[ItemType.ACTIVITY]
     place: Place | None = None
     category: ActivityCategory | None = None
     booking_required: bool | None = None
 
 
 class TransferItemPatch(ItemPatchFields):
-    type: Literal["transfer"]
+    type: Literal[ItemType.TRANSFER]
     mode: TransferMode | None = None
     from_place: Place | None = None
     to_place: Place | None = None

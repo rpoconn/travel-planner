@@ -32,10 +32,10 @@ logger = logging.getLogger(__name__)
 __all__ = ["SERPAPI_URL", "SerpApiFlightProvider"]
 
 _TRAVEL_CLASS: dict[FlightCabin, str] = {
-    "economy": "1",
-    "premium": "2",
-    "business": "3",
-    "first": "4",
+    FlightCabin.ECONOMY: "1",
+    FlightCabin.PREMIUM: "2",
+    FlightCabin.BUSINESS: "3",
+    FlightCabin.FIRST: "4",
 }
 _TIME_FORMAT = "%Y-%m-%d %H:%M"
 # SerpApi reports "no flights" as an error message, not an empty list.

@@ -16,13 +16,13 @@ from pydantic import (
 
 from features.itinerary.schemas import (
     ActivityCategory,
-    Cabin,
     Gap,
     ItineraryItem,
     LodgingKind,
     SpendingLimit,
 )
 from shared.domain import IssueCode, Money, Place, Travelers
+from shared.flights.types import FlightCabin
 
 # ---------------------------------------------------------------------------
 # Field types
@@ -137,7 +137,7 @@ class FlightPreferencesAnswer(BaseModel):
 
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
-    cabin: Cabin = "economy"
+    cabin: FlightCabin = FlightCabin.ECONOMY
     max_stops: Literal[0, 1, 2] | None = None  # None: any number of stops
     depart_window: DepartWindow = "any"
 

@@ -20,6 +20,7 @@ from features.itinerary.routes import departure_problem
 from features.itinerary.schemas import (
     FlightItem,
     Gap,
+    ItemType,
     ItineraryItem,
     LodgingItem,
     LodgingSpan,
@@ -276,8 +277,8 @@ def build_timeline(
     warnings = [
         *_outside_trip(start_date, end_date, active),
         *_nights_without_lodging(dates, active),
-        *_overlaps([i for i in active if i.type != "lodging"]),
-        *_overlaps([i for i in active if i.type == "lodging"]),
+        *_overlaps([i for i in active if i.type != ItemType.LODGING]),
+        *_overlaps([i for i in active if i.type == ItemType.LODGING]),
         *warnings_from_gaps(gaps),
         *_zone_warnings(active),
         *_route_warnings(active),

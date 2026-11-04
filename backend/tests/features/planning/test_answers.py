@@ -22,6 +22,7 @@ from features.plans.schemas import (
     SlotName,
 )
 from shared.domain import Money, Place, Travelers
+from shared.flights.types import FlightCabin
 
 TODAY = date(2026, 10, 1)
 
@@ -53,7 +54,7 @@ TODAY = date(2026, 10, 1)
         (
             SlotName.FLIGHT_PREFERENCES,
             {"cabin": "business", "max_stops": 0},
-            FlightPreferencesAnswer(cabin="business", max_stops=0),
+            FlightPreferencesAnswer(cabin=FlightCabin.BUSINESS, max_stops=0),
         ),
     ],
 )
@@ -119,7 +120,9 @@ def test_an_invalid_value_says_what_is_wrong(
         (BudgetAnswer(budget=Money(amount=Decimal("99.5"))), "A budget of 99.50 USD"),
         (FlightPreferencesAnswer(), "Economy cabin, any number of stops"),
         (
-            FlightPreferencesAnswer(cabin="business", max_stops=0, depart_window="morning"),
+            FlightPreferencesAnswer(
+                cabin=FlightCabin.BUSINESS, max_stops=0, depart_window="morning"
+            ),
             "Business cabin, nonstop, morning departures",
         ),
         (

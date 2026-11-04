@@ -60,10 +60,10 @@ _CHECKLIST_WARNINGS = frozenset({IssueCode.UNCOVERED_NIGHT, IssueCode.MISSING_TR
 
 # The stage whose items a warning is about, by the type of its first item.
 _ITEM_STAGES: dict[ItemType, PlanStage] = {
-    "flight": PlanStage.FLIGHTS,
-    "lodging": PlanStage.LODGING,
-    "activity": PlanStage.ACTIVITIES,
-    "transfer": PlanStage.GROUND,
+    ItemType.FLIGHT: PlanStage.FLIGHTS,
+    ItemType.LODGING: PlanStage.LODGING,
+    ItemType.ACTIVITY: PlanStage.ACTIVITIES,
+    ItemType.TRANSFER: PlanStage.GROUND,
 }
 
 

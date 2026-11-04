@@ -27,7 +27,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from features.itinerary.days import date_range
-from features.itinerary.schemas import ActivityCategory, FlightItem, ItineraryItem
+from features.itinerary.schemas import ActivityCategory, FlightItem, ItemType, ItineraryItem
 from features.itinerary.zones import legs, same_zone, zone_at
 from features.plans.schemas import PlanSnapshot
 from shared.places.types import OpeningHours
@@ -109,7 +109,7 @@ def _busy(items: Sequence[ItineraryItem]) -> list[_Busy]:
     """Everything but lodging, padded: flights by airport time, the rest by `BUFFER`."""
     busy: list[_Busy] = []
     for item in items:
-        if item.type == "lodging":
+        if item.type == ItemType.LODGING:
             continue
         if isinstance(item, FlightItem):
             busy.append(_Busy(item.start - BEFORE_TAKEOFF, item.end + AFTER_LANDING))
@@ -192,7 +192,7 @@ def schedule(plan: PlanSnapshot, requests: Sequence[Request], default_zone: str)
     per_day = {day: 0 for day in days}
     for item in items:
         # An item's times are local to its own zone, which is where the traveller is then.
-        if item.type == "activity" and item.start.date() in per_day:
+        if item.type == ItemType.ACTIVITY and item.start.date() in per_day:
             per_day[item.start.date()] += 1
 
     placed: dict[str, Slot] = {}

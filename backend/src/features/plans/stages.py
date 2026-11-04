@@ -11,7 +11,7 @@ from datetime import date
 
 from features.itinerary.days import date_range, uncovered_nights
 from features.itinerary.gaps import describe_place, find_gaps
-from features.itinerary.schemas import FlightItem, Gap, ItineraryItem
+from features.itinerary.schemas import FlightItem, Gap, ItemType, ItineraryItem
 from features.plans.schemas import (
     STAGES,
     Issue,
@@ -117,7 +117,7 @@ def _lodging_issues(details: PlanDetails, active: Sequence[ItineraryItem]) -> li
 
 
 def _activities_issues(active: Sequence[ItineraryItem]) -> list[Issue]:
-    if any(item.type == "activity" for item in active):
+    if any(item.type == ItemType.ACTIVITY for item in active):
         return []
     return [_blocking(IssueCode.NO_ACTIVITIES, PlanStage.ACTIVITIES, "at least one activity")]
 

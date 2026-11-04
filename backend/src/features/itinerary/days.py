@@ -8,7 +8,7 @@ sees on their watch (an overnight LAX→SYD flight touches three days).
 from collections.abc import Iterator, Sequence
 from datetime import date, time, timedelta
 
-from features.itinerary.schemas import ItineraryItem
+from features.itinerary.schemas import ItemType, ItineraryItem
 
 
 def item_days(item: ItineraryItem) -> tuple[date, date]:
@@ -38,7 +38,7 @@ def uncovered_nights(days: Sequence[date], items: Sequence[ItineraryItem]) -> li
     """
     covered: set[date] = set()
     for item in items:
-        if item.type == "activity":
+        if item.type == ItemType.ACTIVITY:
             continue
         first, last = item_days(item)
         if last > first:

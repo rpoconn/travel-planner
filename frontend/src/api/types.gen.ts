@@ -521,6 +521,21 @@ export type FieldSpec = {
 };
 
 /**
+ * FlightCabin
+ */
+export const FlightCabin = {
+    ECONOMY: 'economy',
+    PREMIUM: 'premium',
+    BUSINESS: 'business',
+    FIRST: 'first'
+} as const;
+
+/**
+ * FlightCabin
+ */
+export type FlightCabin = typeof FlightCabin[keyof typeof FlightCabin];
+
+/**
  * FlightItem
  */
 export type FlightItem = {
@@ -612,10 +627,7 @@ export type FlightItem = {
      * Arrival airport; `iata` is required
      */
     to_place: Place;
-    /**
-     * Cabin
-     */
-    cabin: 'economy' | 'premium' | 'business' | 'first';
+    cabin: FlightCabin;
     /**
      * Direction
      *
@@ -708,10 +720,7 @@ export type FlightItemCreate = {
      * Arrival airport; `iata` is required
      */
     to_place: Place;
-    /**
-     * Cabin
-     */
-    cabin?: 'economy' | 'premium' | 'business' | 'first';
+    cabin?: FlightCabin;
     /**
      * Direction
      *
@@ -779,10 +788,7 @@ export type FlightItemPatch = {
     flight_number?: string | null;
     from_place?: Place | null;
     to_place?: Place | null;
-    /**
-     * Cabin
-     */
-    cabin?: 'economy' | 'premium' | 'business' | 'first' | null;
+    cabin?: FlightCabin | null;
     /**
      * Direction
      */
@@ -797,10 +803,7 @@ export type FlightItemPatch = {
  * FlightPreferences
  */
 export type FlightPreferences = {
-    /**
-     * Cabin
-     */
-    cabin: 'economy' | 'premium' | 'business' | 'first';
+    cabin: FlightCabin;
     /**
      * Max Stops
      */

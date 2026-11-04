@@ -65,16 +65,16 @@ _PatchModel = (
 )
 
 _CREATE_MODELS: dict[ItemType, _CreateModel] = {
-    "flight": FlightItemCreate,
-    "lodging": LodgingItemCreate,
-    "activity": ActivityItemCreate,
-    "transfer": TransferItemCreate,
+    ItemType.FLIGHT: FlightItemCreate,
+    ItemType.LODGING: LodgingItemCreate,
+    ItemType.ACTIVITY: ActivityItemCreate,
+    ItemType.TRANSFER: TransferItemCreate,
 }
 _PATCH_MODELS: dict[ItemType, _PatchModel] = {
-    "flight": FlightItemPatch,
-    "lodging": LodgingItemPatch,
-    "activity": ActivityItemPatch,
-    "transfer": TransferItemPatch,
+    ItemType.FLIGHT: FlightItemPatch,
+    ItemType.LODGING: LodgingItemPatch,
+    ItemType.ACTIVITY: ActivityItemPatch,
+    ItemType.TRANSFER: TransferItemPatch,
 }
 
 
