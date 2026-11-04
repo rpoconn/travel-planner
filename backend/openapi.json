@@ -3482,7 +3482,7 @@
           "wrong_departure"
         ],
         "title": "IssueCode",
-        "description": "Why a stage isn't finished (blocking) or what looks wrong (warning). The second\ngroup matches the timeline's `WarningKind`s one to one."
+        "description": "Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's\nwarnings use the same codes."
       },
       "LodgingItem": {
         "properties": {
@@ -5510,19 +5510,7 @@
       "TimelineWarning": {
         "properties": {
           "kind": {
-            "type": "string",
-            "enum": [
-              "no_lodging",
-              "overlap",
-              "missing_transfer",
-              "outside_trip",
-              "missing_cost",
-              "over_limit",
-              "over_budget",
-              "wrong_timezone",
-              "wrong_departure"
-            ],
-            "title": "Kind"
+            "$ref": "#/components/schemas/IssueCode"
           },
           "message": {
             "type": "string",

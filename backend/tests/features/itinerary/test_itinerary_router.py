@@ -248,7 +248,7 @@ async def test_timeline_endpoint(
     assert [
         (s["item"]["id"], s["start_day_index"], s["end_day_index"]) for s in timeline["lodging"]
     ] == [(hotel["id"], 1, 5)]
-    assert {"no_lodging", "missing_transfer"} <= {w["kind"] for w in timeline["warnings"]}
+    assert {"uncovered_night", "missing_transfer"} <= {w["kind"] for w in timeline["warnings"]}
     # No budget, so missing costs are fine.
     assert "missing_cost" not in {w["kind"] for w in timeline["warnings"]}
 

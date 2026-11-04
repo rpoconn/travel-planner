@@ -22,7 +22,7 @@ from features.itinerary.schemas import (
     LodgingKind,
     SpendingLimit,
 )
-from shared.domain import Money, Place, Travelers
+from shared.domain import IssueCode, Money, Place, Travelers
 
 # ---------------------------------------------------------------------------
 # Field types
@@ -83,31 +83,6 @@ def check_date_range(start: date | None, end: date | None) -> None:
 # ---------------------------------------------------------------------------
 # Issues: what stands between the plan and a finished trip
 # ---------------------------------------------------------------------------
-
-
-class IssueCode(StrEnum):
-    """Why a stage isn't finished (blocking) or what looks wrong (warning). The second
-    group matches the timeline's `WarningKind`s one to one."""
-
-    # Stage checklists (blocking).
-    MISSING_DATES = "missing_dates"
-    MISSING_TRAVELERS = "missing_travelers"
-    MISSING_ORIGIN = "missing_origin"
-    MISSING_DESTINATION = "missing_destination"
-    MISSING_OUTBOUND = "missing_outbound"
-    MISSING_RETURN = "missing_return"
-    UNCOVERED_NIGHT = "uncovered_night"
-    NO_ACTIVITIES = "no_activities"
-    MISSING_TRANSFER = "missing_transfer"
-    STAGE_INCOMPLETE = "stage_incomplete"  # review: an earlier stage isn't done
-    # Timeline warnings.
-    OVERLAP = "overlap"
-    OUTSIDE_TRIP = "outside_trip"
-    MISSING_COST = "missing_cost"
-    OVER_LIMIT = "over_limit"
-    OVER_BUDGET = "over_budget"
-    WRONG_TIMEZONE = "wrong_timezone"
-    WRONG_DEPARTURE = "wrong_departure"
 
 
 IssueSeverity = Literal["blocking", "warning"]

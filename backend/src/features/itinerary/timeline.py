@@ -31,7 +31,7 @@ from features.itinerary.schemas import (
     TimelineWarning,
 )
 from features.itinerary.zones import arrival_zone, legs, zone_error
-from shared.domain import Money, Place, Travelers
+from shared.domain import IssueCode, Money, Place, Travelers
 
 # Re-exported: tests and callers have always imported it from here.
 __all__ = ["build_timeline", "item_days", "warnings_from_gaps"]
@@ -70,7 +70,7 @@ def warnings_from_gaps(gaps: Sequence[Gap]) -> list[TimelineWarning]:
         moment = gap.arrive_before or gap.leave_after
         warnings.append(
             TimelineWarning(
-                kind="missing_transfer",
+                kind=IssueCode.MISSING_TRANSFER,
                 message=(
                     f"No transfer from {describe_place(gap.from_place, gap.after_item_id)} "
                     f"to {describe_place(gap.to_place, gap.before_item_id)}"
@@ -96,7 +96,7 @@ def _overlaps(items: Sequence[ItineraryItem]) -> list[TimelineWarning]:
                 break  # sorted by start: nothing later can overlap `a`
             warnings.append(
                 TimelineWarning(
-                    kind="overlap",
+                    kind=IssueCode.OVERLAP,
                     message=f"{a.title} overlaps {b.title}",
                     date=item_days(b)[0],
                     item_ids=[a.id, b.id],
@@ -110,7 +110,9 @@ def _nights_without_lodging(
 ) -> list[TimelineWarning]:
     return [
         TimelineWarning(
-            kind="no_lodging", message=f"No lodging for the night of {_label(night)}", date=night
+            kind=IssueCode.UNCOVERED_NIGHT,
+            message=f"No lodging for the night of {_label(night)}",
+            date=night,
         )
         for night in uncovered_nights(days, items)
     ]
@@ -127,7 +129,7 @@ def _outside_trip(
         ):
             warnings.append(
                 TimelineWarning(
-                    kind="outside_trip",
+                    kind=IssueCode.OUTSIDE_TRIP,
                     message=f"{item.title} is outside the trip dates",
                     date=first,
                     item_ids=[item.id],
@@ -143,7 +145,7 @@ def _zone_warnings(items: Sequence[ItineraryItem]) -> list[TimelineWarning]:
         if result is not None:
             warnings.append(
                 TimelineWarning(
-                    kind="wrong_timezone",
+                    kind=IssueCode.WRONG_TIMEZONE,
                     message=result[0],
                     date=item_days(item)[0],
                     item_ids=[item.id],
@@ -163,7 +165,7 @@ def _route_warnings(items: Sequence[ItineraryItem]) -> list[TimelineWarning]:
         if problem is not None and isinstance(problem.other, FlightItem):
             warnings.append(
                 TimelineWarning(
-                    kind="wrong_departure",
+                    kind=IssueCode.WRONG_DEPARTURE,
                     message=problem.message,
                     date=item_days(flight)[0],
                     item_ids=[problem.other.id, flight.id],
@@ -188,18 +190,22 @@ def _budget_warnings(
         error = cost_error(item, budget)
         if error is not None:
             warnings.append(
-                TimelineWarning(kind="missing_cost", message=error, date=day, item_ids=[item.id])
+                TimelineWarning(
+                    kind=IssueCode.MISSING_COST, message=error, date=day, item_ids=[item.id]
+                )
             )
             continue
         error = limit_error(item, limits, travelers)
         if error is not None:
             warnings.append(
-                TimelineWarning(kind="over_limit", message=error, date=day, item_ids=[item.id])
+                TimelineWarning(
+                    kind=IssueCode.OVER_LIMIT, message=error, date=day, item_ids=[item.id]
+                )
             )
     error = total_error(budget, (item.cost for item in items))
     if error is not None:
         # About the whole trip, so no date or items.
-        warnings.append(TimelineWarning(kind="over_budget", message=f"The trip {error}"))
+        warnings.append(TimelineWarning(kind=IssueCode.OVER_BUDGET, message=f"The trip {error}"))
     return warnings
 
 

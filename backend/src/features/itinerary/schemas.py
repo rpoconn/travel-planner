@@ -27,7 +27,7 @@ from pydantic import (
 )
 
 from features.itinerary.airports import metro_code_error, name_code_error
-from shared.domain import Cost, Money, Place
+from shared.domain import Cost, IssueCode, Money, Place
 
 # ---------------------------------------------------------------------------
 # Field types
@@ -381,17 +381,6 @@ ItineraryItemPatch = Annotated[
 # ---------------------------------------------------------------------------
 
 TimelineCardItem = Annotated[FlightItem | ActivityItem | TransferItem, Field(discriminator="type")]
-WarningKind = Literal[
-    "no_lodging",
-    "overlap",
-    "missing_transfer",
-    "outside_trip",
-    "missing_cost",
-    "over_limit",
-    "over_budget",
-    "wrong_timezone",
-    "wrong_departure",
-]
 
 
 class TimelineEntry(BaseModel):
@@ -424,7 +413,7 @@ class LodgingSpan(BaseModel):
 class TimelineWarning(BaseModel):
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
-    kind: WarningKind
+    kind: IssueCode
     message: str
     date: dt.date | None = None
     item_ids: list[UUID] = Field(default_factory=list)

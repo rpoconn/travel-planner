@@ -23,7 +23,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from features.itinerary.gaps import describe_place
-from features.itinerary.schemas import FlightItem, Gap, ItemType, TimelineWarning, WarningKind
+from features.itinerary.schemas import FlightItem, Gap, ItemType, TimelineWarning
 from features.planning.schemas import (
     AdvanceStage,
     AskInput,
@@ -40,12 +40,12 @@ from features.planning.slots import SLOTS, SlotSpec
 from features.plans.schemas import (
     STAGES,
     Issue,
-    IssueCode,
     PlanSnapshot,
     PlanStage,
     SlotName,
 )
 from features.plans.stages import stage_status
+from shared.domain import IssueCode
 
 # A rule returns the action it wants, or None to let the next rule (or advancing) decide.
 _StageRule = Callable[[PlanSnapshot, Offer | None], NextAction | None]
@@ -54,17 +54,9 @@ _StageRule = Callable[[PlanSnapshot, Offer | None], NextAction | None]
 # Issues
 # ---------------------------------------------------------------------------
 
-# Timeline warnings that become issues. `no_lodging` and `missing_transfer` are left out:
-# the lodging and ground checklists already report them as blocking issues.
-_WARNING_CODES: dict[WarningKind, IssueCode] = {
-    "overlap": IssueCode.OVERLAP,
-    "outside_trip": IssueCode.OUTSIDE_TRIP,
-    "missing_cost": IssueCode.MISSING_COST,
-    "over_limit": IssueCode.OVER_LIMIT,
-    "over_budget": IssueCode.OVER_BUDGET,
-    "wrong_timezone": IssueCode.WRONG_TIMEZONE,
-    "wrong_departure": IssueCode.WRONG_DEPARTURE,
-}
+# Timeline warnings that don't become warning issues: the lodging and ground checklists
+# already report them as blocking issues.
+_CHECKLIST_WARNINGS = frozenset({IssueCode.UNCOVERED_NIGHT, IssueCode.MISSING_TRANSFER})
 
 # The stage whose items a warning is about, by the type of its first item.
 _ITEM_STAGES: dict[ItemType, PlanStage] = {
@@ -76,15 +68,14 @@ _ITEM_STAGES: dict[ItemType, PlanStage] = {
 
 
 def _warning_issue(warning: TimelineWarning, plan: PlanSnapshot) -> Issue | None:
-    code = _WARNING_CODES.get(warning.kind)
-    if code is None:
+    if warning.kind in _CHECKLIST_WARNINGS:
         return None
     types = {item.id: item.type for item in plan.items}
     first = next((types[i] for i in warning.item_ids if i in types), None)
     # A warning about no item in particular (over the whole budget) is fixed at review.
     stage = _ITEM_STAGES[first] if first is not None else PlanStage.REVIEW
     return Issue(
-        code=code,
+        code=warning.kind,
         stage=stage,
         severity="warning",
         message=warning.message,

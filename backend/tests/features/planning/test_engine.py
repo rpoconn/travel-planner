@@ -29,7 +29,8 @@ from features.planning.schemas import (
     OfferStatus,
     RunSearch,
 )
-from features.plans.schemas import IssueCode, PlanSnapshot, PlanStage, SlotName
+from features.plans.schemas import PlanSnapshot, PlanStage, SlotName
+from shared.domain import IssueCode
 from tests.features.itinerary.factories import PLAN_ID, activity, lodging
 from tests.features.plans.builders import (
     CREATED,
@@ -431,10 +432,14 @@ def test_timeline_warnings_become_warning_issues_on_their_items_stage() -> None:
     stay = lodging("2027-05-01T15:00", "2027-05-04T11:00")
     plan = snapshot([stay], stage=PlanStage.LODGING)
     warnings = [
-        TimelineWarning(kind="missing_cost", message="Hotel Okura has no cost", item_ids=[stay.id]),
-        TimelineWarning(kind="over_budget", message="The trip is over budget"),
+        TimelineWarning(
+            kind=IssueCode.MISSING_COST, message="Hotel Okura has no cost", item_ids=[stay.id]
+        ),
+        TimelineWarning(kind=IssueCode.OVER_BUDGET, message="The trip is over budget"),
         # Already a blocking checklist issue; not repeated as a warning.
-        TimelineWarning(kind="no_lodging", message="No lodging for the night of May 1"),
+        TimelineWarning(
+            kind=IssueCode.UNCOVERED_NIGHT, message="No lodging for the night of May 1"
+        ),
     ]
 
     issues = [i for i in evaluate(plan, None, warnings).issues if i.severity == "warning"]

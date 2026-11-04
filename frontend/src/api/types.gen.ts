@@ -902,8 +902,8 @@ export type Issue = {
 /**
  * IssueCode
  *
- * Why a stage isn't finished (blocking) or what looks wrong (warning). The second
- * group matches the timeline's `WarningKind`s one to one.
+ * Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's
+ * warnings use the same codes.
  */
 export const IssueCode = {
     MISSING_DATES: 'missing_dates',
@@ -928,8 +928,8 @@ export const IssueCode = {
 /**
  * IssueCode
  *
- * Why a stage isn't finished (blocking) or what looks wrong (warning). The second
- * group matches the timeline's `WarningKind`s one to one.
+ * Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's
+ * warnings use the same codes.
  */
 export type IssueCode = typeof IssueCode[keyof typeof IssueCode];
 
@@ -1974,10 +1974,7 @@ export type TimelineEntry = {
  * TimelineWarning
  */
 export type TimelineWarning = {
-    /**
-     * Kind
-     */
-    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget' | 'wrong_timezone' | 'wrong_departure';
+    kind: IssueCode;
     /**
      * Message
      */

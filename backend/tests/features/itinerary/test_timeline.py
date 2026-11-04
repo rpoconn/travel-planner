@@ -2,9 +2,9 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from decimal import Decimal
 
-from features.itinerary.schemas import ItineraryItem, SpendingLimit, Timeline, WarningKind
+from features.itinerary.schemas import ItineraryItem, SpendingLimit, Timeline
 from features.itinerary.timeline import build_timeline, item_days
-from shared.domain import Cost, Money, Travelers
+from shared.domain import Cost, IssueCode, Money, Travelers
 from tests.features.itinerary.factories import (
     HOME,
     JFK,
@@ -35,7 +35,7 @@ def _timeline(
     )
 
 
-def _warnings(timeline: Timeline, kind: WarningKind) -> list[date | None]:
+def _warnings(timeline: Timeline, kind: IssueCode) -> list[date | None]:
     return [w.date for w in timeline.warnings if w.kind == kind]
 
 
@@ -82,7 +82,7 @@ def test_days_come_from_items_when_the_plan_has_no_dates() -> None:
         date(2027, 6, 11),
         date(2027, 6, 12),
     ]
-    assert _warnings(timeline, "outside_trip") == []
+    assert _warnings(timeline, IssueCode.OUTSIDE_TRIP) == []
 
 
 def test_items_outside_the_plan_dates_widen_the_range_and_warn() -> None:
@@ -92,7 +92,7 @@ def test_items_outside_the_plan_dates_widen_the_range_and_warn() -> None:
 
     assert timeline.days[0].date == date(2027, 4, 30)
     assert _titles_by_day(timeline) == [["Early bird"], [], []]
-    assert _warnings(timeline, "outside_trip") == [date(2027, 4, 30)]
+    assert _warnings(timeline, IssueCode.OUTSIDE_TRIP) == [date(2027, 4, 30)]
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ def test_overnight_flight_appears_on_both_days() -> None:
         (True, False)
     ]
     # The night is spent on the plane, so it doesn't need lodging.
-    assert _warnings(timeline, "no_lodging") == []
+    assert _warnings(timeline, IssueCode.UNCOVERED_NIGHT) == []
 
 
 def test_westbound_dateline_flight_spans_three_local_days() -> None:
@@ -189,7 +189,7 @@ def test_multi_day_lodging_is_one_span_not_daily_cards() -> None:
     ]
     assert all(day.entries == [] for day in timeline.days)
     # Nights of May 2-5 are covered; May 8 is the last day and needs no night.
-    assert _warnings(timeline, "no_lodging") == [
+    assert _warnings(timeline, IssueCode.UNCOVERED_NIGHT) == [
         date(2027, 5, 1),
         date(2027, 5, 6),
         date(2027, 5, 7),
@@ -205,8 +205,8 @@ def test_cancelled_items_are_shown_but_ignored_by_warnings() -> None:
 
     assert len(timeline.lodging) == 1
     assert len(timeline.days[0].entries) == 2
-    assert _warnings(timeline, "no_lodging") == [date(2027, 5, 1), date(2027, 5, 2)]
-    assert _warnings(timeline, "overlap") == []
+    assert _warnings(timeline, IssueCode.UNCOVERED_NIGHT) == [date(2027, 5, 1), date(2027, 5, 2)]
+    assert _warnings(timeline, IssueCode.OVERLAP) == []
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ def test_double_booked_lodging_warns() -> None:
     a = lodging("2027-05-01T15:00", "2027-05-04T11:00")
     b = lodging("2027-05-03T15:00", "2027-05-05T11:00", title="Park Hyatt")
 
-    assert _warnings(_timeline([a, b]), "overlap") == [date(2027, 5, 3)]
+    assert _warnings(_timeline([a, b]), IssueCode.OVERLAP) == [date(2027, 5, 3)]
 
 
 def test_missing_transfer_from_airport_to_hotel() -> None:
@@ -258,7 +258,7 @@ def test_a_late_landing_and_the_next_days_check_in_need_a_transfer() -> None:
 
     timeline = _timeline([late, stay])
 
-    assert _warnings(timeline, "missing_transfer") == [date(2027, 5, 3)]
+    assert _warnings(timeline, IssueCode.MISSING_TRANSFER) == [date(2027, 5, 3)]
     assert [(g.after_item_id, g.before_item_id) for g in timeline.gaps] == [(late.id, stay.id)]
 
 
@@ -298,7 +298,7 @@ def test_a_transfer_between_places_clears_the_warning() -> None:
     train = transfer("2027-05-02T15:00", "2027-05-02T16:30", from_place=NRT, to_place=OKURA)
     stay = lodging("2027-05-02T17:00", "2027-05-06T11:00")
 
-    assert _warnings(_timeline([arrive, train, stay]), "missing_transfer") == []
+    assert _warnings(_timeline([arrive, train, stay]), IssueCode.MISSING_TRANSFER) == []
 
 
 def test_consecutive_items_at_the_same_place_need_no_transfer() -> None:
@@ -349,7 +349,7 @@ def test_items_without_a_cost_are_flagged_when_there_is_a_budget() -> None:
     (warning,) = [w for w in with_budget.warnings if w.kind == "missing_cost"]
     assert warning.message == "Senso-ji has no cost"
     assert warning.item_ids == [museum.id] and warning.date == date(2027, 5, 3)
-    assert _warnings(without, "missing_cost") == []
+    assert _warnings(without, IssueCode.MISSING_COST) == []
 
 
 def test_meals_over_their_limit_are_flagged() -> None:
@@ -435,4 +435,4 @@ def test_items_before_the_first_flight_belong_to_its_departure_zone() -> None:
     lunch = activity("2027-05-01T08:00", "2027-05-01T09:00", title="Lunch", timezone=LA_TZ)
     timeline = _timeline([lunch, flight("2027-05-01T11:00", "2027-05-02T14:30")])
 
-    assert _warnings(timeline, "wrong_timezone") == []
+    assert _warnings(timeline, IssueCode.WRONG_TIMEZONE) == []

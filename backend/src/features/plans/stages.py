@@ -15,13 +15,13 @@ from features.itinerary.schemas import FlightItem, Gap, ItineraryItem
 from features.plans.schemas import (
     STAGES,
     Issue,
-    IssueCode,
     PlanDetails,
     PlanSnapshot,
     PlanStage,
     StageChange,
     StageStatus,
 )
+from shared.domain import IssueCode
 
 # How each stage is named in messages to the user.
 STAGE_LABELS: dict[PlanStage, str] = {

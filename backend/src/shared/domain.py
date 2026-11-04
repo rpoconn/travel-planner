@@ -5,6 +5,7 @@ These are embedded values (stored as JSON columns), not request/response schemas
 
 import re
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -142,3 +143,36 @@ class Travelers(BaseModel):
     # so the planner sees the count is missing and asks rather than assuming one adult.
     adults: int = Field(ge=1, le=20)
     children: int = Field(default=0, ge=0, le=20)
+
+
+# ---------------------------------------------------------------------------
+# Issues
+# ---------------------------------------------------------------------------
+
+
+# Shared rather than in `plans`: the itinerary timeline uses it too, and `plans` already
+# imports `itinerary`, so `itinerary` importing `plans` would be a cycle.
+class IssueCode(StrEnum):
+    """Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's
+    warnings use the same codes."""
+
+    # Stage checklists (blocking). The timeline also warns of uncovered_night and
+    # missing_transfer.
+    MISSING_DATES = "missing_dates"
+    MISSING_TRAVELERS = "missing_travelers"
+    MISSING_ORIGIN = "missing_origin"
+    MISSING_DESTINATION = "missing_destination"
+    MISSING_OUTBOUND = "missing_outbound"
+    MISSING_RETURN = "missing_return"
+    UNCOVERED_NIGHT = "uncovered_night"
+    NO_ACTIVITIES = "no_activities"
+    MISSING_TRANSFER = "missing_transfer"
+    STAGE_INCOMPLETE = "stage_incomplete"  # review: an earlier stage isn't done
+    # Timeline warnings.
+    OVERLAP = "overlap"
+    OUTSIDE_TRIP = "outside_trip"
+    MISSING_COST = "missing_cost"
+    OVER_LIMIT = "over_limit"
+    OVER_BUDGET = "over_budget"
+    WRONG_TIMEZONE = "wrong_timezone"
+    WRONG_DEPARTURE = "wrong_departure"

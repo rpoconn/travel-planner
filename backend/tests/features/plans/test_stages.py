@@ -4,8 +4,9 @@ from datetime import date
 
 import pytest
 
-from features.plans.schemas import IssueCode, PlanSnapshot, PlanStage, StageChange
+from features.plans.schemas import PlanSnapshot, PlanStage, StageChange
 from features.plans.stages import StageError, apply_stage_change
+from shared.domain import IssueCode
 from tests.features.itinerary.factories import activity, flight, lodging
 from tests.features.plans.builders import complete_trip, snapshot
 
