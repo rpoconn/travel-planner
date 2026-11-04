@@ -4,60 +4,63 @@
 - Test: `uv run pytest`
 
 ## Python & Architecture Style Guidelines
-- **Type Hints:** Use strict type hints (`mypy` compliant) for all function signatures, especially agent state and tool outputs.
-- **Async/Await:** Use `asyncio` cleanly. Agentic loops often require asynchronous LLM streaming or concurrent tool execution; avoid blocking synchronous calls inside agent steps.
-- **Pydantic Validation:** Always use Pydantic (v2) for structuring LLM inputs, outputs, and tool schemas. Never parse raw JSON strings manually when passing data to/from Claude.
+- **Type Hints:** Use strict type hints (`mypy` compliant) for all function signatures, especially domain models and API/LLM outputs.
+- **Async/Await:** Use `asyncio` cleanly. Avoid blocking synchronous calls (database, network, LLM) inside async code paths, and run independent I/O calls concurrently where it helps.
+- **Pydantic Validation:** Always use Pydantic (v2) for request/response bodies, external API payloads, and LLM inputs and outputs. Never parse raw JSON strings manually when passing data to/from the LLM.
 - **Error & Retry Handling:** LLM and API calls must include explicit exception handling and retry logic (e.g., handling rate limits or malformed JSON outputs gracefully).
 - **Logging:** Use Python's built-in `logging` module. Never use `print()` statements in application code.
-- **Typescript:** Typescript is required. use strict mode.
-- **API Generation:** Use @hey-api for UI SDK generation from an open-api spec.
-- **Indents**: Use 4 spaces for indents
+- **Indents:** Use 4 spaces for indents (Python and TypeScript).
 
-
+## TypeScript Style Guidelines
+- **TypeScript:** TypeScript is required. Use strict mode.
+- **API Generation:** Use @hey-api for UI SDK generation from an OpenAPI spec.
 
 ### Core Rules for Code Generation:
-1. **Encapsulation:** If a Pydantic model, database model, or router belongs exclusively to a domain (e.g., chats or messages), it **must** live inside that feature's directory (`src/features/[feature-name]/`).
-2. **Pydantic vs. DB Models:** 
-   - Keep Pydantic validation/serialization schemas in `schemas.py`.
-   - Keep ORM/database persistence models in `models.py`.
-   - Never mix request/response validation schemas into the global scope.
+1. **Encapsulation:** If a Pydantic model, database model, or router belongs exclusively to one feature, it **must** live inside that feature's directory (`[..]/features/[feature-name]/`).
+2. **Pydantic vs. DB Models:**
+    - Keep Pydantic validation/serialization schemas in `schemas.py`.
+    - Keep ORM/database persistence models in `models.py`.
+    - Never mix request/response validation schemas into the global scope.
 3. **Cross-Feature Dependencies:**
-   - Features should remain as independent as possible. 
-   - If `messages` needs to verify a `chat_session` exists, it should import from `features.chat_sessions.service`, not query the chat database table directly.
+    - Features should remain as independent as possible.
+    - If one feature needs data owned by another, it should go through the owning feature's service (`features.[other-feature].service`), not query that feature's database tables directly.
 4. **Shared Utilities:**
-   - Database connection pools, environment configuration (`BaseSettings`), and global middleware belong in `src/shared/`.
-5. **Type checking and formatting:**
-   - All code should have type annotations, backend and frontend.
-   - All projects should have liniting, codeformatting, and type checking enabled.
-   - All backend apis should product an open api compatible spec.
-   - the UI should convert the openapi spec into a type safe compatible service layer for all network calls.
+    - Database connection pools, environment configuration (`BaseSettings`), and global middleware belong in `[..]/shared/`.
+5. **Type Checking and Formatting:**
+    - All code should have type annotations, backend and frontend.
+    - All projects should have linting, code formatting, and type checking enabled.
+    - All backend APIs should produce an OpenAPI-compatible spec.
+    - The UI should convert the OpenAPI spec into a type-safe service layer for all network calls.
 6. **Testing:**
-   - All code should have unit testing.
-   - the project should have some end to end testing covering key workflows.
-   - Follow testing pyramid guidelines.  
-7. **Frequent Checkins**
-   - when executing a multiple phase plan, make sure to checkin after every phase to show progress.
-8. **Single Component Files**
-   - UI compoennts should have a single file
+    - Follow the testing pyramid: many fast unit tests, fewer integration tests, and a small set of end-to-end tests.
+    - The project should have end-to-end tests covering key workflows.
+7. **Frequent Check-ins**
+    - When executing a multi-phase plan, make sure to check in after every phase to show progress.
+8. **One Component per File**
+    - Each file defines exactly one UI component. Sub-components go in their own files (and folders, per rule 10).
 9. **Comments**
-   - Make sure to comment any unusual code that is not obvious
-   - Make sure to orgnaize files into separate functional code sections. Example: State / Initialization / Render (jsx/html) / UI Callbacks, etc...
-   Example: 
-   // ------------ Render ------------
+    - Comment any unusual code whose purpose is not obvious.
+    - Organize files into separate, labeled functional code sections. UI components use the section order defined in rule 12.
+    Example:
+    // ------------ Render ------------
 10. **Self-Contained UI Folders**
-   - Each component and page gets its own folder (`components/Composer/`, `pages/ChatPage/`) holding its component, styles, and tests.
-11. **Routing / Query / UI Toolkit**
-   - Use the tanstack ecosystem for all UI needs.
+    - Each component and page gets its own folder (`components/MyComponent/`, `pages/MyPage/`) holding its component, its tests, its service (rule 13), and a stylesheet only if one is needed (rule 11).
+11. **UI Libraries & Styling**
+    - Use the TanStack ecosystem wherever possible (e.g., TanStack Router for routing, TanStack Query for data fetching).
+    - Use Mantine for UI components.
+    - Style with Tailwind CSS utility classes. Only write a `.css` file when Tailwind can't style something correctly.
 12. **UI Component Structure**
-   - Each UI component should have all of its input properties defined on an interface at the top.  The middle should be initialization , state, and finally UI callbacks. Finally all of its html at the bottom.  Don't include random functions that return react markup.  all markup should be centalized in the component at the bottom.   
+    - Every UI component file follows this section order:
+        1. **Props:** an interface defining all input properties, at the top.
+        2. **Initialization:** hooks, queries, router/context access.
+        3. **State**
+        4. **UI Callbacks:** event handlers.
+        5. **Render:** all markup in the component's single return statement, at the bottom.
+    - Don't write helper functions that return JSX (e.g., `renderHeader()`). If a piece of markup is big enough to pull out, make it its own component in its own folder.
 13. **UI Services**
-   -Any pure functions that sit outside of the UI component can be placed in a service class file that sits next to the UI component.  E
-   example: MyComponent.tsx will have a MyComponentService.ts file, which has any pure functions that perform logic.  these services should have unit tests as well.
-### Planning Engine (`backend/src/features/planning/`)
-The planning flow is driven by rules, not by the model. Keep it that way:
-- **The engine decides.** `engine.py` is pure: it reads the plan (items, typed slot values, `preferences`) and returns the one next action (`AskInput`, `OfferChoice`, `RunSearch`, `AdvanceStage`, `Complete`). Stage order and readiness live in `plans/stages.py`. New flow behaviour is a new rule or slot (`slots.py`), with a table-driven case in `tests/features/planning/test_engine.py`. Never add it as prompt text.
-- **No regex or string matching over model output.** The model is called in two places only: the extractor (`extractor.py`, free text → the pending slot's Pydantic model or a pick, with Ollama's `format` schema, `think=False`, 2 attempts, failing closed to the slot's fixed nudge) and the short streamed Q&A answer, which is shown but never parsed.
-- **Forms and picks never touch the model.** `POST /planning/inputs` is checked against the pending slot or offer (409/422) and applied directly. Picking a candidate is the approval: its ready-made changes go through `chat/tools.check_change` / `apply_change`.
-- **Candidates come from providers or rules** (`shared/flights`, `shared/hotels`, `shared/places`, transfer rules), never from the model. Offers are persisted, so a reload never searches again.
-- `planning` imports `plans`, `itinerary` and `chat`. Outside `planning`, only routers, `main.py` and `chat/dependencies.py` (the offline fake) import it, which avoids cycles. Routers call `planning.service.snapshot` for a `TravelPlan` with its `assessment`.
-- After changing `planning/prompts.py`, a slot's value model, or the model, run the extractor eval: `uv run pytest -m ollama -s tests/features/planning/test_extractor_eval.py`.
+    - Pure logic functions used by a UI component go in a service module next to it, exported as plain functions (not a class).
+    - Example: `MyComponent.tsx` has a `MyComponentService.ts` holding its pure logic functions. Service modules must have unit tests.
+14. **Do Not Repeat Yourself**
+    - Follow the DRY principle to avoid duplicating logic or concepts in code.
+15. **Make Use of Libraries**
+    - Complex operations may call for a library. If a concept is complex, check whether a library already exists before building something custom. Off-the-shelf solutions can be cleaner than building everything custom.
