@@ -1,6 +1,6 @@
 """Searches that turn a `RunSearch` into an offer's candidates.
 
-Each search kind has a runner: flights now, then lodging, activities and transfers in
+Each search kind has a runner: flights and lodging now, then activities and transfers in
 later phases. Until a kind has one, running it fails like a provider outage would, so the
 UI shows Retry and the rest of the flow is unaffected.
 """
@@ -8,7 +8,7 @@ UI shows Retry and the rest of the flow is unaffected.
 import hashlib
 import json
 
-from features.planning import flight_search
+from features.planning import flight_search, lodging_search
 from features.planning.schemas import Candidate, RunSearch, SearchKind
 from features.planning.search_types import Runner, SearchContext, SearchFailedError
 from features.plans.schemas import PlanSnapshot
@@ -18,6 +18,7 @@ __all__ = ["SearchContext", "SearchFailedError", "query_hash", "run_search"]
 _RUNNERS: dict[SearchKind, Runner] = {
     "flights_outbound": flight_search.outbound_flights,
     "flights_return": flight_search.return_flights,
+    "lodging": lodging_search.stays,
 }
 
 

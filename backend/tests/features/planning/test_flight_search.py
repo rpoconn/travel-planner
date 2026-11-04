@@ -34,6 +34,7 @@ from shared.flights.types import (
     FlightSegment,
     FlightStop,
 )
+from shared.hotels.fake import FakeHotelProvider
 from tests.features.plans.builders import outbound_flight, snapshot
 
 TODAY = date(2026, 10, 15)
@@ -59,7 +60,9 @@ def _plan(prefs: FlightPreferences | None = None, **overrides: Any) -> PlanSnaps
 
 def _ctx(flights: FakeFlightProvider) -> SearchContext:
     # The flight runners never touch the database.
-    return SearchContext(session=cast(AsyncSession, None), today=TODAY, flights=flights)
+    return SearchContext(
+        session=cast(AsyncSession, None), today=TODAY, flights=flights, hotels=FakeHotelProvider()
+    )
 
 
 def _option(hour: int, minutes: int, price: int, stops: int = 0) -> FlightOption:

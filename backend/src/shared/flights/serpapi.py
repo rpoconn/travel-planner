@@ -9,18 +9,10 @@ whose zone isn't known is left out rather than guessed at.
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import BaseModel, ValidationError
-from tenacity import (
-    AsyncRetrying,
-    RetryCallState,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from shared.domain import Money
 from shared.flights.airports import airport_timezone
@@ -33,11 +25,11 @@ from shared.flights.types import (
     FlightSegment,
     FlightStop,
 )
-from shared.logging import redact_http_secrets
+from shared.serpapi import SERPAPI_URL, SerpApiClient, describe_failure, loggable
 
 logger = logging.getLogger(__name__)
 
-SERPAPI_URL = "https://serpapi.com/search.json"
+__all__ = ["SERPAPI_URL", "SerpApiFlightProvider"]
 
 _TRAVEL_CLASS: dict[FlightCabin, str] = {
     "economy": "1",
@@ -193,65 +185,6 @@ def _params(query: FlightQuery, departure_token: str | None) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Error classification
-# ---------------------------------------------------------------------------
-
-
-def _is_transient(exc: BaseException) -> bool:
-    if isinstance(exc, httpx.TransportError):
-        return True
-    # Not 429: SerpApi sends it when the month's searches run out, which a retry won't fix.
-    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500
-
-
-def _api_error(response: httpx.Response) -> str | None:
-    try:
-        body: Any = response.json()
-    except ValueError:
-        return None
-    error = body.get("error") if isinstance(body, dict) else None
-    return error if isinstance(error, str) else None
-
-
-def _describe(exc: BaseException) -> str:
-    if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
-        if status == 401:
-            return "Flight search is misconfigured (the SerpApi key was rejected)."
-        if status == 429:
-            return (
-                "Flight search is unavailable: the SerpApi search allowance is used up or "
-                "rate limited."
-            )
-        error = _api_error(exc.response)
-        if status < 500 and error:
-            return f"Flight search failed: {error}"
-        return f"Flight search failed (HTTP {status})."
-    if isinstance(exc, httpx.TimeoutException):
-        return "Flight search timed out."
-    if isinstance(exc, httpx.TransportError):
-        return "Could not reach the flight search service."
-    return "Flight search returned an unexpected response."
-
-
-def _loggable(exc: BaseException | None) -> str:
-    # httpx's exception messages include the request URL, and with it the API key, so
-    # only the type and status are ever logged.
-    if isinstance(exc, httpx.HTTPStatusError):
-        return f"{type(exc).__name__} (HTTP {exc.response.status_code})"
-    return type(exc).__name__
-
-
-def _log_retry(state: RetryCallState) -> None:
-    exc = state.outcome.exception() if state.outcome is not None else None
-    logger.warning(
-        "SerpApi flight search attempt %d failed, retrying: %s",
-        state.attempt_number,
-        _loggable(exc),
-    )
-
-
-# ---------------------------------------------------------------------------
 # Provider
 # ---------------------------------------------------------------------------
 
@@ -266,45 +199,30 @@ class SerpApiFlightProvider:
         retry_wait_seconds: float = 0.5,
         client: httpx.AsyncClient | None = None,
     ) -> None:
-        # The key goes in the URL, which httpx logs for every request.
-        redact_http_secrets()
-        self._api_key = api_key
-        self._max_attempts = max_attempts
-        self._retry_wait_seconds = retry_wait_seconds
-        self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
-
-    def _retrying(self) -> AsyncRetrying:
-        return AsyncRetrying(
-            stop=stop_after_attempt(self._max_attempts),
-            wait=wait_exponential(multiplier=self._retry_wait_seconds, max=8),
-            retry=retry_if_exception(_is_transient),
-            before_sleep=_log_retry,
-            reraise=True,
+        self._serpapi = SerpApiClient(
+            api_key=api_key,
+            name="flight search",
+            timeout_seconds=timeout_seconds,
+            max_attempts=max_attempts,
+            retry_wait_seconds=retry_wait_seconds,
+            client=client,
         )
-
-    async def _get(self, params: dict[str, str]) -> httpx.Response:
-        response = await self._client.get(SERPAPI_URL, params={**params, "api_key": self._api_key})
-        response.raise_for_status()
-        return response
 
     async def search(
         self, query: FlightQuery, *, departure_token: str | None = None
     ) -> list[FlightOption]:
         params = _params(query, departure_token)
         try:
-            async for attempt in self._retrying():
-                with attempt:
-                    response = await self._get(params)
-            parsed = _Response.model_validate_json(response.content)
+            parsed = _Response.model_validate_json(await self._serpapi.get(params))
         except (httpx.HTTPError, ValidationError) as exc:
             logger.warning(
                 "SerpApi flight search failed for %s->%s on %s: %s",
                 params["departure_id"],
                 params["arrival_id"],
                 params["outbound_date"],
-                _loggable(exc),
+                loggable(exc),
             )
-            raise FlightSearchError(_describe(exc)) from exc
+            raise FlightSearchError(describe_failure(exc, "Flight search")) from exc
 
         if parsed.error is not None:
             if _NO_RESULTS in parsed.error:
@@ -318,4 +236,4 @@ class SerpApiFlightProvider:
         return [option for option in options if option is not None]
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        await self._serpapi.aclose()

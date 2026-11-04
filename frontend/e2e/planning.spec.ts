@@ -113,3 +113,35 @@ test('skips flights from the stage bar', async ({ page }) => {
 
     await expect(question(page, 'What kind of place do you want to stay in?')).toBeVisible()
 })
+
+test('finds a place to stay for the trip, then moves on to activities', async ({ page }) => {
+    // Basics, then skip flights: the stay is searched in the destination's own time.
+    const where = question(page, 'Where are you going?')
+    await where.getByRole('textbox', { name: 'Destination' }).fill('Lisbon')
+    await where.getByRole('button', { name: 'Continue' }).click()
+    await expect(question(page, 'When are you going?')).toBeVisible()
+    await sendChatMessage(page, 'a long weekend next month')
+    const who = question(page, "Who's coming?")
+    await who.getByRole('spinbutton', { name: 'Adults' }).fill('2')
+    await who.getByRole('button', { name: 'Continue' }).click()
+    await question(page, 'Do you have a budget for the whole trip?')
+        .getByRole('button', { name: 'Skip' })
+        .click()
+    await expect(question(page, 'How do you like to fly?')).toBeVisible()
+    await page.getByRole('button', { name: 'Skip flights' }).click()
+
+    // Free text answers the lodging preferences, and the search runs for all three nights.
+    await expect(question(page, 'What kind of place do you want to stay in?')).toBeVisible()
+    await sendChatMessage(page, 'a midrange hotel')
+    await expect(conversation(page)).toContainText('Got it: Midrange hotel.')
+    const stays = page.getByRole('region', { name: 'Pick a place to stay.' })
+    await expect(stays).toContainText('3 nights')
+    await expect(stays.getByRole('article')).toHaveCount(2)
+
+    // Picking one covers every night, so the planner moves on by itself.
+    await stays.getByRole('button', { name: 'Pick Example Riverside Hotel' }).click()
+    await expect(
+        page.getByRole('separator', { name: 'Lodging done. Next up: activities.' }),
+    ).toBeVisible()
+    await expect(question(page, 'What do you like to do?')).toBeVisible()
+})

@@ -1,0 +1,48 @@
+{
+  "search_metadata": {"status": "Success"},
+  "search_parameters": {"engine": "google_hotels", "q": "Lisbon, Portugal"},
+  "properties": [
+    {
+      "type": "hotel",
+      "name": "Hotel Avenida Palace",
+      "description": "Grand 1890s hotel by Rossio station.",
+      "link": "https://www.hotel-avenida-palace.pt/",
+      "gps_coordinates": {"latitude": 38.7146, "longitude": -9.1412},
+      "check_in_time": "3:00 PM",
+      "check_out_time": "12:00 PM",
+      "rate_per_night": {"lowest": "$214", "extracted_lowest": 214, "before_taxes_fees": "$195", "extracted_before_taxes_fees": 195},
+      "total_rate": {"lowest": "$1,498", "extracted_lowest": 1498},
+      "hotel_class": "5-star hotel",
+      "extracted_hotel_class": 5,
+      "overall_rating": 4.6,
+      "reviews": 3120,
+      "amenities": ["Free Wi-Fi", "Breakfast ($)", "Air conditioning", "Bar", "Restaurant"],
+      "property_token": "token-1"
+    },
+    {
+      "type": "vacation rental",
+      "name": "Alfama river-view apartment",
+      "link": "https://example.com/rentals/alfama",
+      "gps_coordinates": {"latitude": 38.7117, "longitude": -9.1297},
+      "check_in_time": "4:00 PM",
+      "check_out_time": "10:00 AM",
+      "rate_per_night": {"lowest": "$120", "extracted_lowest": 120},
+      "total_rate": {"lowest": "$840", "extracted_lowest": 840},
+      "overall_rating": 4.8,
+      "reviews": 64,
+      "amenities": ["Kitchen", "Wi-Fi"],
+      "property_token": "token-2"
+    },
+    {
+      "type": "hotel",
+      "name": "Unpriced Guesthouse",
+      "check_in_time": "Anytime",
+      "property_token": "token-3"
+    },
+    {
+      "type": "hotel",
+      "name": "",
+      "property_token": "token-4"
+    }
+  ]
+}

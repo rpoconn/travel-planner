@@ -1,11 +1,12 @@
-"""Fixtures for the planning route tests: a strict model, a scripted flight search, a user
-and a new plan."""
+"""Fixtures for the planning route tests: a strict model, scripted flight and hotel searches,
+a user and a new plan."""
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
 from shared.flights.fake import FakeFlightProvider
+from shared.hotels.fake import FakeHotelProvider
 from shared.llm.fake import FakeLLM
 from tests.conftest import RegisterUser
 from tests.features.planning.planning_http import create_plan
@@ -25,6 +26,14 @@ def fake_flights(app: FastAPI) -> FakeFlightProvider:
     flights = FakeFlightProvider()
     app.state.flights = flights
     return flights
+
+
+@pytest.fixture
+def fake_hotels(app: FastAPI) -> FakeHotelProvider:
+    """The hotel search, recording each query; canned hotels unless replies are queued."""
+    hotels = FakeHotelProvider()
+    app.state.hotels = hotels
+    return hotels
 
 
 @pytest.fixture

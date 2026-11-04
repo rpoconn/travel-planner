@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from features.planning.schemas import Candidate, RunSearch
 from features.plans.schemas import PlanSnapshot
 from shared.flights.types import FlightProvider
+from shared.hotels.types import HotelProvider
 
 
 class SearchFailedError(Exception):
@@ -21,6 +22,7 @@ class SearchContext:
     session: AsyncSession
     today: date
     flights: FlightProvider
+    hotels: HotelProvider
 
 
 # A runner returns the candidates for one `RunSearch`, best first (empty when none fit).

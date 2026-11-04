@@ -38,6 +38,7 @@ def main() -> None:
             "LLM_PROVIDER": "fake",
             "SEARCH_PROVIDER": "fake",
             "FLIGHT_PROVIDER": "fake",
+            "HOTEL_PROVIDER": "fake",
             "CORS_ORIGINS": json.dumps(origins),
             "BCRYPT_ROUNDS": "4",
             "JWT_SECRET": "e2e-only-secret-that-is-at-least-32-bytes",

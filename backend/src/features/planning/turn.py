@@ -70,6 +70,7 @@ from features.plans import service as plans_service
 from features.plans.schemas import PlanSnapshot, PlanStage, SlotName, StageChange
 from features.plans.stages import STAGE_LABELS, StageError, apply_stage_change
 from shared.flights.types import FlightProvider
+from shared.hotels.types import HotelProvider
 from shared.llm.types import LLMClient, LLMError
 from shared.search.types import SearchProvider
 
@@ -96,6 +97,7 @@ class TurnContext:
     plan_id: UUID
     today: date
     flights: FlightProvider
+    hotels: HotelProvider
     # Not searched by the planner; the tool context that checks a pick's changes needs one.
     search: SearchProvider
 
@@ -340,7 +342,9 @@ async def _search(
     action stays a `RunSearch`, so the UI offers Retry)."""
     yield PlanningStatusEvent(text=f"{action.label}…")
     try:
-        search_ctx = SearchContext(session=ctx.session, today=ctx.today, flights=ctx.flights)
+        search_ctx = SearchContext(
+            session=ctx.session, today=ctx.today, flights=ctx.flights, hotels=ctx.hotels
+        )
         candidates = await run_search(search_ctx, plan, action)
     except SearchFailedError as exc:
         yield await _store(ctx, "system", str(exc), kind="error")

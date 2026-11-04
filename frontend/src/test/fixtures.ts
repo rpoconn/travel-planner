@@ -528,6 +528,28 @@ export const OFFER_ACTIVITIES: OfferChoice = {
     nights: null,
 }
 
+/** Places to stay for the nights of May 1 and 2. */
+export const OFFER_LODGING: OfferChoice = {
+    type: 'offer_choice',
+    offer_id: 'bbbbbbbb-0000-0000-0000-000000000003',
+    slot: 'lodging_stay',
+    stage: 'lodging',
+    prompt: 'Pick a place to stay.',
+    candidates: [
+        candidate({
+            id: '1',
+            title: 'Example Riverside Hotel',
+            subtitle: '3-star hotel · rated 4.5 (300 reviews)',
+            details: ['2 nights: in May 1 at 15:00, out May 3 at 11:00'],
+            price: { amount: '280', currency: 'USD' },
+        }),
+    ],
+    min_picks: 1,
+    max_picks: 1,
+    gap: null,
+    nights: { check_in: '2027-05-01', check_out: '2027-05-03' },
+}
+
 /** A plan in `stage` whose engine shows `action`'s choices next. */
 export function planChoosing(action: OfferChoice, overrides: Partial<TravelPlan> = {}): TravelPlan {
     return travelPlan({

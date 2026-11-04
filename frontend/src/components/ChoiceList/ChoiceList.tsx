@@ -5,7 +5,14 @@ import type { OfferChoice } from '@/api/types.gen'
 import { CandidateCard } from '@/components/CandidateCard/CandidateCard'
 import { Button } from '@/components/ui/button'
 
-import { canSubmit, isMulti, pickHint, submitLabel, toggleId } from './ChoiceListService'
+import {
+    canSubmit,
+    isMulti,
+    nightsHint,
+    pickHint,
+    submitLabel,
+    toggleId,
+} from './ChoiceListService'
 
 // The planner's pending choices: the open offer's candidates, best first. Picking is the
 // approval, so a single pick is sent as soon as a card's Pick is pressed; a multi pick
@@ -26,6 +33,7 @@ export function ChoiceList({ action, disabled = false, onPick }: ChoiceListProps
     const [selected, setSelected] = useState<string[]>([])
     const multi = isMulti(action)
     const hint = pickHint(action)
+    const nights = nightsHint(action)
 
     // ----- event handlers -----
     function pick(id: string) {
@@ -44,6 +52,7 @@ export function ChoiceList({ action, disabled = false, onPick }: ChoiceListProps
         >
             <div>
                 <p className="font-heading text-base">{action.prompt}</p>
+                {nights && <p className="text-muted-foreground text-xs">{nights}</p>}
                 {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
             </div>
 

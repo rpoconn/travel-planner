@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     serpapi_api_key: str | None = None
     flight_search_timeout_seconds: float = Field(default=30.0, gt=0)
 
+    # Hotel search for the lodging stage: "serpapi" (Google Hotels results; the same
+    # SERPAPI_API_KEY) or "fake" (made-up places to stay, no network).
+    hotel_provider: Literal["serpapi", "fake"] = "serpapi"
+    hotel_search_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # HTTP
     cors_origins: list[str] = ["http://localhost:5173"]
     # Largest accepted request body; the biggest legitimate one (an item or plan with 5000

@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { OFFER_ACTIVITIES, OFFER_FLIGHTS_OUT } from '@/test/fixtures'
+import { formatDateRange } from '@/lib/format'
+import { OFFER_ACTIVITIES, OFFER_FLIGHTS_OUT, OFFER_LODGING } from '@/test/fixtures'
 
-import { canSubmit, isMulti, pickHint, submitLabel, toggleId } from './ChoiceListService'
+import {
+    canSubmit,
+    isMulti,
+    nightsHint,
+    pickHint,
+    submitLabel,
+    toggleId,
+} from './ChoiceListService'
 
 describe('isMulti', () => {
     it('is true when the offer takes several picks', () => {
@@ -42,5 +50,21 @@ describe('pickHint', () => {
     it('gives the bounds of a multi pick only', () => {
         expect(pickHint(OFFER_ACTIVITIES)).toBe('Pick 1 to 3.')
         expect(pickHint(OFFER_FLIGHTS_OUT)).toBeNull()
+    })
+})
+
+describe('nightsHint', () => {
+    it('says which nights a lodging offer is for', () => {
+        const dates = formatDateRange('2027-05-01', '2027-05-03') ?? ''
+        expect(nightsHint(OFFER_LODGING)).toBe(`2 nights, ${dates}.`)
+        const oneNight = {
+            ...OFFER_LODGING,
+            nights: { check_in: '2027-05-01', check_out: '2027-05-02' },
+        }
+        expect(nightsHint(oneNight)).toMatch(/^1 night, /)
+    })
+
+    it('is nothing for an offer without nights', () => {
+        expect(nightsHint(OFFER_FLIGHTS_OUT)).toBeNull()
     })
 })

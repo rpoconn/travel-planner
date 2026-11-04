@@ -217,6 +217,9 @@ appears on the timeline (and opens in the detail sheet), and the off-topic redir
   `airportsdata` package (`backend/src/shared/flights/`). The key travels in the request
   URL, so httpx's request logs are redacted (`shared/logging.py`). `FLIGHT_PROVIDER=fake`
   makes up flights with no network access; tests and E2E always use it.
+- The planner's lodging stage searches Google Hotels through the same SerpApi key
+  (`backend/src/shared/hotels/`), one search per run of nights without a place to stay.
+  `HOTEL_PROVIDER=fake` makes up places to stay; tests and E2E always use it.
 
 ## Swapping the model
 

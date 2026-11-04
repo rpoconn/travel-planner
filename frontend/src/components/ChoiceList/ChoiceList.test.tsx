@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { OfferChoice } from '@/api/types.gen'
-import { OFFER_ACTIVITIES, OFFER_FLIGHTS_OUT } from '@/test/fixtures'
+import { formatDateRange } from '@/lib/format'
+import { OFFER_ACTIVITIES, OFFER_FLIGHTS_OUT, OFFER_LODGING } from '@/test/fixtures'
 
 import { ChoiceList } from './ChoiceList'
 
@@ -58,6 +59,14 @@ describe('ChoiceList', () => {
         await user.click(screen.getByRole('button', { name: 'Added Fado night' }))
 
         expect(screen.getByRole('button', { name: 'Pick at least 1' })).toBeDisabled()
+    })
+
+    it('says which nights a place to stay is for', () => {
+        renderList(OFFER_LODGING)
+
+        const list = screen.getByRole('region', { name: 'Pick a place to stay.' })
+        const dates = formatDateRange('2027-05-01', '2027-05-03') ?? ''
+        expect(within(list).getByText(`2 nights, ${dates}.`)).toBeInTheDocument()
     })
 
     it('disables picking while a turn runs', () => {
