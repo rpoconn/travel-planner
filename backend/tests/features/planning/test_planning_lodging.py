@@ -12,7 +12,7 @@ from httpx import AsyncClient
 from features.itinerary.schemas import LodgingItem
 from features.planning.events import PlanningStatusEvent
 from features.planning.schemas import NightRange, OfferChoice
-from features.plans.schemas import PlanStage
+from features.plans.schemas import PlanStage, SlotName
 from shared.domain import Money
 from shared.hotels.fake import FakeHotelProvider
 from shared.hotels.types import HotelOption, HotelSearchError
@@ -233,7 +233,7 @@ async def test_a_failed_search_offers_retry(
 
     assert stored(events)[-1] == ("error", "Hotel search timed out.")
     action = done(events).plan.assessment.next_action
-    assert action.type == "run_search" and action.kind == "lodging"
+    assert action.type == "run_search" and action.slot == SlotName.LODGING_STAY
 
     events = await post(client, headers, plan_id, "continue")
 

@@ -22,7 +22,6 @@ const SEARCHING = planAssessment({
     stage: 'flights',
     next_action: {
         type: 'run_search',
-        kind: 'flights_outbound',
         slot: 'flight_outbound',
         stage: 'flights',
         label: 'Find flights out',

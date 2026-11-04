@@ -11,7 +11,7 @@ from datetime import date
 
 from features.itinerary.days import date_range, uncovered_nights
 from features.itinerary.gaps import describe_place, find_gaps
-from features.itinerary.schemas import FlightItem, Gap, ItemType, ItineraryItem
+from features.itinerary.schemas import FlightDirection, FlightItem, Gap, ItemType, ItineraryItem
 from features.plans.schemas import (
     STAGES,
     Issue,
@@ -85,10 +85,15 @@ def _basics_issues(details: PlanDetails) -> list[Issue]:
     return issues
 
 
+def _flight_directions(active: Sequence[ItineraryItem]) -> set[FlightDirection]:
+    """Which ways the (active) flights go: outbound, return, internal."""
+    return {item.direction for item in active if isinstance(item, FlightItem)}
+
+
 def _flights_issues(details: PlanDetails, active: Sequence[ItineraryItem]) -> list[Issue]:
     if details.flights_skipped:
         return []
-    directions = {item.direction for item in active if isinstance(item, FlightItem)}
+    directions = _flight_directions(active)
     issues: list[Issue] = []
     if "outbound" not in directions:
         issues.append(_blocking(IssueCode.MISSING_OUTBOUND, PlanStage.FLIGHTS, "a flight out"))
@@ -170,12 +175,8 @@ def stage_status(plan: PlanSnapshot, stage: PlanStage) -> StageStatus:
 
 
 def _has_round_trip(plan: PlanSnapshot) -> bool:
-    directions = {
-        item.direction
-        for item in plan.items
-        if isinstance(item, FlightItem) and item.status != "cancelled"
-    }
-    return {"outbound", "return"} <= directions
+    active = [item for item in plan.items if item.status != "cancelled"]
+    return {"outbound", "return"} <= _flight_directions(active)
 
 
 def apply_stage_change(plan: PlanSnapshot, change: StageChange) -> tuple[PlanStage, bool]:

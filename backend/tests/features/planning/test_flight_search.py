@@ -42,13 +42,11 @@ from tests.features.plans.builders import outbound_flight, snapshot
 TODAY = date(2026, 10, 15)
 
 OUTBOUND = RunSearch(
-    kind="flights_outbound",
     slot=SlotName.FLIGHT_OUTBOUND,
     stage=PlanStage.FLIGHTS,
     label="Find flights out",
 )
 RETURN = RunSearch(
-    kind="flights_return",
     slot=SlotName.FLIGHT_RETURN,
     stage=PlanStage.FLIGHTS,
     label="Find flights home",

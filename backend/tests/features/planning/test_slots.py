@@ -4,11 +4,33 @@ import pytest
 from pydantic import ValidationError
 
 from features.planning.schemas import BudgetAnswer, DatesAnswer
-from features.planning.slots import SLOTS, STAGE_SLOTS, SlotSpec, slot
+from features.planning.searches import RUNNERS
+from features.planning.slots import FIX_SLOT, SLOTS, STAGE_SLOTS, SlotSpec, slot
 from features.plans.schemas import PlanStage, SlotName
+from shared.domain import IssueCode
+from tests.features.plans.builders import snapshot
 
 INPUT_SLOTS = [spec for spec in SLOTS.values() if spec.kind == "input"]
 PICK_SLOTS = [spec for spec in SLOTS.values() if spec.kind == "pick"]
+
+# Stage checklist issues (`plans.stages`). Review's `stage_incomplete` is fixed in the
+# stage it names, so no slot fixes it.
+CHECKLIST_CODES = {
+    IssueCode.MISSING_DATES,
+    IssueCode.MISSING_TRAVELERS,
+    IssueCode.MISSING_ORIGIN,
+    IssueCode.MISSING_DESTINATION,
+    IssueCode.MISSING_OUTBOUND,
+    IssueCode.MISSING_RETURN,
+    IssueCode.UNCOVERED_NIGHT,
+    IssueCode.NO_ACTIVITIES,
+    IssueCode.MISSING_TRANSFER,
+}
+FULL_PREFERENCES = {
+    "flights": {"cabin": "business", "outbound_token": "token"},
+    "lodging": {"hotel_class": "midrange"},
+    "activities": {"interests": ["food"]},
+}
 
 
 def test_every_slot_name_is_registered_once() -> None:
@@ -75,6 +97,56 @@ def test_a_pick_slot_has_no_form(spec: SlotSpec) -> None:
     assert spec.value_model is None
     assert spec.fields == ()
     assert 1 <= spec.min_picks <= spec.max_picks
+
+
+@pytest.mark.parametrize("code", sorted(CHECKLIST_CODES), ids=str)
+def test_every_checklist_issue_has_exactly_one_fix_slot(code: IssueCode) -> None:
+    fixers = [spec.name for spec in SLOTS.values() if spec.fixes == code]
+
+    assert len(fixers) == 1
+    assert FIX_SLOT[code] == fixers[0]
+
+
+def test_only_checklist_issues_have_fix_slots() -> None:
+    assert set(FIX_SLOT) == CHECKLIST_CODES
+
+
+@pytest.mark.parametrize("spec", PICK_SLOTS, ids=lambda spec: spec.name)
+def test_every_pick_slot_has_a_runner_and_fixes_an_issue(spec: SlotSpec) -> None:
+    assert spec.name in RUNNERS
+    assert spec.fixes is not None
+
+
+@pytest.mark.parametrize("spec", INPUT_SLOTS, ids=lambda spec: spec.name)
+def test_every_input_slot_reads_its_answer_from_the_plan(spec: SlotSpec) -> None:
+    assert spec.read is not None and spec.value_model is not None
+    full = snapshot(budget={"amount": 3000}, preferences=FULL_PREFERENCES)
+    empty = snapshot(
+        destination=None,
+        origin=None,
+        start_date=None,
+        end_date=None,
+        travelers=None,
+    )
+
+    answer = spec.read(full)
+
+    assert isinstance(answer, spec.value_model)
+    assert spec.read(empty) is None
+
+
+def test_reading_flight_preferences_leaves_out_the_search_token() -> None:
+    read = slot(SlotName.FLIGHT_PREFERENCES).read
+    assert read is not None
+
+    answer = read(snapshot(preferences=FULL_PREFERENCES))
+
+    assert answer is not None
+    assert answer.model_dump(mode="json") == {
+        "cabin": "business",
+        "max_stops": None,
+        "depart_window": "any",
+    }
 
 
 def test_activities_allow_several_picks() -> None:

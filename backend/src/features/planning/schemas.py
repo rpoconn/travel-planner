@@ -99,7 +99,6 @@ class BudgetAnswer(BaseModel):
 # ---------------------------------------------------------------------------
 
 OfferStatus = Literal["open", "picked", "dismissed"]
-SearchKind = Literal["flights_outbound", "flights_return", "lodging", "activities", "transfers"]
 
 
 class CandidateChange(BaseModel):
@@ -194,7 +193,6 @@ class RunSearch(BaseModel):
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
     type: Literal["run_search"] = "run_search"
-    kind: SearchKind
     slot: SlotName
     stage: PlanStage
     label: str

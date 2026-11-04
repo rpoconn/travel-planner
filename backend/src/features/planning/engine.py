@@ -1,29 +1,30 @@
 """The planning rules engine: given the plan as it stands, what happens next.
 
-Pure functions (no database, no model). Each stage has an ordered list of rules; the first
-that fires decides the next action. When none fires the stage is done and the engine says
-to advance. Every decision reads itinerary state and typed slot values, never text.
+Pure functions (no database, no model). The engine reads each stage's checklist
+(`plans.stages`): every blocking issue has the slot that fixes it (`slots.FIX_SLOT`), and
+the next action works on the first issue left, in slot order. Input slots that fix no
+issue (preferences, the optional budget) are asked while the plan holds no answer for
+them. Every decision reads itinerary state and typed slot values, never text.
 
-| Stage      | Rules, in order                                                          |
-|------------|--------------------------------------------------------------------------|
-| basics     | destination, dates, travelers, origin, budget (optional)                 |
-| flights    | preferences, pick a flight out, pick a flight home (or skipped)          |
-| lodging    | preferences, then pick a stay for each run of uncovered nights           |
-| activities | preferences, pick activities                                             |
-| ground     | pick a transfer for each gap                                             |
-| review     | complete                                                                 |
+| Stage      | Issues, in slot order                    | Asked first                |
+|------------|------------------------------------------|----------------------------|
+| basics     | destination, dates, travelers, origin    | budget (optional, after)   |
+| flights    | flight out, flight home (or skipped)     | flight preferences         |
+| lodging    | each run of uncovered nights             | lodging preferences        |
+| activities | no activities                            | activity preferences       |
+| ground     | each gap without a transfer              |                            |
+| review     | (complete)                               |                            |
 
 A pick slot shows the open offer when it is for that slot, stage, plan version and
 gap/nights; otherwise it asks for a search. Later stages first re-ask any basics they
 depend on (a stage can't search for flights without dates).
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from datetime import date, timedelta
-from typing import Any
 
 from features.itinerary.gaps import describe_place
-from features.itinerary.schemas import FlightItem, Gap, ItemType, TimelineWarning
+from features.itinerary.schemas import Gap, ItemType, TimelineWarning
 from features.planning.schemas import (
     AdvanceStage,
     AskInput,
@@ -34,9 +35,8 @@ from features.planning.schemas import (
     OfferChoice,
     PlanAssessment,
     RunSearch,
-    SearchKind,
 )
-from features.planning.slots import SLOTS, SlotSpec
+from features.planning.slots import FIX_SLOT, SLOT_ORDER, SLOTS, STAGE_SLOTS, SlotSpec
 from features.plans.schemas import (
     STAGES,
     Issue,
@@ -46,9 +46,6 @@ from features.plans.schemas import (
 )
 from features.plans.stages import stage_status
 from shared.domain import IssueCode
-
-# A rule returns the action it wants, or None to let the next rule (or advancing) decide.
-_StageRule = Callable[[PlanSnapshot, Offer | None], NextAction | None]
 
 # ---------------------------------------------------------------------------
 # Issues
@@ -104,40 +101,16 @@ def plan_issues(plan: PlanSnapshot, warnings: Sequence[TimelineWarning]) -> list
 # ---------------------------------------------------------------------------
 
 
-def _prefill(name: SlotName, plan: PlanSnapshot) -> dict[str, Any]:
-    """What the plan already holds for a slot, in the shape its form sends back."""
-    prefs = plan.preferences
-    match name:
-        case SlotName.DESTINATION if plan.destination is not None:
-            return {"destination": plan.destination.model_dump(mode="json")}
-        case SlotName.ORIGIN if plan.origin is not None:
-            return {"origin": plan.origin.model_dump(mode="json")}
-        case SlotName.DATES:
-            known = {"start": plan.start_date, "end": plan.end_date}
-            dates = {key: value.isoformat() for key, value in known.items() if value is not None}
-            return {"dates": dates} if dates else {}
-        case SlotName.TRAVELERS if plan.travelers is not None:
-            return plan.travelers.model_dump(mode="json")
-        case SlotName.BUDGET if plan.budget is not None:
-            return {"budget": plan.budget.model_dump(mode="json")}
-        case SlotName.FLIGHT_PREFERENCES if prefs.flights is not None:
-            return prefs.flights.model_dump(mode="json", exclude={"outbound_token"})
-        case SlotName.LODGING_PREFERENCES if prefs.lodging is not None:
-            return prefs.lodging.model_dump(mode="json")
-        case SlotName.ACTIVITY_PREFERENCES if prefs.activities is not None:
-            return prefs.activities.model_dump(mode="json")
-    return {}
-
-
 def _ask(name: SlotName, plan: PlanSnapshot) -> AskInput:
     spec = SLOTS[name]
+    answer = spec.read(plan) if spec.read is not None else None
     return AskInput(
         slot=name,
         stage=spec.stage,
         prompt=spec.prompt,
         fields=list(spec.fields),
         optional=spec.optional,
-        prefill=_prefill(name, plan),
+        prefill=answer.model_dump(mode="json") if answer is not None else {},
     )
 
 
@@ -161,76 +134,6 @@ def offer_fits(
     )
 
 
-def _pick_or_search(
-    plan: PlanSnapshot,
-    offer: Offer | None,
-    slot: SlotName,
-    kind: SearchKind,
-    label: str,
-    *,
-    gap: Gap | None = None,
-    nights: NightRange | None = None,
-) -> OfferChoice | RunSearch:
-    spec: SlotSpec = SLOTS[slot]
-    if offer is not None and offer_fits(offer, plan, slot, gap=gap, nights=nights):
-        return OfferChoice(
-            offer_id=offer.id,
-            slot=slot,
-            stage=spec.stage,
-            prompt=spec.prompt,
-            candidates=offer.candidates,
-            min_picks=spec.min_picks,
-            max_picks=spec.max_picks,
-            gap=gap,
-            nights=nights,
-            can_refresh=kind != "transfers",
-        )
-    return RunSearch(kind=kind, slot=slot, stage=spec.stage, label=label, gap=gap, nights=nights)
-
-
-# ---------------------------------------------------------------------------
-# Stage rules
-# ---------------------------------------------------------------------------
-
-
-def _missing_basic(plan: PlanSnapshot, *, with_optional: bool) -> SlotName | None:
-    """The first basics slot the plan lacks; the optional budget only when asked for."""
-    if plan.destination is None:
-        return SlotName.DESTINATION
-    if plan.start_date is None or plan.end_date is None:
-        return SlotName.DATES
-    if plan.travelers is None:
-        return SlotName.TRAVELERS
-    if plan.origin is None:
-        return SlotName.ORIGIN
-    declined = plan.preferences.declined
-    if with_optional and plan.budget is None and SlotName.BUDGET not in declined:
-        return SlotName.BUDGET
-    return None
-
-
-def _basics(plan: PlanSnapshot, offer: Offer | None) -> NextAction | None:
-    missing = _missing_basic(plan, with_optional=True)
-    return _ask(missing, plan) if missing is not None else None
-
-
-def _flights(plan: PlanSnapshot, offer: Offer | None) -> NextAction | None:
-    if plan.preferences.flights is None:
-        return _ask(SlotName.FLIGHT_PREFERENCES, plan)
-    directions = {
-        item.direction
-        for item in plan.items
-        if isinstance(item, FlightItem) and item.status != "cancelled"
-    }
-    if "outbound" not in directions:
-        return _pick_or_search(
-            plan, offer, SlotName.FLIGHT_OUTBOUND, "flights_outbound", "Find flights out"
-        )
-    return _pick_or_search(
-        plan, offer, SlotName.FLIGHT_RETURN, "flights_return", "Find flights home"
-    )
-
-
 def night_ranges(nights: Sequence[date]) -> list[NightRange]:
     """Runs of consecutive nights, each as one stay (check out the morning after)."""
     ranges: list[NightRange] = []
@@ -249,63 +152,120 @@ def _range_label(nights: NightRange) -> str:
     return f"{check_in:%b} {check_in.day} to {check_out:%b} {check_out.day}"
 
 
-def _lodging(plan: PlanSnapshot, offer: Offer | None) -> NextAction | None:
-    if plan.preferences.lodging is None:
-        return _ask(SlotName.LODGING_PREFERENCES, plan)
-    status = stage_status(plan, PlanStage.LODGING)
-    uncovered = [i.date for i in status.issues if i.code == IssueCode.UNCOVERED_NIGHT and i.date]
-    first = night_ranges(uncovered)[0]
-    return _pick_or_search(
-        plan,
-        offer,
-        SlotName.LODGING_STAY,
-        "lodging",
-        f"Find a place to stay {_range_label(first)}",
-        nights=first,
-    )
+def _search_label(slot: SlotName, gap: Gap | None, nights: NightRange | None) -> str:
+    """The search button's words, e.g. "Find flights out"."""
+    match slot:
+        case SlotName.FLIGHT_OUTBOUND:
+            return "Find flights out"
+        case SlotName.FLIGHT_RETURN:
+            return "Find flights home"
+        case SlotName.LODGING_STAY if nights is not None:
+            return f"Find a place to stay {_range_label(nights)}"
+        case SlotName.ACTIVITIES:
+            return "Find things to do"
+        case SlotName.TRANSFER if gap is not None:
+            return (
+                f"Find a way from {describe_place(gap.from_place, gap.after_item_id)} "
+                f"to {describe_place(gap.to_place, gap.before_item_id)}"
+            )
+    return "Find options"
 
 
-def _activities(plan: PlanSnapshot, offer: Offer | None) -> NextAction | None:
-    if plan.preferences.activities is None:
-        return _ask(SlotName.ACTIVITY_PREFERENCES, plan)
-    return _pick_or_search(plan, offer, SlotName.ACTIVITIES, "activities", "Find things to do")
+def _pick_or_search(
+    plan: PlanSnapshot,
+    offer: Offer | None,
+    slot: SlotName,
+    *,
+    gap: Gap | None = None,
+    nights: NightRange | None = None,
+) -> OfferChoice | RunSearch:
+    spec: SlotSpec = SLOTS[slot]
+    if offer is not None and offer_fits(offer, plan, slot, gap=gap, nights=nights):
+        return OfferChoice(
+            offer_id=offer.id,
+            slot=slot,
+            stage=spec.stage,
+            prompt=spec.prompt,
+            candidates=offer.candidates,
+            min_picks=spec.min_picks,
+            max_picks=spec.max_picks,
+            gap=gap,
+            nights=nights,
+            can_refresh=spec.refreshable,
+        )
+    label = _search_label(slot, gap, nights)
+    return RunSearch(slot=slot, stage=spec.stage, label=label, gap=gap, nights=nights)
 
 
-def _ground(plan: PlanSnapshot, offer: Offer | None) -> NextAction | None:
-    gap = plan.gaps[0]
-    label = (
-        f"Find a way from {describe_place(gap.from_place, gap.after_item_id)} "
-        f"to {describe_place(gap.to_place, gap.before_item_id)}"
-    )
-    return _pick_or_search(plan, offer, SlotName.TRANSFER, "transfers", label, gap=gap)
+def _fix(plan: PlanSnapshot, offer: Offer | None, issues: Sequence[Issue]) -> NextAction:
+    """The action that works on the first of `issues` (a stage's checklist, in slot
+    order): ask its fix slot's form, or pick from (or search for) its candidates."""
+    issue = issues[0]
+    slot = FIX_SLOT[issue.code]
+    if SLOTS[slot].kind == "input":
+        return _ask(slot, plan)
+    nights = None
+    if issue.code == IssueCode.UNCOVERED_NIGHT:
+        # One stay for the first run of consecutive uncovered nights.
+        uncovered = [i.date for i in issues if i.code == IssueCode.UNCOVERED_NIGHT and i.date]
+        nights = night_ranges(uncovered)[0]
+    return _pick_or_search(plan, offer, slot, gap=issue.gap, nights=nights)
 
 
-_RULES: dict[PlanStage, _StageRule] = {
-    PlanStage.FLIGHTS: _flights,
-    PlanStage.LODGING: _lodging,
-    PlanStage.ACTIVITIES: _activities,
-    PlanStage.GROUND: _ground,
-}
+# ---------------------------------------------------------------------------
+# Next action
+# ---------------------------------------------------------------------------
+
+
+def _fixable(plan: PlanSnapshot, stage: PlanStage) -> list[Issue]:
+    """The stage's checklist issues that a slot fixes, in the order the slots are asked.
+    The sort is stable, so the issues of one slot (several nights, several gaps) keep
+    their order."""
+    issues = [issue for issue in stage_status(plan, stage).issues if issue.code in FIX_SLOT]
+    return sorted(issues, key=lambda issue: SLOT_ORDER[FIX_SLOT[issue.code]])
+
+
+def _unanswered(plan: PlanSnapshot, stage: PlanStage) -> SlotName | None:
+    """The stage's first input slot that fixes no issue (preferences, the budget) and that
+    the plan holds no answer for, leaving out declined ones."""
+    declined = plan.preferences.declined
+    for name in STAGE_SLOTS[stage]:
+        spec = SLOTS[name]
+        if spec.fixes is not None or spec.read is None or name in declined:
+            continue
+        if spec.read(plan) is None:
+            return name
+    return None
 
 
 def next_action(plan: PlanSnapshot, offer: Offer | None) -> NextAction:
-    """What the plan needs next in its current stage."""
+    """What the plan needs next in its current stage:
+
+    1. At review, nothing: `Complete`.
+    2. A missing basic, in any stage (every later stage searches with the basics).
+    3. In basics with none missing: the optional budget, unless answered or declined.
+    4. A later stage with an empty checklist advances, even without its preferences
+       (items added by hand count, and skipped flights empty the flights checklist).
+    5. The stage's preferences, before it searches.
+    6. The stage's first issue: pick from its offer, or search for one.
+    """
     stage = plan.stage
     if stage == PlanStage.REVIEW:
         return Complete()
     following = STAGES[STAGES.index(stage) + 1]
+    basics = _fixable(plan, PlanStage.BASICS)
+    if basics:
+        return _fix(plan, offer, basics)
     if stage == PlanStage.BASICS:
-        return _basics(plan, offer) or AdvanceStage(to=following)
-    # Every later stage searches with the basics, so a basic removed since is asked first.
-    missing = _missing_basic(plan, with_optional=False)
-    if missing is not None:
-        return _ask(missing, plan)
-    # A finished stage advances even without its preferences (items added by hand count,
-    # and skipped flights make the flights checklist empty), so the stage rules only run
-    # while the checklist has something left.
-    if stage_status(plan, stage).ready:
+        optional = _unanswered(plan, stage)
+        return _ask(optional, plan) if optional is not None else AdvanceStage(to=following)
+    issues = _fixable(plan, stage)
+    if not issues:
         return AdvanceStage(to=following)
-    return _RULES[stage](plan, offer) or AdvanceStage(to=following)
+    preferences = _unanswered(plan, stage)
+    if preferences is not None:
+        return _ask(preferences, plan)
+    return _fix(plan, offer, issues)
 
 
 def refresh_search(plan: PlanSnapshot) -> RunSearch | None:
@@ -313,7 +273,7 @@ def refresh_search(plan: PlanSnapshot) -> RunSearch | None:
     ("More options"): what the engine would ask for if the offer were gone. None when the
     plan isn't at choices that can be refreshed."""
     pending = next_action(plan, None)
-    if not isinstance(pending, RunSearch) or pending.kind == "transfers":
+    if not isinstance(pending, RunSearch) or not SLOTS[pending.slot].refreshable:
         return None
     return pending
 

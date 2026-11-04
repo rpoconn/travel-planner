@@ -51,7 +51,6 @@ def _ctx() -> SearchContext:
 
 def _action(gap: Gap | None) -> RunSearch:
     return RunSearch(
-        kind="transfers",
         slot=SlotName.TRANSFER,
         stage=PlanStage.GROUND,
         label="Find a way",

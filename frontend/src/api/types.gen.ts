@@ -1728,10 +1728,6 @@ export type RunSearch = {
      * Type
      */
     type: 'run_search';
-    /**
-     * Kind
-     */
-    kind: 'flights_outbound' | 'flights_return' | 'lodging' | 'activities' | 'transfers';
     slot: SlotName;
     stage: PlanStage;
     /**

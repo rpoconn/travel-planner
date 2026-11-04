@@ -38,7 +38,6 @@ from tests.features.plans.builders import snapshot
 TODAY = date(2026, 10, 15)
 TOKYO = Place(name="Tokyo", city="Tokyo", country="Japan", lat=35.68, lng=139.69)
 ACTION = RunSearch(
-    kind="activities",
     slot=SlotName.ACTIVITIES,
     stage=PlanStage.ACTIVITIES,
     label="Find things to do",

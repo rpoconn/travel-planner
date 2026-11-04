@@ -90,7 +90,7 @@ def _summary(action: NextAction) -> tuple[str, ...]:
         case OfferChoice():
             return ("offer", action.slot)
         case RunSearch():
-            return ("search", action.kind)
+            return ("search", action.slot)
         case AdvanceStage():
             return ("advance", action.to)
         case Complete():
@@ -150,7 +150,7 @@ CASES: list[Case] = [
     ),
     Case(
         "flights with preferences search out",
-        ("search", "flights_outbound"),
+        ("search", SlotName.FLIGHT_OUTBOUND),
         plan=_in(PlanStage.FLIGHTS, preferences=FLIGHT_PREFS),
     ),
     Case(
@@ -161,25 +161,25 @@ CASES: list[Case] = [
     ),
     Case(
         "an offer from an older plan version searches again",
-        ("search", "flights_outbound"),
+        ("search", SlotName.FLIGHT_OUTBOUND),
         plan=_in(PlanStage.FLIGHTS, preferences=FLIGHT_PREFS, version=2),
         offer=lambda _: _offer(SlotName.FLIGHT_OUTBOUND, PlanStage.FLIGHTS, version=1),
     ),
     Case(
         "an offer for another slot is ignored",
-        ("search", "flights_outbound"),
+        ("search", SlotName.FLIGHT_OUTBOUND),
         plan=_in(PlanStage.FLIGHTS, preferences=FLIGHT_PREFS),
         offer=lambda _: _offer(SlotName.FLIGHT_RETURN, PlanStage.FLIGHTS),
     ),
     Case(
         "a picked offer is ignored",
-        ("search", "flights_outbound"),
+        ("search", SlotName.FLIGHT_OUTBOUND),
         plan=_in(PlanStage.FLIGHTS, preferences=FLIGHT_PREFS),
         offer=lambda _: _offer(SlotName.FLIGHT_OUTBOUND, PlanStage.FLIGHTS, status="picked"),
     ),
     Case(
         "an outbound flight searches home",
-        ("search", "flights_return"),
+        ("search", SlotName.FLIGHT_RETURN),
         items=[outbound_flight()],
         plan=_in(PlanStage.FLIGHTS, preferences=FLIGHT_PREFS),
     ),
@@ -208,7 +208,7 @@ CASES: list[Case] = [
     ),
     Case(
         "a later stage doesn't re-ask the optional budget",
-        ("search", "flights_outbound"),
+        ("search", SlotName.FLIGHT_OUTBOUND),
         plan=_in(PlanStage.FLIGHTS, budget=None, preferences=FLIGHT_PREFS),
     ),
     # ----- lodging -----
@@ -219,7 +219,7 @@ CASES: list[Case] = [
     ),
     Case(
         "lodging with preferences searches",
-        ("search", "lodging"),
+        ("search", SlotName.LODGING_STAY),
         plan=_in(PlanStage.LODGING, preferences=LODGING_PREFS),
     ),
     Case(
@@ -230,7 +230,7 @@ CASES: list[Case] = [
     ),
     Case(
         "an offer for other nights searches again",
-        ("search", "lodging"),
+        ("search", SlotName.LODGING_STAY),
         items=[_stay("2027-05-01T15:00", "2027-05-02T11:00")],
         plan=_in(PlanStage.LODGING, preferences=LODGING_PREFS),
         offer=lambda _: _offer(SlotName.LODGING_STAY, PlanStage.LODGING, nights=MAY_1_TO_4),
@@ -249,7 +249,7 @@ CASES: list[Case] = [
     ),
     Case(
         "activities with preferences search",
-        ("search", "activities"),
+        ("search", SlotName.ACTIVITIES),
         plan=_in(PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS),
     ),
     Case(
@@ -261,7 +261,7 @@ CASES: list[Case] = [
     # ----- ground -----
     Case(
         "a gap searches for a transfer",
-        ("search", "transfers"),
+        ("search", SlotName.TRANSFER),
         items=[_stay("2027-05-01T15:00", "2027-05-04T11:00")],
         plan=_in(PlanStage.GROUND),
     ),
@@ -274,7 +274,7 @@ CASES: list[Case] = [
     ),
     Case(
         "an offer for a later gap searches for the first",
-        ("search", "transfers"),
+        ("search", SlotName.TRANSFER),
         items=[_stay("2027-05-01T15:00", "2027-05-04T11:00")],
         plan=_in(PlanStage.GROUND),
         offer=lambda plan: _offer(SlotName.TRANSFER, PlanStage.GROUND, gap=plan.gaps[1]),
@@ -318,11 +318,12 @@ def test_ask_input_carries_the_slot_form() -> None:
     assert action.optional is False
 
 
-def test_ask_input_prefills_what_the_plan_already_has() -> None:
+def test_one_of_two_dates_asks_for_the_range_with_nothing_prefilled() -> None:
+    # The prefill is the slot's answer as the plan holds it, and only both dates answer it.
     action = next_action(snapshot(end_date=None), None)
 
-    assert isinstance(action, AskInput)
-    assert action.prefill == {"dates": {"start": "2027-05-01"}}
+    assert isinstance(action, AskInput) and action.slot == SlotName.DATES
+    assert action.prefill == {}
 
 
 def test_the_budget_is_optional() -> None:
@@ -386,7 +387,7 @@ def test_refresh_search_is_the_search_behind_the_choices() -> None:
     action = refresh_search(plan)
 
     assert action == next_action(plan, None)
-    assert isinstance(action, RunSearch) and action.kind == "activities"
+    assert isinstance(action, RunSearch) and action.slot == SlotName.ACTIVITIES
 
 
 def test_refresh_search_is_none_without_searched_choices() -> None:

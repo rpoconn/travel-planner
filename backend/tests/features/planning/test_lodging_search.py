@@ -63,7 +63,6 @@ def _ctx(hotels: FakeHotelProvider) -> SearchContext:
 
 def _action(nights: NightRange | None = NIGHTS) -> RunSearch:
     return RunSearch(
-        kind="lodging",
         slot=SlotName.LODGING_STAY,
         stage=PlanStage.LODGING,
         label="Find a place to stay",

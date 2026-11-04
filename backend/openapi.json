@@ -5076,17 +5076,6 @@
             "title": "Type",
             "default": "run_search"
           },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "flights_outbound",
-              "flights_return",
-              "lodging",
-              "activities",
-              "transfers"
-            ],
-            "title": "Kind"
-          },
           "slot": {
             "$ref": "#/components/schemas/SlotName"
           },
@@ -5121,7 +5110,6 @@
         "type": "object",
         "required": [
           "type",
-          "kind",
           "slot",
           "stage",
           "label",
