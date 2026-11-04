@@ -30,6 +30,7 @@ from features.itinerary.schemas import (
     TimelineDay,
     TimelineEntry,
     TimelineWarning,
+    active,
 )
 from features.itinerary.zones import arrival_zone, legs, zone_error
 from shared.domain import IssueCode, Money, Place, Travelers
@@ -242,7 +243,7 @@ def build_timeline(
 
     # Cards per day (everything except lodging, which is drawn as spans).
     ordered = sorted(items, key=lambda i: (i.start, i.end, i.title))
-    zones = _day_zones(dates, [item for item in ordered if item.status != "cancelled"])
+    zones = _day_zones(dates, active(ordered))
     days: list[TimelineDay] = []
     for index, day in enumerate(dates):
         entries: list[TimelineEntry] = []
@@ -272,17 +273,17 @@ def build_timeline(
     ]
 
     # Cancelled items stay visible (the UI greys them out) but don't count for warnings.
-    active = [item for item in ordered if item.status != "cancelled"]
-    gaps = find_gaps(active, origin)
+    current = active(ordered)
+    gaps = find_gaps(current, origin)
     warnings = [
-        *_outside_trip(start_date, end_date, active),
-        *_nights_without_lodging(dates, active),
-        *_overlaps([i for i in active if i.type != ItemType.LODGING]),
-        *_overlaps([i for i in active if i.type == ItemType.LODGING]),
+        *_outside_trip(start_date, end_date, current),
+        *_nights_without_lodging(dates, current),
+        *_overlaps([i for i in current if i.type != ItemType.LODGING]),
+        *_overlaps([i for i in current if i.type == ItemType.LODGING]),
         *warnings_from_gaps(gaps),
-        *_zone_warnings(active),
-        *_route_warnings(active),
-        *_budget_warnings(budget, limits, travelers, active),
+        *_zone_warnings(current),
+        *_route_warnings(current),
+        *_budget_warnings(budget, limits, travelers, current),
     ]
     warnings.sort(key=lambda w: w.date or range_first)
 

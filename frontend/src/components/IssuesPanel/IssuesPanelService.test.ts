@@ -59,7 +59,7 @@ describe('labels', () => {
     it('counts and names', () => {
         expect(summaryLabel(1)).toBe('1 thing to check')
         expect(summaryLabel(3)).toBe('3 things to check')
-        expect(goToLabel('ground')).toBe('Go to Transfers')
+        expect(goToLabel('ground')).toBe('Go to Ground transport')
     })
 
     it('reads blocking issues as what is missing', () => {

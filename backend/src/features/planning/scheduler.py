@@ -27,7 +27,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from features.itinerary.days import date_range
-from features.itinerary.schemas import ActivityCategory, FlightItem, ItemType, ItineraryItem
+from features.itinerary.schemas import ActivityCategory, FlightItem, ItemType, ItineraryItem, active
 from features.itinerary.zones import legs, same_zone, zone_at
 from features.plans.schemas import PlanSnapshot
 from shared.places.types import OpeningHours
@@ -102,7 +102,7 @@ class _Busy:
 
 
 def _active(plan: PlanSnapshot) -> list[ItineraryItem]:
-    return [item for item in plan.items if item.status != "cancelled"]
+    return active(plan.items)
 
 
 def _busy(items: Sequence[ItineraryItem]) -> list[_Busy]:

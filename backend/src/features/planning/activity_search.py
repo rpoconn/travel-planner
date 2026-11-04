@@ -25,7 +25,7 @@ from decimal import Decimal
 from typing import Any
 
 from features.itinerary.budget import party_size
-from features.itinerary.schemas import ActivityCategory
+from features.itinerary.schemas import ActivityCategory, active
 from features.planning.lodging_search import destination_zone
 from features.planning.scheduler import Request, Slot, schedule
 from features.planning.schemas import Candidate, CandidateChange, RunSearch
@@ -162,7 +162,7 @@ def budget_left(plan: PlanSnapshot) -> Money | None:
     budget = active_budget(plan.budget)
     if budget is None:
         return None
-    costs = [item.cost for item in plan.items if item.status != "cancelled"]
+    costs = [item.cost for item in active(plan.items)]
     spent = totals_by_currency(costs).get(budget.currency, Decimal(0))
     return Money(amount=budget.amount - spent, currency=budget.currency)
 

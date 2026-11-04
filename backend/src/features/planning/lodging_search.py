@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from features.itinerary.schemas import ItineraryItem, LodgingKind
+from features.itinerary.schemas import ItineraryItem, LodgingKind, active
 from features.itinerary.zones import legs, zone_at
 from features.planning.schemas import Candidate, CandidateChange, NightRange, RunSearch
 from features.planning.search_types import SearchContext, SearchFailedError, unseen
@@ -206,7 +206,7 @@ def rank_for(
 def active_legs(plan: PlanSnapshot) -> list[ItineraryItem]:
     """The plan's active flights and transfers, in the order they land (shared with the
     activity and transfer searches)."""
-    return legs(item for item in plan.items if item.status != "cancelled")
+    return legs(active(plan.items))
 
 
 def destination_zone(plan: PlanSnapshot) -> str | None:

@@ -23,6 +23,7 @@ from features.itinerary.schemas import (
     ItineraryItem,
     LodgingItem,
     TransferItem,
+    active,
 )
 from shared.domain import Place
 
@@ -187,7 +188,7 @@ def _gap(prev: _Stop, nxt: _Stop) -> Gap:
 
 def find_gaps(items: Sequence[ItineraryItem], origin: Place | None) -> list[Gap]:
     """Every unbridged change of place, in trip order. Cancelled items are ignored."""
-    stops = _stops([item for item in items if item.status != "cancelled"])
+    stops = _stops(active(items))
     if not stops:
         return []
     if origin is not None:

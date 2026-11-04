@@ -132,6 +132,15 @@ HotelClass = Literal["budget", "midrange", "upscale", "luxury"]
 ShortAnswer = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]
 
 
+# How each `max_stops` choice reads ("not nonstop", "Economy cabin, up to 1 stop").
+STOP_LABELS: dict[int | None, str] = {
+    0: "nonstop",
+    1: "up to 1 stop",
+    2: "up to 2 stops",
+    None: "any number of stops",
+}
+
+
 class FlightPreferencesAnswer(BaseModel):
     """What the user tells the flights stage before it searches."""
 

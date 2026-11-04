@@ -29,7 +29,7 @@ describe('StageStepper', () => {
             expect.stringContaining('Flights'),
             expect.stringContaining('Lodging'),
             expect.stringContaining('Activities'),
-            expect.stringContaining('Transfers'),
+            expect.stringContaining('Ground transport'),
             expect.stringContaining('Review'),
         ])
         expect(steps[2]).toHaveAttribute('aria-current', 'step')

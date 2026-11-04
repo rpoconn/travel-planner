@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from features.itinerary.schemas import FlightItem
+from features.itinerary.schemas import FlightItem, active
 from features.planning.flight_choice import (
     flight_arguments,
     format_minutes,
@@ -27,7 +27,13 @@ from features.planning.flight_choice import (
 )
 from features.planning.schemas import Candidate, CandidateChange, RunSearch
 from features.planning.search_types import SearchContext, SearchFailedError, unseen
-from features.plans.schemas import FlightPreferences, PlanSnapshot, active_budget
+from features.plans.schemas import (
+    STOP_LABELS,
+    DepartWindow,
+    FlightPreferences,
+    PlanSnapshot,
+    active_budget,
+)
 from shared.domain import Money, Place
 from shared.flights.airports import city_airports
 from shared.flights.types import FlightOption, FlightQuery, FlightSearchError
@@ -38,13 +44,11 @@ logger = logging.getLogger(__name__)
 TOP_CANDIDATES = 5
 
 # Local departure hours [from, to) of each time of day the preferences can ask for.
-_WINDOWS: dict[str, tuple[int, int]] = {
+_WINDOWS: dict[DepartWindow, tuple[int, int]] = {
     "morning": (5, 12),
     "afternoon": (12, 17),
     "evening": (17, 24),
 }
-
-_STOP_LIMITS = {0: "nonstop", 1: "up to 1 stop", 2: "up to 2 stops"}
 
 # ---------------------------------------------------------------------------
 # Query
@@ -117,7 +121,7 @@ def misses(option: FlightOption, prefs: FlightPreferences) -> list[str]:
     """How `option` falls short of the preferences, one phrase each; empty when it fits."""
     found: list[str] = []
     if prefs.max_stops is not None and len(option.layovers) > prefs.max_stops:
-        found.append(f"{stops_label(option)}, not {_STOP_LIMITS[prefs.max_stops]}")
+        found.append(f"{stops_label(option)}, not {STOP_LABELS[prefs.max_stops]}")
     window = _WINDOWS.get(prefs.depart_window)
     departs = option.departure.time
     if window is not None and not window[0] <= departs.hour < window[1]:
@@ -195,9 +199,8 @@ def _outbound_flight(plan: PlanSnapshot) -> FlightItem | None:
     """The plan's (first) active flight out."""
     flights = [
         item
-        for item in plan.items
+        for item in active(plan.items)
         if isinstance(item, FlightItem) and item.direction == "outbound"
-        if item.status != "cancelled"
     ]
     return min(flights, key=lambda flight: flight.start) if flights else None
 

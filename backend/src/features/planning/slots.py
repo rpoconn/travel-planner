@@ -24,6 +24,7 @@ from features.planning.schemas import (
     OriginAnswer,
 )
 from features.plans.schemas import (
+    STOP_LABELS,
     ActivityPreferences,
     DepartWindow,
     FlightPreferencesAnswer,
@@ -210,10 +211,8 @@ _SLOTS: tuple[SlotSpec, ...] = (
                 kind="choice",
                 required=False,
                 options=[
-                    FieldOption(value=0, label="Nonstop"),
-                    FieldOption(value=1, label="Up to 1 stop"),
-                    FieldOption(value=2, label="Up to 2 stops"),
-                    FieldOption(value=None, label="Any"),
+                    FieldOption(value=stops, label=label.capitalize())
+                    for stops, label in STOP_LABELS.items()
                 ],
             ),
             FieldSpec(

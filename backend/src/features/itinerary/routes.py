@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from features.itinerary.airports import same_area
-from features.itinerary.schemas import FlightFields, ItemFields, TransferFields
+from features.itinerary.schemas import FlightFields, ItemFields, TransferFields, active
 from shared.domain import Place
 
 # ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ class RouteProblem:
 
 
 def _flights(items: Sequence[ItemFields]) -> list[FlightFields]:
-    return [i for i in items if isinstance(i, FlightFields) and i.status != "cancelled"]
+    return [item for item in active(items) if isinstance(item, FlightFields)]
 
 
 def _code(place: Place) -> str:
@@ -47,11 +47,8 @@ def _same_airport(a: Place, b: Place) -> bool:
 
 def _ground_between(items: Sequence[ItemFields], after: datetime, before: datetime) -> bool:
     return any(
-        isinstance(item, TransferFields)
-        and item.status != "cancelled"
-        and item.start < before
-        and item.end > after
-        for item in items
+        isinstance(item, TransferFields) and item.start < before and item.end > after
+        for item in active(items)
     )
 
 

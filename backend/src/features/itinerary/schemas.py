@@ -12,6 +12,7 @@ before a rule existed still load.
 """
 
 import datetime as dt
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, Literal, Self
@@ -322,6 +323,11 @@ ItineraryItem = Annotated[
     FlightItem | LodgingItem | ActivityItem | TransferItem,
     Field(discriminator="type"),
 ]
+
+
+def active[Item: ItemFields](items: Iterable[Item]) -> list[Item]:
+    """The items that still count: every one but the cancelled."""
+    return [item for item in items if item.status != "cancelled"]
 
 
 # ---------------------------------------------------------------------------

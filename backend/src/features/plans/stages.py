@@ -11,7 +11,14 @@ from datetime import date
 
 from features.itinerary.days import date_range, uncovered_nights
 from features.itinerary.gaps import describe_place, find_gaps
-from features.itinerary.schemas import FlightDirection, FlightItem, Gap, ItemType, ItineraryItem
+from features.itinerary.schemas import (
+    FlightDirection,
+    FlightItem,
+    Gap,
+    ItemType,
+    ItineraryItem,
+    active,
+)
 from features.plans.schemas import (
     STAGES,
     Issue,
@@ -146,13 +153,13 @@ def _ground_issues(gaps: Sequence[Gap]) -> list[Issue]:
 
 def plan_progress(details: PlanDetails, items: Sequence[ItineraryItem]) -> Progress:
     """Each stage's checklist for the plan as it stands. Cancelled items don't count."""
-    active = [item for item in items if item.status != "cancelled"]
-    gaps = find_gaps(active, details.origin)
+    current = active(items)
+    gaps = find_gaps(current, details.origin)
     issues: dict[PlanStage, list[Issue]] = {
         PlanStage.BASICS: _basics_issues(details),
-        PlanStage.FLIGHTS: _flights_issues(details, active),
-        PlanStage.LODGING: _lodging_issues(details, active),
-        PlanStage.ACTIVITIES: _activities_issues(active),
+        PlanStage.FLIGHTS: _flights_issues(details, current),
+        PlanStage.LODGING: _lodging_issues(details, current),
+        PlanStage.ACTIVITIES: _activities_issues(current),
         PlanStage.GROUND: _ground_issues(gaps),
     }
     # Review is the finish line: ready once every earlier stage is.
@@ -175,8 +182,7 @@ def stage_status(plan: PlanSnapshot, stage: PlanStage) -> StageStatus:
 
 
 def _has_round_trip(plan: PlanSnapshot) -> bool:
-    active = [item for item in plan.items if item.status != "cancelled"]
-    return {"outbound", "return"} <= _flight_directions(active)
+    return {"outbound", "return"} <= _flight_directions(active(plan.items))
 
 
 def apply_stage_change(plan: PlanSnapshot, change: StageChange) -> tuple[PlanStage, bool]:

@@ -17,6 +17,7 @@ from features.planning.slots import SLOTS
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import (
+    STOP_LABELS,
     ActivityPreferences,
     FlightPreferences,
     FlightPreferencesAnswer,
@@ -90,8 +91,7 @@ def _day(day: date) -> str:
 
 
 def _flight_preferences(answer: FlightPreferencesAnswer) -> str:
-    stops = {0: "nonstop", 1: "up to 1 stop", 2: "up to 2 stops", None: "any number of stops"}
-    parts = [f"{answer.cabin.capitalize()} cabin", stops[answer.max_stops]]
+    parts = [f"{answer.cabin.capitalize()} cabin", STOP_LABELS[answer.max_stops]]
     if answer.depart_window != "any":
         parts.append(f"{answer.depart_window} departures")
     return ", ".join(parts)

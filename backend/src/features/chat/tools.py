@@ -42,6 +42,7 @@ from features.itinerary.schemas import (
     SpendingLimit,
     TransferItemCreate,
     TransferItemPatch,
+    active,
 )
 from features.plans import service as plans_service
 from features.plans.models import Plan
@@ -163,9 +164,7 @@ def _projected_costs(
 ) -> dict[str, Cost | None]:
     """Each active item's cost, by id, after the staged changes. The change being prepared
     (`name`, `arguments`) is skipped if it's already staged."""
-    costs: dict[str, Cost | None] = {
-        str(item.id): item.cost for item in items if item.status != "cancelled"
-    }
+    costs: dict[str, Cost | None] = {str(item.id): item.cost for item in active(items)}
     for index, change in enumerate(ctx.staged):
         if change.name == name and change.arguments == arguments:
             continue

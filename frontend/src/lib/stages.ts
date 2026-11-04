@@ -46,7 +46,7 @@ export const STAGE_META: Record<PlanStage, StageMeta> = {
         description: "Things to do while you're there.",
     },
     ground: {
-        label: 'Transfers',
+        label: 'Ground transport',
         description: 'A way to get between every two places, from leaving home to getting back.',
     },
     review: {
