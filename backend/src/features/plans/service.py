@@ -110,7 +110,7 @@ async def set_stage(
 ) -> Plan:
     """Store a workflow position already checked by `plans.stages.apply_stage_change`."""
     plan = await get_plan(session, user_id, plan_id)
-    plan.stage = stage
+    plan.stage = stage.value
     plan.flights_skipped = flights_skipped
     mark_changed(plan)
     await session.commit()

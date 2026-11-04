@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from features.chat.schemas import ProposedChange
 from features.itinerary.gaps import describe_place
 from features.itinerary.schemas import Gap, TimelineWarning
-from features.plans.schemas import STAGES, PlanStage, StageStatus, TravelPlan
+from features.plans.schemas import STAGES, PlanSnapshot, PlanStage, StageStatus
 from features.plans.stages import STAGE_LABELS, stage_status
 from shared.costs import budget_summary, totals_by_currency
 from shared.llm.types import LLMMessage
@@ -61,7 +61,7 @@ def guardrail_messages(history: list[LLMMessage], latest: str) -> list[LLMMessag
 # ---------------------------------------------------------------------------
 
 
-def _trip_summary(plan: TravelPlan) -> str:
+def _trip_summary(plan: PlanSnapshot) -> str:
     details = [f'"{plan.title}"']
     if plan.destination is not None:
         details.append(f"to {plan.destination.name}")
@@ -76,7 +76,7 @@ def _trip_summary(plan: TravelPlan) -> str:
     return summary
 
 
-def redirect_messages(plan: TravelPlan, latest: str) -> list[LLMMessage]:
+def redirect_messages(plan: PlanSnapshot, latest: str) -> list[LLMMessage]:
     system = f"""\
 You are {ASSISTANT_NAME}, a friendly travel-planning assistant. The user's message is \
 outside what you help with. Do not answer it. In at most two short sentences, acknowledge \
@@ -94,7 +94,7 @@ The trip they are planning: {_trip_summary(plan)}."""
 # ---------------------------------------------------------------------------
 
 
-def _plan_json(plan: TravelPlan) -> str:
+def _plan_json(plan: PlanSnapshot) -> str:
     # Only what the model needs: ids are kept (update_item/remove_item take them), but
     # bookkeeping fields and empty values are dropped to save context.
     return plan.model_dump_json(
@@ -119,15 +119,19 @@ def _plan_json(plan: TravelPlan) -> str:
 # ---------------------------------------------------------------------------
 
 _STAGE_PURPOSES: dict[PlanStage, str] = {
-    "basics": (
+    PlanStage.BASICS: (
         "agree the trip's dates, who is travelling, where it starts and the destination, "
         "and save them with set_plan_details"
     ),
-    "flights": "propose the flight out and the flight home",
-    "lodging": "find somewhere to stay for every night of the trip",
-    "activities": "plan things to do and places to eat",
-    "ground": ("add a transfer for every change of place, from leaving home to getting back home"),
-    "review": "the trip is complete; answer questions and fix anything the user wants changed",
+    PlanStage.FLIGHTS: "propose the flight out and the flight home",
+    PlanStage.LODGING: "find somewhere to stay for every night of the trip",
+    PlanStage.ACTIVITIES: "plan things to do and places to eat",
+    PlanStage.GROUND: (
+        "add a transfer for every change of place, from leaving home to getting back home"
+    ),
+    PlanStage.REVIEW: (
+        "the trip is complete; answer questions and fix anything the user wants changed"
+    ),
 }
 
 # Which stage a request belongs to, so the agent can redirect instead of forcing it into
@@ -225,7 +229,7 @@ def _checklist(status: StageStatus) -> str:
     return f"Still missing: {'; '.join(status.missing)}."
 
 
-def _stage_block(plan: TravelPlan) -> str:
+def _stage_block(plan: PlanSnapshot) -> str:
     stage = plan.stage
     status = stage_status(plan, stage)
     index = STAGES.index(stage)
@@ -276,7 +280,7 @@ def _stage_block(plan: TravelPlan) -> str:
 _MAX_CALENDAR_DAYS = 31
 
 
-def _trip_calendar(plan: TravelPlan) -> str:
+def _trip_calendar(plan: PlanSnapshot) -> str:
     # Small models can't reliably work out the weekday of a date (one called 2027-05-04,
     # a Tuesday, "Thursday"), so every trip day is spelled out for them to read off.
     if plan.start_date is None or plan.end_date is None:
@@ -292,7 +296,7 @@ def _trip_calendar(plan: TravelPlan) -> str:
     )
 
 
-def _cost_summary(plan: TravelPlan) -> str:
+def _cost_summary(plan: PlanSnapshot) -> str:
     # Cancelled items stay in the plan but cost nothing.
     totals = totals_by_currency(item.cost for item in plan.items if item.status != "cancelled")
     summary = budget_summary(plan.budget, totals)
@@ -313,7 +317,7 @@ def _future_month_example(today: date) -> str:
     return f'"in {month:%B}" means {month:%B %Y}'
 
 
-def agent_system_prompt(plan: TravelPlan, today: date) -> str:
+def agent_system_prompt(plan: PlanSnapshot, today: date) -> str:
     # Written for small local models: short rules, the riskiest ones first, and one worked
     # example of asking instead of guessing.
     return f"""\
@@ -605,7 +609,7 @@ without calling a tool;
 hotel, what time, which item to move)."""
 
 
-def _describe_item(item_id: UUID, plan: TravelPlan) -> str:
+def _describe_item(item_id: UUID, plan: PlanSnapshot) -> str:
     # The client's warning can be stale (the plan changed since it was computed), so an id
     # that's no longer in the plan is reported rather than treated as an error.
     item = next((item for item in plan.items if item.id == item_id), None)
@@ -614,7 +618,7 @@ def _describe_item(item_id: UUID, plan: TravelPlan) -> str:
     return f"- {item_id}: {item.title} ({item.type}, {item.start:%Y-%m-%d %H:%M})"
 
 
-def fix_request_message(content: str, fix: TimelineWarning, plan: TravelPlan) -> str:
+def fix_request_message(content: str, fix: TimelineWarning, plan: PlanSnapshot) -> str:
     """The agent's latest user message for a "Fix it" turn: the visible text plus the
     warning details and instructions. Only `content` is stored; the details reach later
     turns through the proposal the agent makes."""

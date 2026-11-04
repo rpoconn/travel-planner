@@ -43,7 +43,7 @@ from features.chat.schemas import (
     ToolCallEvent,
     ToolResultEvent,
 )
-from features.plans.schemas import TravelPlan
+from features.plans.schemas import PlanSnapshot
 from shared.llm.types import LLMClient, LLMMessage, LLMToolCall, ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ async def run_agent(
     *,
     llm: LLMClient,
     ctx: tools.ToolContext,
-    plan: TravelPlan,
+    plan: PlanSnapshot,
     history: list[LLMMessage],
     latest: str,
     today: date,

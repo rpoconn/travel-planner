@@ -40,6 +40,7 @@ from features.chat.schemas import (
     ToolCallEvent,
     ToolResultEvent,
 )
+from features.plans.schemas import PlanStage
 from shared.llm.fake import FakeLLM, json_reply, text, tool_calls
 from shared.llm.types import LLMError
 from shared.rate_limit import CHAT_BUCKET, RateLimiter
@@ -347,7 +348,7 @@ async def test_offline_mode_answers_without_ollama(
 async def test_offline_mode_add_command_proposes_then_approve_applies(
     app: FastAPI, client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
 ) -> None:
-    await move_to_stage(app, plan, "activities")
+    await move_to_stage(app, plan, PlanStage.ACTIVITIES)
     events = await send(client, headers, plan["id"], "Add a visit to the Louvre!")
 
     call = next(e for e in events if isinstance(e, ToolCallEvent))
@@ -818,7 +819,7 @@ async def test_approving_a_flight_swap_removes_the_old_one_first(
     plan: dict[str, Any],
     fake_llm: FakeLLM,
 ) -> None:
-    await move_to_stage(app, plan, "flights")
+    await move_to_stage(app, plan, PlanStage.FLIGHTS)
     # The reported bug: a cheaper flight was added and the pricier one stayed. A card that
     # removes the old flight before adding the new one must pass the approval check, which
     # would otherwise see two flights out of PHL.

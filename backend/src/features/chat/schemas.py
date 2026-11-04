@@ -15,7 +15,7 @@ from pydantic import (
 )
 
 from features.itinerary.schemas import TimelineWarning
-from features.plans.schemas import TravelPlan
+from features.planning.schemas import TravelPlan
 
 # ---------------------------------------------------------------------------
 # Field types

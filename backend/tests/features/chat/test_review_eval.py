@@ -178,7 +178,7 @@ CASES: tuple[Case, ...] = (
     # --- The two smoke-test failures (lodging stage, a dinner request) ---
     Case(
         "smoke: dinner saved as lodging",
-        "lodging",
+        PlanStage.LODGING,
         "Book us a dinner at a fado restaurant",
         (
             _lodging(
@@ -192,14 +192,14 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "smoke: invented hotel for a dinner",
-        "lodging",
+        PlanStage.LODGING,
         "Book us a dinner at a fado restaurant",
         (_lodging("Hotel Fado Alfama", "2027-05-03T15:00", "2027-05-04T11:00", fits=False),),
     ),
     # --- Out of stage or not what was asked ---
     Case(
         "tour as lodging",
-        "lodging",
+        PlanStage.LODGING,
         "Can you book a walking tour of Alfama on May 4?",
         (
             _lodging(
@@ -213,13 +213,13 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "hotel when asked for flights",
-        "flights",
+        PlanStage.FLIGHTS,
         "What flights are there from Philadelphia to Lisbon on May 1?",
         (_lodging("Lisbon Airport Hotel", "2027-05-01T15:00", "2027-05-02T11:00", fits=False),),
     ),
     Case(
         "transfer when asked for a museum",
-        "ground",
+        PlanStage.GROUND,
         "Add the Gulbenkian Museum on the morning of May 5",
         (
             _transfer(
@@ -235,7 +235,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "activity on a different date",
-        "activities",
+        PlanStage.ACTIVITIES,
         "Add a visit to Belém Tower on May 5",
         (
             _activity(
@@ -249,13 +249,13 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "hotel for the wrong month",
-        "lodging",
+        PlanStage.LODGING,
         "Book the Memmo Alfama from May 2 to May 9",
         (_lodging("Memmo Alfama", "2027-06-02T15:00", "2027-06-09T11:00", fits=False),),
     ),
     Case(
         "day trip when asked for a restaurant",
-        "activities",
+        PlanStage.ACTIVITIES,
         "Find us a nice seafood restaurant for dinner on May 3",
         (
             _activity(
@@ -270,7 +270,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "wrong route for an airport taxi",
-        "ground",
+        PlanStage.GROUND,
         "Add a taxi from the airport to our hotel when we land",
         (
             _transfer(
@@ -286,7 +286,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "outbound flight when asked for the flight home",
-        "flights",
+        PlanStage.FLIGHTS,
         "Add the flight home on May 9",
         (
             _flight(
@@ -302,7 +302,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "removes the wrong item",
-        "review",
+        PlanStage.REVIEW,
         "Remove the fado dinner",
         (
             Change(
@@ -315,7 +315,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "an extra activity nobody asked for",
-        "activities",
+        PlanStage.ACTIVITIES,
         "Add the Oceanário on May 4 at 10",
         (
             _activity(
@@ -336,43 +336,43 @@ CASES: tuple[Case, ...] = (
     # --- Good proposals ---
     Case(
         "named hotel",
-        "lodging",
+        PlanStage.LODGING,
         "Book Hotel Avenida Palace from May 2 to May 9",
         (_AVENIDA,),
     ),
     Case(
         "follow-up pick",
-        "lodging",
+        PlanStage.LODGING,
         "the second one",
         (_lodging("Memmo Alfama", "2027-05-02T15:00", "2027-05-09T11:00"),),
     ),
     Case(
         "short yes",
-        "lodging",
+        PlanStage.LODGING,
         "yes",
         (_AVENIDA,),
     ),
     Case(
         "round trip bundle",
-        "flights",
+        PlanStage.FLIGHTS,
         "Book the TAP round trip: Philadelphia to Lisbon May 1, back May 9",
         (_OUT, _HOME),
     ),
     Case(
         "chosen search options",
-        "flights",
+        PlanStage.FLIGHTS,
         "Take the cheapest options",
         (_OUT, _HOME),
     ),
     Case(
         "flight home",
-        "flights",
+        PlanStage.FLIGHTS,
         "Add the flight home: TP 203 from Lisbon on May 9 at 11:00",
         (_HOME,),
     ),
     Case(
         "dinner as an activity",
-        "activities",
+        PlanStage.ACTIVITIES,
         "Book us a dinner at a fado restaurant on May 3",
         (
             _activity(
@@ -386,7 +386,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "day trip",
-        "activities",
+        PlanStage.ACTIVITIES,
         "Add a day trip to Sintra on May 5",
         (
             _activity(
@@ -400,7 +400,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "two museums",
-        "activities",
+        PlanStage.ACTIVITIES,
         "Plan two museums for May 4: Gulbenkian in the morning and MAAT in the afternoon",
         (
             _activity(
@@ -414,7 +414,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "all the transfers",
-        "ground",
+        PlanStage.GROUND,
         "Add the transfers we still need",
         (
             _transfer(
@@ -453,7 +453,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "airport taxi",
-        "ground",
+        PlanStage.GROUND,
         "Add a taxi from the airport to our hotel when we land",
         (
             _transfer(
@@ -468,7 +468,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "trip details",
-        "basics",
+        PlanStage.BASICS,
         "2 adults, May 1 to 9, from Philadelphia to Lisbon",
         (
             Change(
@@ -485,7 +485,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "revise turn",
-        "lodging",
+        PlanStage.LODGING,
         revise_request_message(
             "Actually we want to check out on May 8, not May 9",
             [ProposedChange(call_id="call_0", name="add_lodging", summary=_AVENIDA.summary)],
@@ -494,7 +494,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "move an activity",
-        "review",
+        PlanStage.REVIEW,
         "Move the Sintra trip to May 6",
         (
             Change(
@@ -512,7 +512,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "remove an item",
-        "review",
+        PlanStage.REVIEW,
         "Remove the Oceanário",
         (
             Change(
@@ -525,7 +525,7 @@ CASES: tuple[Case, ...] = (
     # --- A pick from the assistant's own list: "add #1" is that hotel, not another ---
     Case(
         "pick #1 but a different hotel from a new search",
-        "lodging",
+        PlanStage.LODGING,
         "add #1",
         (
             _lodging(
@@ -539,21 +539,21 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         "pick #1 and it is that hotel",
-        "lodging",
+        PlanStage.LODGING,
         "add #1",
         (_lodging("Granbell Hotel Shinjuku", "2027-05-02T15:00", "2027-05-09T11:00"),),
         previous_reply=_SHINJUKU_LIST,
     ),
     Case(
         "pick the second one and it is that hotel",
-        "lodging",
+        PlanStage.LODGING,
         "the second one please",
         (_lodging("Hotel Gracery Shinjuku", "2027-05-02T15:00", "2027-05-09T11:00"),),
         previous_reply=_SHINJUKU_LIST,
     ),
     Case(
         "pick the second one but the first is proposed",
-        "lodging",
+        PlanStage.LODGING,
         "the second one please",
         (_lodging("Granbell Hotel Shinjuku", "2027-05-02T15:00", "2027-05-09T11:00", fits=False),),
         previous_reply=_SHINJUKU_LIST,

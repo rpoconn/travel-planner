@@ -3,14 +3,14 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 
 from features.auth.dependencies import CurrentUser
-from features.itinerary import service as itinerary_service
+from features.planning import service as planning_service
+from features.planning.schemas import TravelPlan
 from features.plans import service, stages
 from features.plans.schemas import (
     PlanCreate,
     PlanSummary,
     PlanUpdate,
     StageChange,
-    TravelPlan,
 )
 from shared.db import SessionDep
 from shared.domain import Place
@@ -41,14 +41,14 @@ async def create_plan(body: PlanCreate, user: CurrentUser, session: SessionDep) 
     """Create a plan. Without an `origin` it starts from the user's home, if they set one."""
     home = Place.model_validate(user.home) if user.home is not None else None
     plan = await service.create_plan(session, user.id, body, home=home)
-    return await itinerary_service.snapshot(session, plan)
+    return await planning_service.snapshot(session, plan)
 
 
 @router.get("/{plan_id}", operation_id="getPlan", responses=_NOT_FOUND)
 async def get_plan(plan_id: UUID, user: CurrentUser, session: SessionDep) -> TravelPlan:
     """The plan with its itinerary items (sorted by start)."""
     try:
-        return await itinerary_service.get_plan_snapshot(session, user.id, plan_id)
+        return await planning_service.get_plan_snapshot(session, user.id, plan_id)
     except service.PlanNotFoundError as exc:
         raise _not_found() from exc
 
@@ -70,7 +70,7 @@ async def update_plan(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
-    return await itinerary_service.snapshot(session, plan)
+    return await planning_service.snapshot(session, plan)
 
 
 @router.post(
@@ -84,14 +84,14 @@ async def change_stage(
     """Move through the planning stages. `next` is refused (409) until the current stage's
     checklist is complete; going back is always allowed."""
     try:
-        current = await itinerary_service.get_plan_snapshot(session, user.id, plan_id)
+        current = await planning_service.get_plan_snapshot(session, user.id, plan_id)
         stage, flights_skipped = stages.apply_stage_change(current, body)
         plan = await service.set_stage(session, user.id, plan_id, stage, flights_skipped)
     except service.PlanNotFoundError as exc:
         raise _not_found() from exc
     except stages.StageError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return await itinerary_service.snapshot(session, plan)
+    return await planning_service.snapshot(session, plan)
 
 
 @router.delete(

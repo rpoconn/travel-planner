@@ -1,4 +1,4 @@
-"""Planning stages: what each stage needs before the user can move on, and the rules for
+"""Planning stages: what each stage needs before the plan can move on, and the rules for
 moving between them.
 
 Pure functions (no database). This lives apart from `plans.service` because readiness
@@ -14,21 +14,23 @@ from features.itinerary.gaps import describe_place, find_gaps
 from features.itinerary.schemas import FlightItem, Gap, ItineraryItem
 from features.plans.schemas import (
     STAGES,
+    Issue,
+    IssueCode,
     PlanDetails,
+    PlanSnapshot,
     PlanStage,
     StageChange,
     StageStatus,
-    TravelPlan,
 )
 
 # How each stage is named in messages to the user and the agent.
 STAGE_LABELS: dict[PlanStage, str] = {
-    "basics": "basics",
-    "flights": "flights",
-    "lodging": "lodging",
-    "activities": "activities",
-    "ground": "ground transport",
-    "review": "review",
+    PlanStage.BASICS: "basics",
+    PlanStage.FLIGHTS: "flights",
+    PlanStage.LODGING: "lodging",
+    PlanStage.ACTIVITIES: "activities",
+    PlanStage.GROUND: "ground transport",
+    PlanStage.REVIEW: "review",
 }
 
 
@@ -42,85 +44,123 @@ class Progress:
     gaps: list[Gap]
 
 
+def _blocking(
+    code: IssueCode,
+    stage: PlanStage,
+    message: str,
+    *,
+    on: date | None = None,
+    gap: Gap | None = None,
+) -> Issue:
+    # A gap's neighbours; None is home, which isn't an item.
+    ends = () if gap is None else (gap.after_item_id, gap.before_item_id)
+    item_ids = [item_id for item_id in ends if item_id is not None]
+    return Issue(
+        code=code,
+        stage=stage,
+        severity="blocking",
+        message=message,
+        date=on,
+        item_ids=item_ids,
+        gap=gap,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Readiness
 # ---------------------------------------------------------------------------
 
 
-def _basics_missing(details: PlanDetails) -> list[str]:
-    missing: list[str] = []
+def _basics_issues(details: PlanDetails) -> list[Issue]:
+    basics = PlanStage.BASICS
+    issues: list[Issue] = []
     if details.start_date is None or details.end_date is None:
-        missing.append("trip dates")
+        issues.append(_blocking(IssueCode.MISSING_DATES, basics, "trip dates"))
     if details.travelers is None:
-        missing.append("who is travelling")
+        issues.append(_blocking(IssueCode.MISSING_TRAVELERS, basics, "who is travelling"))
     if details.origin is None:
-        missing.append("where the trip starts (home)")
+        issues.append(_blocking(IssueCode.MISSING_ORIGIN, basics, "where the trip starts (home)"))
     if details.destination is None:
-        missing.append("a destination")
-    return missing
+        issues.append(_blocking(IssueCode.MISSING_DESTINATION, basics, "a destination"))
+    return issues
 
 
-def _flights_missing(details: PlanDetails, active: Sequence[ItineraryItem]) -> list[str]:
+def _flights_issues(details: PlanDetails, active: Sequence[ItineraryItem]) -> list[Issue]:
     if details.flights_skipped:
         return []
     directions = {item.direction for item in active if isinstance(item, FlightItem)}
-    missing: list[str] = []
+    issues: list[Issue] = []
     if "outbound" not in directions:
-        missing.append("a flight out")
+        issues.append(_blocking(IssueCode.MISSING_OUTBOUND, PlanStage.FLIGHTS, "a flight out"))
     if "return" not in directions:
-        missing.append("a flight home")
-    return missing
+        issues.append(_blocking(IssueCode.MISSING_RETURN, PlanStage.FLIGHTS, "a flight home"))
+    return issues
 
 
 def _night_label(night: date) -> str:
     return f"{night:%b} {night.day}"
 
 
-def _lodging_missing(details: PlanDetails, active: Sequence[ItineraryItem]) -> list[str]:
+def _lodging_issues(details: PlanDetails, active: Sequence[ItineraryItem]) -> list[Issue]:
     if details.start_date is None or details.end_date is None:
-        return ["trip dates"]
+        return [_blocking(IssueCode.MISSING_DATES, PlanStage.LODGING, "trip dates")]
     days = list(date_range(details.start_date, details.end_date))
     return [
-        f"a place to stay the night of {_night_label(night)}"
+        _blocking(
+            IssueCode.UNCOVERED_NIGHT,
+            PlanStage.LODGING,
+            f"a place to stay the night of {_night_label(night)}",
+            on=night,
+        )
         for night in uncovered_nights(days, active)
     ]
 
 
-def _activities_missing(active: Sequence[ItineraryItem]) -> list[str]:
-    return [] if any(item.type == "activity" for item in active) else ["at least one activity"]
+def _activities_issues(active: Sequence[ItineraryItem]) -> list[Issue]:
+    if any(item.type == "activity" for item in active):
+        return []
+    return [_blocking(IssueCode.NO_ACTIVITIES, PlanStage.ACTIVITIES, "at least one activity")]
 
 
-def _ground_missing(gaps: Sequence[Gap]) -> list[str]:
-    return [
-        f"a transfer from {describe_place(gap.from_place, gap.after_item_id)} "
-        f"to {describe_place(gap.to_place, gap.before_item_id)}"
-        for gap in gaps
-    ]
+def _ground_issues(gaps: Sequence[Gap]) -> list[Issue]:
+    issues: list[Issue] = []
+    for gap in gaps:
+        moment = gap.arrive_before or gap.leave_after
+        issues.append(
+            _blocking(
+                IssueCode.MISSING_TRANSFER,
+                PlanStage.GROUND,
+                f"a transfer from {describe_place(gap.from_place, gap.after_item_id)} "
+                f"to {describe_place(gap.to_place, gap.before_item_id)}",
+                on=moment.date() if moment is not None else None,
+                gap=gap,
+            )
+        )
+    return issues
 
 
 def plan_progress(details: PlanDetails, items: Sequence[ItineraryItem]) -> Progress:
     """Each stage's checklist for the plan as it stands. Cancelled items don't count."""
     active = [item for item in items if item.status != "cancelled"]
     gaps = find_gaps(active, details.origin)
-    missing: dict[PlanStage, list[str]] = {
-        "basics": _basics_missing(details),
-        "flights": _flights_missing(details, active),
-        "lodging": _lodging_missing(details, active),
-        "activities": _activities_missing(active),
-        "ground": _ground_missing(gaps),
+    issues: dict[PlanStage, list[Issue]] = {
+        PlanStage.BASICS: _basics_issues(details),
+        PlanStage.FLIGHTS: _flights_issues(details, active),
+        PlanStage.LODGING: _lodging_issues(details, active),
+        PlanStage.ACTIVITIES: _activities_issues(active),
+        PlanStage.GROUND: _ground_issues(gaps),
     }
     # Review is the finish line: ready once every earlier stage is.
-    missing["review"] = [
-        f"the {STAGE_LABELS[stage]} stage" for stage in STAGES[:-1] if missing[stage]
+    issues[PlanStage.REVIEW] = [
+        _blocking(IssueCode.STAGE_INCOMPLETE, PlanStage.REVIEW, f"the {STAGE_LABELS[stage]} stage")
+        for stage in STAGES[:-1]
+        if issues[stage]
     ]
-    stages = [
-        StageStatus(stage=stage, ready=not missing[stage], missing=missing[stage])
-        for stage in STAGES
-    ]
+    stages = [StageStatus(stage=stage, issues=issues[stage]) for stage in STAGES]
     return Progress(stages=stages, gaps=gaps)
 
 
-def stage_status(plan: TravelPlan, stage: PlanStage) -> StageStatus:
+def stage_status(plan: PlanSnapshot, stage: PlanStage) -> StageStatus:
     return next(status for status in plan.stages if status.stage == stage)
 
 
@@ -129,7 +169,7 @@ def stage_status(plan: TravelPlan, stage: PlanStage) -> StageStatus:
 # ---------------------------------------------------------------------------
 
 
-def _has_round_trip(plan: TravelPlan) -> bool:
+def _has_round_trip(plan: PlanSnapshot) -> bool:
     directions = {
         item.direction
         for item in plan.items
@@ -138,12 +178,12 @@ def _has_round_trip(plan: TravelPlan) -> bool:
     return {"outbound", "return"} <= directions
 
 
-def apply_stage_change(plan: TravelPlan, change: StageChange) -> tuple[PlanStage, bool]:
+def apply_stage_change(plan: PlanSnapshot, change: StageChange) -> tuple[PlanStage, bool]:
     """The plan's new `(stage, flights_skipped)` after `change`, or `StageError`."""
     index = STAGES.index(plan.stage)
     match change.action:
         case "next":
-            if plan.stage == "review":
+            if plan.stage == PlanStage.REVIEW:
                 raise StageError("This is the last stage.")
             status = stage_status(plan, plan.stage)
             if not status.ready:
@@ -152,7 +192,7 @@ def apply_stage_change(plan: TravelPlan, change: StageChange) -> tuple[PlanStage
                     f"{', '.join(status.missing)}."
                 )
             skipped = plan.flights_skipped
-            if plan.stage == "flights" and _has_round_trip(plan):
+            if plan.stage == PlanStage.FLIGHTS and _has_round_trip(plan):
                 # The user went back and added flights after skipping them.
                 skipped = False
             return STAGES[index + 1], skipped
@@ -161,9 +201,9 @@ def apply_stage_change(plan: TravelPlan, change: StageChange) -> tuple[PlanStage
                 raise StageError("This is the first stage.")
             return STAGES[index - 1], plan.flights_skipped
         case "skip_flights":
-            if plan.stage != "flights":
+            if plan.stage != PlanStage.FLIGHTS:
                 raise StageError("Flights can only be skipped from the flights stage.")
-            return "lodging", True
+            return PlanStage.LODGING, True
         case "go_to":
             # The validator guarantees a stage for go_to.
             assert change.stage is not None

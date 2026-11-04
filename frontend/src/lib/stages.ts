@@ -1,4 +1,4 @@
-import type { StageStatus, TravelPlan } from '@/api/types.gen'
+import { PlanStage, type StageStatus, type TravelPlan } from '@/api/types.gen'
 
 // The planning workflow as the UI shows it: basics → flights → lodging → activities →
 // ground → review. The server decides readiness (`plan.stages`) and moves the plan between
@@ -6,7 +6,8 @@ import type { StageStatus, TravelPlan } from '@/api/types.gen'
 
 // ----- types -----
 
-export type PlanStage = TravelPlan['stage']
+// The generated enum is both a constant and a type; callers here only need the type.
+export type { PlanStage }
 
 /**
  * How a stage is drawn in the stepper: `done` (passed and still complete), `incomplete`
@@ -25,14 +26,8 @@ export interface StageMeta {
 
 // ----- stages -----
 
-export const STAGES: readonly PlanStage[] = [
-    'basics',
-    'flights',
-    'lodging',
-    'activities',
-    'ground',
-    'review',
-]
+// In workflow order: the backend enum declares the stages in order and the generator keeps it.
+export const STAGES: readonly PlanStage[] = Object.values(PlanStage)
 
 export const STAGE_META: Record<PlanStage, StageMeta> = {
     basics: {
@@ -78,6 +73,7 @@ export function stageStatus(plan: TravelPlan, stage: PlanStage): StageStatus {
     return (
         plan.stages.find((status) => status.stage === stage) ?? {
             stage,
+            issues: [],
             ready: false,
             missing: [],
         }

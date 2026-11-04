@@ -1987,6 +1987,194 @@
         ],
         "title": "ActivityItemPatch"
       },
+      "ActivityPreferences": {
+        "properties": {
+          "interests": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "sightseeing",
+                "food",
+                "tour",
+                "museum",
+                "outdoors",
+                "nightlife",
+                "shopping",
+                "relax",
+                "other"
+              ]
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Interests"
+          },
+          "dietary": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Dietary",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "interests",
+          "dietary"
+        ],
+        "title": "ActivityPreferences"
+      },
+      "AdvanceStage": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "advance_stage",
+            "title": "Type",
+            "default": "advance_stage"
+          },
+          "to": {
+            "$ref": "#/components/schemas/PlanStage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "to"
+        ],
+        "title": "AdvanceStage",
+        "description": "The current stage is done. The turn pipeline acts on this at once, so a client only\nsees it on a stage the user went back to: it then offers to continue."
+      },
+      "AskInput": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "ask_input",
+            "title": "Type",
+            "default": "ask_input"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/SlotName"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/PlanStage"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldSpec"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "optional": {
+            "type": "boolean",
+            "title": "Optional",
+            "default": false
+          },
+          "prefill": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Prefill"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "slot",
+          "stage",
+          "prompt",
+          "fields",
+          "optional",
+          "prefill"
+        ],
+        "title": "AskInput",
+        "description": "Show the slot's form. `prefill` holds values the plan already has."
+      },
+      "Candidate": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "subtitle": {
+            "type": "string",
+            "title": "Subtitle",
+            "default": ""
+          },
+          "details": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Details"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "change": {
+            "$ref": "#/components/schemas/CandidateChange"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "subtitle",
+          "details",
+          "price",
+          "source_url",
+          "change"
+        ],
+        "title": "Candidate"
+      },
+      "CandidateChange": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "arguments",
+          "summary"
+        ],
+        "title": "CandidateChange",
+        "description": "The plan change picking a candidate makes: a write tool's name and arguments, run\nthrough the same validation as any other change (`chat.tools.check_change`)."
+      },
       "ChatMessage": {
         "properties": {
           "id": {
@@ -2130,6 +2318,19 @@
         "title": "ChatProposal",
         "description": "The changes the assistant proposed in one reply, applied all-or-nothing on approval."
       },
+      "Complete": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "complete",
+            "title": "Type",
+            "default": "complete"
+          }
+        },
+        "type": "object",
+        "title": "Complete",
+        "description": "At review: nothing left to ask. Remaining issues are in the assessment."
+      },
       "Cost-Input": {
         "properties": {
           "amount": {
@@ -2266,6 +2467,111 @@
         ],
         "title": "ErrorResponse",
         "description": "Body of every `HTTPException` raised by the API."
+      },
+      "FieldOption": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "FieldOption"
+      },
+      "FieldSpec": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "date_range",
+              "integer",
+              "money",
+              "text",
+              "place",
+              "choice",
+              "multi_choice"
+            ],
+            "title": "Kind"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": true
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/FieldOption"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "placeholder": {
+            "type": "string",
+            "title": "Placeholder",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "required",
+          "options",
+          "min",
+          "max",
+          "placeholder"
+        ],
+        "title": "FieldSpec",
+        "description": "One input on a slot's form. `name` is the key in the slot's value."
       },
       "FlightItem": {
         "properties": {
@@ -2862,6 +3168,67 @@
         ],
         "title": "FlightItemPatch"
       },
+      "FlightPreferences": {
+        "properties": {
+          "cabin": {
+            "type": "string",
+            "enum": [
+              "economy",
+              "premium",
+              "business",
+              "first"
+            ],
+            "title": "Cabin",
+            "default": "economy"
+          },
+          "max_stops": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1,
+                  2
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Stops"
+          },
+          "depart_window": {
+            "type": "string",
+            "enum": [
+              "any",
+              "morning",
+              "afternoon",
+              "evening"
+            ],
+            "title": "Depart Window",
+            "default": "any"
+          },
+          "outbound_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbound Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cabin",
+          "max_stops",
+          "depart_window",
+          "outbound_token"
+        ],
+        "title": "FlightPreferences"
+      },
       "Gap": {
         "properties": {
           "from_place": {
@@ -2992,6 +3359,94 @@
           "version"
         ],
         "title": "HealthResponse"
+      },
+      "Issue": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/IssueCode"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/PlanStage"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "blocking",
+              "warning"
+            ],
+            "title": "Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "item_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Item Ids"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Gap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "stage",
+          "severity",
+          "message",
+          "date",
+          "item_ids",
+          "gap"
+        ],
+        "title": "Issue",
+        "description": "One problem with the plan, tied to the stage that fixes it."
+      },
+      "IssueCode": {
+        "type": "string",
+        "enum": [
+          "missing_dates",
+          "missing_travelers",
+          "missing_origin",
+          "missing_destination",
+          "missing_outbound",
+          "missing_return",
+          "uncovered_night",
+          "no_activities",
+          "missing_transfer",
+          "stage_incomplete",
+          "overlap",
+          "outside_trip",
+          "missing_cost",
+          "over_limit",
+          "over_budget",
+          "wrong_timezone",
+          "wrong_departure"
+        ],
+        "title": "IssueCode",
+        "description": "Why a stage isn't finished (blocking) or what looks wrong (warning). The second\ngroup matches the timeline's `WarningKind`s one to one."
       },
       "LodgingItem": {
         "properties": {
@@ -3503,6 +3958,62 @@
         ],
         "title": "LodgingItemPatch"
       },
+      "LodgingPreferences": {
+        "properties": {
+          "hotel_class": {
+            "type": "string",
+            "enum": [
+              "budget",
+              "midrange",
+              "upscale",
+              "luxury"
+            ],
+            "title": "Hotel Class"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hotel",
+              "hostel",
+              "rental",
+              "resort",
+              "other"
+            ],
+            "title": "Kind",
+            "default": "hotel"
+          },
+          "nightly_budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "neighborhood": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hotel_class",
+          "kind",
+          "nightly_budget",
+          "neighborhood"
+        ],
+        "title": "LodgingPreferences"
+      },
       "LodgingSpan": {
         "properties": {
           "item": {
@@ -3598,6 +4109,104 @@
         ],
         "title": "Money"
       },
+      "NightRange": {
+        "properties": {
+          "check_in": {
+            "type": "string",
+            "format": "date",
+            "title": "Check In"
+          },
+          "check_out": {
+            "type": "string",
+            "format": "date",
+            "title": "Check Out"
+          }
+        },
+        "type": "object",
+        "required": [
+          "check_in",
+          "check_out"
+        ],
+        "title": "NightRange",
+        "description": "Consecutive nights without lodging: check in on `check_in`, out on `check_out`."
+      },
+      "OfferChoice": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "offer_choice",
+            "title": "Type",
+            "default": "offer_choice"
+          },
+          "offer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Offer Id"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/SlotName"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/PlanStage"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "min_picks": {
+            "type": "integer",
+            "title": "Min Picks",
+            "default": 1
+          },
+          "max_picks": {
+            "type": "integer",
+            "title": "Max Picks",
+            "default": 1
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Gap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NightRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "offer_id",
+          "slot",
+          "stage",
+          "prompt",
+          "candidates",
+          "min_picks",
+          "max_picks",
+          "gap",
+          "nights"
+        ],
+        "title": "OfferChoice",
+        "description": "Show the open offer's candidates; picking is the approval."
+      },
       "Place": {
         "properties": {
           "name": {
@@ -3687,6 +4296,62 @@
           "name"
         ],
         "title": "Place"
+      },
+      "PlanAssessment": {
+        "properties": {
+          "stage": {
+            "$ref": "#/components/schemas/PlanStage"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "next_action": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AskInput"
+              },
+              {
+                "$ref": "#/components/schemas/OfferChoice"
+              },
+              {
+                "$ref": "#/components/schemas/RunSearch"
+              },
+              {
+                "$ref": "#/components/schemas/AdvanceStage"
+              },
+              {
+                "$ref": "#/components/schemas/Complete"
+              }
+            ],
+            "title": "Next Action",
+            "discriminator": {
+              "propertyName": "type",
+              "mapping": {
+                "advance_stage": "#/components/schemas/AdvanceStage",
+                "ask_input": "#/components/schemas/AskInput",
+                "complete": "#/components/schemas/Complete",
+                "offer_choice": "#/components/schemas/OfferChoice",
+                "run_search": "#/components/schemas/RunSearch"
+              }
+            }
+          },
+          "can_advance": {
+            "type": "boolean",
+            "title": "Can Advance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage",
+          "issues",
+          "next_action",
+          "can_advance"
+        ],
+        "title": "PlanAssessment"
       },
       "PlanCreate": {
         "properties": {
@@ -3789,6 +4454,69 @@
         "type": "object",
         "title": "PlanCreate"
       },
+      "PlanPreferences": {
+        "properties": {
+          "flights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightPreferences"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lodging": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LodgingPreferences"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivityPreferences"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "declined": {
+            "items": {
+              "$ref": "#/components/schemas/SlotName"
+            },
+            "type": "array",
+            "title": "Declined"
+          }
+        },
+        "type": "object",
+        "required": [
+          "flights",
+          "lodging",
+          "activities",
+          "declined"
+        ],
+        "title": "PlanPreferences",
+        "description": "Stored on the plan (`travel_plans.preferences`); a plan saved before this existed\nreads as all None."
+      },
+      "PlanStage": {
+        "type": "string",
+        "enum": [
+          "basics",
+          "flights",
+          "lodging",
+          "activities",
+          "ground",
+          "review"
+        ],
+        "title": "PlanStage",
+        "description": "The planning workflow, in order. A StrEnum rather than a Literal so the OpenAPI spec\nnames it and the generated SDK exports it as a constant the UI can iterate."
+      },
       "PlanSummary": {
         "properties": {
           "id": {
@@ -3810,16 +4538,7 @@
             "title": "Status"
           },
           "stage": {
-            "type": "string",
-            "enum": [
-              "basics",
-              "flights",
-              "lodging",
-              "activities",
-              "ground",
-              "review"
-            ],
-            "title": "Stage"
+            "$ref": "#/components/schemas/PlanStage"
           },
           "destination": {
             "anyOf": [
@@ -4115,6 +4834,69 @@
         ],
         "title": "RegisterRequest"
       },
+      "RunSearch": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "run_search",
+            "title": "Type",
+            "default": "run_search"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "flights_outbound",
+              "flights_return",
+              "lodging",
+              "activities",
+              "transfers"
+            ],
+            "title": "Kind"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/SlotName"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/PlanStage"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "nights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NightRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Gap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "kind",
+          "slot",
+          "stage",
+          "label",
+          "nights",
+          "gap"
+        ],
+        "title": "RunSearch",
+        "description": "Search for the slot's candidates (the \"Find flights\" / \"Retry\" button)."
+      },
       "SendMessage": {
         "properties": {
           "content": {
@@ -4139,6 +4921,26 @@
           "content"
         ],
         "title": "SendMessage"
+      },
+      "SlotName": {
+        "type": "string",
+        "enum": [
+          "destination",
+          "dates",
+          "travelers",
+          "origin",
+          "budget",
+          "flight_preferences",
+          "flight_outbound",
+          "flight_return",
+          "lodging_preferences",
+          "lodging_stay",
+          "activity_preferences",
+          "activities",
+          "transfer"
+        ],
+        "title": "SlotName",
+        "description": "Every input the planning flow asks for (`planning.slots` holds the registry). It\nlives here because a plan stores which optional slots the user declined."
       },
       "SpendingLimit-Input": {
         "properties": {
@@ -4217,21 +5019,12 @@
           "stage": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "basics",
-                  "flights",
-                  "lodging",
-                  "activities",
-                  "ground",
-                  "review"
-                ]
+                "$ref": "#/components/schemas/PlanStage"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Stage"
+            ]
           }
         },
         "type": "object",
@@ -4244,37 +5037,38 @@
       "StageStatus": {
         "properties": {
           "stage": {
-            "type": "string",
-            "enum": [
-              "basics",
-              "flights",
-              "lodging",
-              "activities",
-              "ground",
-              "review"
-            ],
-            "title": "Stage"
+            "$ref": "#/components/schemas/PlanStage"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            },
+            "type": "array",
+            "title": "Issues"
           },
           "ready": {
             "type": "boolean",
-            "title": "Ready"
+            "title": "Ready",
+            "readOnly": true
           },
           "missing": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Missing"
+            "title": "Missing",
+            "readOnly": true
           }
         },
         "type": "object",
         "required": [
           "stage",
+          "issues",
           "ready",
           "missing"
         ],
         "title": "StageStatus",
-        "description": "Whether a stage's checklist is complete, and what is still missing if not."
+        "description": "A stage's checklist: what still blocks it (`issues`), plus two views derived from\nthem for callers that only need a yes/no or the messages."
       },
       "Timeline": {
         "properties": {
@@ -5245,16 +6039,7 @@
             "title": "Status"
           },
           "stage": {
-            "type": "string",
-            "enum": [
-              "basics",
-              "flights",
-              "lodging",
-              "activities",
-              "ground",
-              "review"
-            ],
-            "title": "Stage"
+            "$ref": "#/components/schemas/PlanStage"
           },
           "flights_skipped": {
             "type": "boolean",
@@ -5331,6 +6116,9 @@
             "type": "array",
             "title": "Limits"
           },
+          "preferences": {
+            "$ref": "#/components/schemas/PlanPreferences"
+          },
           "notes": {
             "type": "string",
             "title": "Notes"
@@ -5391,6 +6179,9 @@
             },
             "type": "array",
             "title": "Gaps"
+          },
+          "assessment": {
+            "$ref": "#/components/schemas/PlanAssessment"
           }
         },
         "type": "object",
@@ -5408,16 +6199,18 @@
           "travelers",
           "budget",
           "limits",
+          "preferences",
           "notes",
           "version",
           "created_at",
           "updated_at",
           "items",
           "stages",
-          "gaps"
+          "gaps",
+          "assessment"
         ],
         "title": "TravelPlan",
-        "description": "Full plan snapshot including its itinerary; built by `itinerary.service.snapshot`,\nwhich owns the items."
+        "description": "The full plan as the API returns it: details, items, stage checklists, gaps, and\nthe planning engine's assessment (built by `planning.service.snapshot`)."
       },
       "Travelers": {
         "properties": {

@@ -22,6 +22,9 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     # Trace of the tools the assistant ran while producing this message (`ToolTrace` list).
     tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    # Structured content for planning messages (the form or choices a message showed, or
+    # the answer it recorded), so the transcript re-renders them after a reload.
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
 
     # Async sessions can't lazy-load on attribute access, so the proposal is always loaded

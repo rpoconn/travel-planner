@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { PlanStage } from '@/api/types.gen'
 import { stageStatuses, travelPlan } from '@/test/fixtures'
 
 import {
@@ -48,19 +49,25 @@ describe('stages', () => {
             stages: stageStatuses({ flights: ['a flight home'] }),
         })
 
-        expect(currentStatus(plan)).toEqual({
+        expect(currentStatus(plan)).toMatchObject({
             stage: 'flights',
             ready: false,
             missing: ['a flight home'],
         })
+        expect(currentStatus(plan).issues.map((issue) => issue.message)).toEqual(['a flight home'])
     })
 
     it('treats a stage the server did not report as not ready', () => {
         expect(stageStatus(travelPlan({ stages: [] }), 'ground')).toEqual({
             stage: 'ground',
+            issues: [],
             ready: false,
             missing: [],
         })
+    })
+
+    it('takes the stage order from the generated enum', () => {
+        expect(STAGES).toEqual(Object.values(PlanStage))
     })
 
     it('suggests messages for the current stage, naming the destination', () => {

@@ -71,7 +71,7 @@ from features.itinerary.schemas import (
 )
 from features.plans import service as plans_service
 from features.plans.models import Plan
-from features.plans.schemas import PlanStage, PlanUpdate, TravelPlan, active_budget
+from features.plans.schemas import PlanSnapshot, PlanStage, PlanUpdate, active_budget
 from features.plans.stages import STAGE_LABELS
 from shared.domain import Cost, Money, Place, Travelers
 from shared.flights.types import (
@@ -1032,7 +1032,7 @@ def _airport(place: Place) -> str:
     return place.iata or place.name
 
 
-def return_flight_nudge(plan: TravelPlan, staged: Sequence[ProposedChange]) -> str | None:
+def return_flight_nudge(plan: PlanSnapshot, staged: Sequence[ProposedChange]) -> str | None:
     """What to tell the model when this turn's proposal leaves the trip with a flight out
     but none home, else None. Only a gap this turn opens counts: one already in the plan
     was raised when it was proposed, and repeating it every turn would derail the talk
@@ -1415,12 +1415,12 @@ TOOL_SPECS: list[ToolSpec] = [tool.spec for tool in TOOLS.values()]
 COMMON_TOOLS = frozenset({"web_search", "update_item", "remove_item"})
 # What each stage adds. Review adds nothing: the trip is complete.
 STAGE_TOOLS: dict[PlanStage, frozenset[str]] = {
-    "basics": frozenset({"set_plan_details"}),
-    "flights": frozenset({"choose_flights", "add_round_trip", "add_flight"}),
-    "lodging": frozenset({"add_lodging"}),
-    "activities": frozenset({"add_activity"}),
-    "ground": frozenset({"add_transfer"}),
-    "review": frozenset(),
+    PlanStage.BASICS: frozenset({"set_plan_details"}),
+    PlanStage.FLIGHTS: frozenset({"choose_flights", "add_round_trip", "add_flight"}),
+    PlanStage.LODGING: frozenset({"add_lodging"}),
+    PlanStage.ACTIVITIES: frozenset({"add_activity"}),
+    PlanStage.GROUND: frozenset({"add_transfer"}),
+    PlanStage.REVIEW: frozenset(),
 }
 
 STAGE_LOCKED = (

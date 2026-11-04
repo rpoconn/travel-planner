@@ -33,6 +33,8 @@ class Plan(Base):
     budget: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     # SpendingLimit objects, at most one per activity category.
     limits: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    # `PlanPreferences`: search preferences and declined optional inputs.
+    preferences: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     notes: Mapped[str] = mapped_column(Text, default="")
     # Bumped on every mutation (plan details and itinerary items) so the UI
     # can tell when its cached copy is stale.

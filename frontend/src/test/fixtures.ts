@@ -4,8 +4,12 @@ import type {
     ChatProposal,
     FlightItem,
     Gap,
+    Issue,
+    IssueCode,
     LodgingItem,
     Place,
+    PlanAssessment,
+    PlanStage,
     PlanSummary,
     StageStatus,
     Timeline,
@@ -55,12 +59,13 @@ export function planSummary(overrides: Partial<PlanSummary> = {}): PlanSummary {
 }
 
 export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
+    const stage = overrides.stage ?? 'basics'
     return {
         id: 'aaaaaaaa-0000-0000-0000-000000000001',
         user_id: ADA.id,
         title: 'Tokyo in May',
         status: 'draft',
-        stage: 'basics',
+        stage,
         flights_skipped: false,
         origin: null,
         destination: { name: 'Tokyo' },
@@ -69,6 +74,7 @@ export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
         travelers: { adults: 2, children: 0 },
         budget: null,
         limits: [],
+        preferences: { flights: null, lodging: null, activities: null, declined: [] },
         notes: '',
         version: 1,
         created_at: '2026-10-01T12:00:00Z',
@@ -76,12 +82,47 @@ export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
         items: [],
         stages: stageStatuses(),
         gaps: [],
+        assessment: planAssessment({ stage }),
+        ...overrides,
+    }
+}
+
+/** The engine's verdict; by default the stage is done and nothing is asked. */
+export function planAssessment(overrides: Partial<PlanAssessment> = {}): PlanAssessment {
+    return {
+        stage: 'basics',
+        issues: [],
+        next_action: { type: 'complete' },
+        can_advance: false,
         ...overrides,
     }
 }
 
 /** Where Ada's trips start and end. */
 export const PHILADELPHIA: Place = { name: 'Philadelphia', city: 'Philadelphia', iata: 'PHL' }
+
+// A plausible code per stage for fixture issues; tests only read the messages.
+const FIXTURE_CODES: Record<PlanStage, IssueCode> = {
+    basics: 'missing_dates',
+    flights: 'missing_outbound',
+    lodging: 'uncovered_night',
+    activities: 'no_activities',
+    ground: 'missing_transfer',
+    review: 'stage_incomplete',
+}
+
+function stageStatus(stage: PlanStage, missing: string[]): StageStatus {
+    const issues: Issue[] = missing.map((message) => ({
+        code: FIXTURE_CODES[stage],
+        stage,
+        severity: 'blocking',
+        message,
+        date: null,
+        item_ids: [],
+        gap: null,
+    }))
+    return { stage, issues, ready: issues.length === 0, missing }
+}
 
 /**
  * One status per stage, in order: ready unless listed in `missing` (stage → what's missing).
@@ -91,14 +132,10 @@ export function stageStatuses(
     missing: Partial<Record<StageStatus['stage'], string[]>> = {},
 ): StageStatus[] {
     const stages = ['basics', 'flights', 'lodging', 'activities', 'ground'] as const
-    const statuses: StageStatus[] = stages.map((stage) => ({
-        stage,
-        ready: !missing[stage]?.length,
-        missing: missing[stage] ?? [],
-    }))
+    const statuses = stages.map((stage) => stageStatus(stage, missing[stage] ?? []))
     const review =
         missing.review ?? statuses.filter((s) => !s.ready).map((s) => `the ${s.stage} stage`)
-    return [...statuses, { stage: 'review', ready: review.length === 0, missing: review }]
+    return [...statuses, stageStatus('review', review)]
 }
 
 // ----- itinerary -----

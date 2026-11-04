@@ -7,7 +7,8 @@ export default defineConfig({
     output: 'src/api',
     plugins: [
         '@hey-api/client-fetch',
-        '@hey-api/typescript',
+        // Named backend enums (PlanStage, IssueCode, SlotName) become runtime constants too.
+        { name: '@hey-api/typescript', enums: 'javascript' },
         '@hey-api/sdk',
         // queryOptions / mutation helpers (e.g. listPlansOptions, createPlanMutation).
         '@tanstack/react-query',

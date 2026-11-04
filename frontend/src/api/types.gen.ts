@@ -215,6 +215,117 @@ export type ActivityItemPatch = {
 };
 
 /**
+ * ActivityPreferences
+ */
+export type ActivityPreferences = {
+    /**
+     * Interests
+     */
+    interests: Array<'sightseeing' | 'food' | 'tour' | 'museum' | 'outdoors' | 'nightlife' | 'shopping' | 'relax' | 'other'>;
+    /**
+     * Dietary
+     */
+    dietary: string;
+};
+
+/**
+ * AdvanceStage
+ *
+ * The current stage is done. The turn pipeline acts on this at once, so a client only
+ * sees it on a stage the user went back to: it then offers to continue.
+ */
+export type AdvanceStage = {
+    /**
+     * Type
+     */
+    type?: 'advance_stage';
+    to: PlanStage;
+};
+
+/**
+ * AskInput
+ *
+ * Show the slot's form. `prefill` holds values the plan already has.
+ */
+export type AskInput = {
+    /**
+     * Type
+     */
+    type: 'ask_input';
+    slot: SlotName;
+    stage: PlanStage;
+    /**
+     * Prompt
+     */
+    prompt: string;
+    /**
+     * Fields
+     */
+    fields: Array<FieldSpec>;
+    /**
+     * Optional
+     */
+    optional: boolean;
+    /**
+     * Prefill
+     */
+    prefill: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * Candidate
+ */
+export type Candidate = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Subtitle
+     */
+    subtitle: string;
+    /**
+     * Details
+     */
+    details: Array<string>;
+    price: MoneyOutput | null;
+    /**
+     * Source Url
+     */
+    source_url: string | null;
+    change: CandidateChange;
+};
+
+/**
+ * CandidateChange
+ *
+ * The plan change picking a candidate makes: a write tool's name and arguments, run
+ * through the same validation as any other change (`chat.tools.check_change`).
+ */
+export type CandidateChange = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Arguments
+     */
+    arguments: {
+        [key: string]: unknown;
+    };
+    /**
+     * Summary
+     */
+    summary: string;
+};
+
+/**
  * ChatMessage
  */
 export type ChatMessage = {
@@ -287,6 +398,18 @@ export type ChatProposal = {
      * Decided At
      */
     decided_at: string | null;
+};
+
+/**
+ * Complete
+ *
+ * At review: nothing left to ask. Remaining issues are in the assessment.
+ */
+export type Complete = {
+    /**
+     * Type
+     */
+    type?: 'complete';
 };
 
 /**
@@ -377,6 +500,60 @@ export type ErrorResponse = {
      * Detail
      */
     detail: string;
+};
+
+/**
+ * FieldOption
+ */
+export type FieldOption = {
+    /**
+     * Value
+     */
+    value: string | number | null;
+    /**
+     * Label
+     */
+    label: string;
+};
+
+/**
+ * FieldSpec
+ *
+ * One input on a slot's form. `name` is the key in the slot's value.
+ */
+export type FieldSpec = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Kind
+     */
+    kind: 'date_range' | 'integer' | 'money' | 'text' | 'place' | 'choice' | 'multi_choice';
+    /**
+     * Required
+     */
+    required: boolean;
+    /**
+     * Options
+     */
+    options: Array<FieldOption>;
+    /**
+     * Min
+     */
+    min: number | null;
+    /**
+     * Max
+     */
+    max: number | null;
+    /**
+     * Placeholder
+     */
+    placeholder: string;
 };
 
 /**
@@ -653,6 +830,28 @@ export type FlightItemPatch = {
 };
 
 /**
+ * FlightPreferences
+ */
+export type FlightPreferences = {
+    /**
+     * Cabin
+     */
+    cabin: 'economy' | 'premium' | 'business' | 'first';
+    /**
+     * Max Stops
+     */
+    max_stops: 0 | 1 | 2 | null;
+    /**
+     * Depart Window
+     */
+    depart_window: 'any' | 'morning' | 'afternoon' | 'evening';
+    /**
+     * Outbound Token
+     */
+    outbound_token: string | null;
+};
+
+/**
  * Gap
  *
  * A change of place with no transfer to cover it (found by `itinerary.gaps`).
@@ -726,6 +925,67 @@ export type HealthResponse = {
      */
     version: string;
 };
+
+/**
+ * Issue
+ *
+ * One problem with the plan, tied to the stage that fixes it.
+ */
+export type Issue = {
+    code: IssueCode;
+    stage: PlanStage;
+    /**
+     * Severity
+     */
+    severity: 'blocking' | 'warning';
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Date
+     */
+    date: string | null;
+    /**
+     * Item Ids
+     */
+    item_ids: Array<string>;
+    gap: Gap | null;
+};
+
+/**
+ * IssueCode
+ *
+ * Why a stage isn't finished (blocking) or what looks wrong (warning). The second
+ * group matches the timeline's `WarningKind`s one to one.
+ */
+export const IssueCode = {
+    MISSING_DATES: 'missing_dates',
+    MISSING_TRAVELERS: 'missing_travelers',
+    MISSING_ORIGIN: 'missing_origin',
+    MISSING_DESTINATION: 'missing_destination',
+    MISSING_OUTBOUND: 'missing_outbound',
+    MISSING_RETURN: 'missing_return',
+    UNCOVERED_NIGHT: 'uncovered_night',
+    NO_ACTIVITIES: 'no_activities',
+    MISSING_TRANSFER: 'missing_transfer',
+    STAGE_INCOMPLETE: 'stage_incomplete',
+    OVERLAP: 'overlap',
+    OUTSIDE_TRIP: 'outside_trip',
+    MISSING_COST: 'missing_cost',
+    OVER_LIMIT: 'over_limit',
+    OVER_BUDGET: 'over_budget',
+    WRONG_TIMEZONE: 'wrong_timezone',
+    WRONG_DEPARTURE: 'wrong_departure'
+} as const;
+
+/**
+ * IssueCode
+ *
+ * Why a stage isn't finished (blocking) or what looks wrong (warning). The second
+ * group matches the timeline's `WarningKind`s one to one.
+ */
+export type IssueCode = typeof IssueCode[keyof typeof IssueCode];
 
 /**
  * LodgingItem
@@ -943,6 +1203,25 @@ export type LodgingItemPatch = {
 };
 
 /**
+ * LodgingPreferences
+ */
+export type LodgingPreferences = {
+    /**
+     * Hotel Class
+     */
+    hotel_class: 'budget' | 'midrange' | 'upscale' | 'luxury';
+    /**
+     * Kind
+     */
+    kind: 'hotel' | 'hostel' | 'rental' | 'resort' | 'other';
+    nightly_budget: MoneyOutput | null;
+    /**
+     * Neighborhood
+     */
+    neighborhood: string | null;
+};
+
+/**
  * LodgingSpan
  *
  * One continuous bar from the check-in day to the check-out day (inclusive indices).
@@ -1010,6 +1289,58 @@ export type MoneyOutput = {
 };
 
 /**
+ * NightRange
+ *
+ * Consecutive nights without lodging: check in on `check_in`, out on `check_out`.
+ */
+export type NightRange = {
+    /**
+     * Check In
+     */
+    check_in: string;
+    /**
+     * Check Out
+     */
+    check_out: string;
+};
+
+/**
+ * OfferChoice
+ *
+ * Show the open offer's candidates; picking is the approval.
+ */
+export type OfferChoice = {
+    /**
+     * Type
+     */
+    type: 'offer_choice';
+    /**
+     * Offer Id
+     */
+    offer_id: string;
+    slot: SlotName;
+    stage: PlanStage;
+    /**
+     * Prompt
+     */
+    prompt: string;
+    /**
+     * Candidates
+     */
+    candidates: Array<Candidate>;
+    /**
+     * Min Picks
+     */
+    min_picks: number;
+    /**
+     * Max Picks
+     */
+    max_picks: number;
+    gap: Gap | null;
+    nights: NightRange | null;
+};
+
+/**
  * Place
  */
 export type Place = {
@@ -1043,6 +1374,35 @@ export type Place = {
      * Lng
      */
     lng?: number | null;
+};
+
+/**
+ * PlanAssessment
+ */
+export type PlanAssessment = {
+    stage: PlanStage;
+    /**
+     * Issues
+     */
+    issues: Array<Issue>;
+    /**
+     * Next Action
+     */
+    next_action: ({
+        type: 'ask_input';
+    } & AskInput) | ({
+        type: 'offer_choice';
+    } & OfferChoice) | ({
+        type: 'run_search';
+    } & RunSearch) | ({
+        type: 'advance_stage';
+    } & AdvanceStage) | ({
+        type: 'complete';
+    } & Complete);
+    /**
+     * Can Advance
+     */
+    can_advance: boolean;
 };
 
 /**
@@ -1080,6 +1440,45 @@ export type PlanCreate = {
 };
 
 /**
+ * PlanPreferences
+ *
+ * Stored on the plan (`travel_plans.preferences`); a plan saved before this existed
+ * reads as all None.
+ */
+export type PlanPreferences = {
+    flights: FlightPreferences | null;
+    lodging: LodgingPreferences | null;
+    activities: ActivityPreferences | null;
+    /**
+     * Declined
+     */
+    declined: Array<SlotName>;
+};
+
+/**
+ * PlanStage
+ *
+ * The planning workflow, in order. A StrEnum rather than a Literal so the OpenAPI spec
+ * names it and the generated SDK exports it as a constant the UI can iterate.
+ */
+export const PlanStage = {
+    BASICS: 'basics',
+    FLIGHTS: 'flights',
+    LODGING: 'lodging',
+    ACTIVITIES: 'activities',
+    GROUND: 'ground',
+    REVIEW: 'review'
+} as const;
+
+/**
+ * PlanStage
+ *
+ * The planning workflow, in order. A StrEnum rather than a Literal so the OpenAPI spec
+ * names it and the generated SDK exports it as a constant the UI can iterate.
+ */
+export type PlanStage = typeof PlanStage[keyof typeof PlanStage];
+
+/**
  * PlanSummary
  *
  * Lightweight row for the plans sidebar.
@@ -1097,10 +1496,7 @@ export type PlanSummary = {
      * Status
      */
     status: 'draft' | 'planned' | 'booked';
-    /**
-     * Stage
-     */
-    stage: 'basics' | 'flights' | 'lodging' | 'activities' | 'ground' | 'review';
+    stage: PlanStage;
     destination: Place | null;
     /**
      * Start Date
@@ -1231,6 +1627,30 @@ export type RegisterRequest = {
 };
 
 /**
+ * RunSearch
+ *
+ * Search for the slot's candidates (the "Find flights" / "Retry" button).
+ */
+export type RunSearch = {
+    /**
+     * Type
+     */
+    type: 'run_search';
+    /**
+     * Kind
+     */
+    kind: 'flights_outbound' | 'flights_return' | 'lodging' | 'activities' | 'transfers';
+    slot: SlotName;
+    stage: PlanStage;
+    /**
+     * Label
+     */
+    label: string;
+    nights: NightRange | null;
+    gap: Gap | null;
+};
+
+/**
  * SendMessage
  */
 export type SendMessage = {
@@ -1240,6 +1660,36 @@ export type SendMessage = {
     content: string;
     fix?: WarningToFix | null;
 };
+
+/**
+ * SlotName
+ *
+ * Every input the planning flow asks for (`planning.slots` holds the registry). It
+ * lives here because a plan stores which optional slots the user declined.
+ */
+export const SlotName = {
+    DESTINATION: 'destination',
+    DATES: 'dates',
+    TRAVELERS: 'travelers',
+    ORIGIN: 'origin',
+    BUDGET: 'budget',
+    FLIGHT_PREFERENCES: 'flight_preferences',
+    FLIGHT_OUTBOUND: 'flight_outbound',
+    FLIGHT_RETURN: 'flight_return',
+    LODGING_PREFERENCES: 'lodging_preferences',
+    LODGING_STAY: 'lodging_stay',
+    ACTIVITY_PREFERENCES: 'activity_preferences',
+    ACTIVITIES: 'activities',
+    TRANSFER: 'transfer'
+} as const;
+
+/**
+ * SlotName
+ *
+ * Every input the planning flow asks for (`planning.slots` holds the registry). It
+ * lives here because a plan stores which optional slots the user declined.
+ */
+export type SlotName = typeof SlotName[keyof typeof SlotName];
 
 /**
  * SpendingLimit
@@ -1291,30 +1741,29 @@ export type StageChange = {
      * Action
      */
     action: 'next' | 'back' | 'skip_flights' | 'go_to';
-    /**
-     * Stage
-     */
-    stage?: 'basics' | 'flights' | 'lodging' | 'activities' | 'ground' | 'review' | null;
+    stage?: PlanStage | null;
 };
 
 /**
  * StageStatus
  *
- * Whether a stage's checklist is complete, and what is still missing if not.
+ * A stage's checklist: what still blocks it (`issues`), plus two views derived from
+ * them for callers that only need a yes/no or the messages.
  */
 export type StageStatus = {
+    stage: PlanStage;
     /**
-     * Stage
+     * Issues
      */
-    stage: 'basics' | 'flights' | 'lodging' | 'activities' | 'ground' | 'review';
+    issues: Array<Issue>;
     /**
      * Ready
      */
-    ready: boolean;
+    readonly ready: boolean;
     /**
      * Missing
      */
-    missing: Array<string>;
+    readonly missing: Array<string>;
 };
 
 /**
@@ -1769,8 +2218,8 @@ export type TransferItemPatch = {
 /**
  * TravelPlan
  *
- * Full plan snapshot including its itinerary; built by `itinerary.service.snapshot`,
- * which owns the items.
+ * The full plan as the API returns it: details, items, stage checklists, gaps, and
+ * the planning engine's assessment (built by `planning.service.snapshot`).
  */
 export type TravelPlan = {
     /**
@@ -1789,10 +2238,7 @@ export type TravelPlan = {
      * Status
      */
     status: 'draft' | 'planned' | 'booked';
-    /**
-     * Stage
-     */
-    stage: 'basics' | 'flights' | 'lodging' | 'activities' | 'ground' | 'review';
+    stage: PlanStage;
     /**
      * Flights Skipped
      */
@@ -1813,6 +2259,7 @@ export type TravelPlan = {
      * Limits
      */
     limits: Array<SpendingLimitOutput>;
+    preferences: PlanPreferences;
     /**
      * Notes
      */
@@ -1841,6 +2288,7 @@ export type TravelPlan = {
      * Gaps
      */
     gaps: Array<Gap>;
+    assessment: PlanAssessment;
 };
 
 /**
@@ -1944,6 +2392,107 @@ export type WarningToFix = {
      * Item Ids
      */
     item_ids?: Array<string>;
+};
+
+/**
+ * PlanUpdatedEvent
+ */
+export type PlanUpdatedEventWritable = {
+    /**
+     * Type
+     */
+    type: 'plan_updated';
+    plan: TravelPlanWritable;
+};
+
+/**
+ * StageStatus
+ *
+ * A stage's checklist: what still blocks it (`issues`), plus two views derived from
+ * them for callers that only need a yes/no or the messages.
+ */
+export type StageStatusWritable = {
+    stage: PlanStage;
+    /**
+     * Issues
+     */
+    issues: Array<Issue>;
+};
+
+/**
+ * TravelPlan
+ *
+ * The full plan as the API returns it: details, items, stage checklists, gaps, and
+ * the planning engine's assessment (built by `planning.service.snapshot`).
+ */
+export type TravelPlanWritable = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * User Id
+     */
+    user_id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Status
+     */
+    status: 'draft' | 'planned' | 'booked';
+    stage: PlanStage;
+    /**
+     * Flights Skipped
+     */
+    flights_skipped: boolean;
+    origin: Place | null;
+    destination: Place | null;
+    /**
+     * Start Date
+     */
+    start_date: string | null;
+    /**
+     * End Date
+     */
+    end_date: string | null;
+    travelers: Travelers | null;
+    budget: MoneyOutput | null;
+    /**
+     * Limits
+     */
+    limits: Array<SpendingLimitOutput>;
+    preferences: PlanPreferences;
+    /**
+     * Notes
+     */
+    notes: string;
+    /**
+     * Version
+     */
+    version: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Items
+     */
+    items: Array<FlightItem | LodgingItem | ActivityItem | TransferItem>;
+    /**
+     * Stages
+     */
+    stages: Array<StageStatusWritable>;
+    /**
+     * Gaps
+     */
+    gaps: Array<Gap>;
+    assessment: PlanAssessment;
 };
 
 export type GetHealthData = {

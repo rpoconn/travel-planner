@@ -1260,7 +1260,7 @@ def test_each_stage_offers_its_own_tools_and_the_common_ones(
 
 
 async def test_a_tool_from_another_stage_is_refused(ctx: ToolContext) -> None:
-    outcome = await _stage(replace(ctx, stage="flights"), "add_lodging", HOTEL_ARGS)
+    outcome = await _stage(replace(ctx, stage=PlanStage.FLIGHTS), "add_lodging", HOTEL_ARGS)
 
     assert not outcome.ok
     assert not outcome.prepared
@@ -1272,7 +1272,7 @@ async def test_a_tool_from_another_stage_is_refused(ctx: ToolContext) -> None:
 
 
 async def test_an_unknown_tool_lists_only_the_stage_tools(ctx: ToolContext) -> None:
-    outcome = await _stage(replace(ctx, stage="review"), "book_hotel", {})
+    outcome = await _stage(replace(ctx, stage=PlanStage.REVIEW), "book_hotel", {})
 
     assert outcome.content == (
         "Error: Unknown tool 'book_hotel'. Available tools: update_item, remove_item, web_search"
@@ -1282,16 +1282,18 @@ async def test_an_unknown_tool_lists_only_the_stage_tools(ctx: ToolContext) -> N
 async def test_common_tools_work_in_every_stage(ctx: ToolContext) -> None:
     hotel_id = await _add_hotel(ctx)
 
-    outcome = await _stage(replace(ctx, stage="review"), "remove_item", {"item_id": hotel_id})
+    outcome = await _stage(
+        replace(ctx, stage=PlanStage.REVIEW), "remove_item", {"item_id": hotel_id}
+    )
 
     assert outcome.ok, outcome.content
 
 
 async def test_an_approved_change_applies_whatever_the_stage(ctx: ToolContext) -> None:
     # A card staged in the lodging stage is approved after the user went back to flights.
-    staged = await _stage(replace(ctx, stage="lodging"), "add_lodging", HOTEL_ARGS)
+    staged = await _stage(replace(ctx, stage=PlanStage.LODGING), "add_lodging", HOTEL_ARGS)
 
-    outcome = await apply_change(replace(ctx, stage="flights"), _change(staged))
+    outcome = await apply_change(replace(ctx, stage=PlanStage.FLIGHTS), _change(staged))
 
     assert outcome.ok, outcome.content
 

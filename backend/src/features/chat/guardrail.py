@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from features.chat.prompts import guardrail_messages, redirect_messages
 from features.chat.schemas import GuardrailVerdict
-from features.plans.schemas import TravelPlan
+from features.plans.schemas import PlanSnapshot
 from shared.llm.types import LLMClient, LLMMessage
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ async def check_topic(llm: LLMClient, history: list[LLMMessage], latest: str) ->
 # ---------------------------------------------------------------------------
 
 
-async def stream_redirect(llm: LLMClient, plan: TravelPlan, latest: str) -> AsyncIterator[str]:
+async def stream_redirect(llm: LLMClient, plan: PlanSnapshot, latest: str) -> AsyncIterator[str]:
     """Stream a short, friendly reply that steers back to the trip (no tools)."""
     async for chunk in llm.stream(redirect_messages(plan, latest)):
         if chunk.content:

@@ -19,7 +19,7 @@ from features.chat.prompts import (
 )
 from features.chat.schemas import ProposedChange
 from features.itinerary.schemas import ItineraryItem, TimelineWarning
-from features.plans.schemas import PlanDetails, StageStatus, TravelPlan
+from features.plans.schemas import PlanDetails, PlanSnapshot, PlanStage, StageStatus
 from features.plans.stages import plan_progress
 from shared.domain import Cost, Money
 from tests.features.itinerary.factories import (
@@ -34,7 +34,7 @@ from tests.features.itinerary.factories import (
 CREATED = datetime(2026, 10, 1, tzinfo=UTC)
 
 
-def _plan(*items: ItineraryItem, **overrides: Any) -> TravelPlan:
+def _plan(*items: ItineraryItem, **overrides: Any) -> PlanSnapshot:
     details = PlanDetails.model_validate(
         {
             "id": PLAN_ID,
@@ -58,7 +58,7 @@ def _plan(*items: ItineraryItem, **overrides: Any) -> TravelPlan:
         }
     )
     progress = plan_progress(details, items)
-    return TravelPlan.model_validate(
+    return PlanSnapshot.model_validate(
         {**dict(details), "items": list(items), "stages": progress.stages, "gaps": progress.gaps}
     )
 
@@ -348,7 +348,7 @@ def test_review_has_no_next_stage() -> None:
 
 
 def test_approval_message_points_at_next_when_a_stage_completes() -> None:
-    done = StageStatus(stage="lodging", ready=True, missing=[])
+    done = StageStatus(stage=PlanStage.LODGING, issues=[])
 
     message = approval_applied_message(["Added lodging"], done)
 

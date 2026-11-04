@@ -152,7 +152,7 @@ async def plan(app: FastAPI, client: AsyncClient, headers: dict[str, str]) -> di
     assert response.status_code == 201, response.text
     created: dict[str, Any] = response.json()
     # The agent only gets the current stage's tools; most chat tests propose a hotel.
-    await move_to_stage(app, created, "lodging")
+    await move_to_stage(app, created, PlanStage.LODGING)
     response = await client.get(f"/plans/{created['id']}", headers=headers)
     moved: dict[str, Any] = response.json()
     return moved

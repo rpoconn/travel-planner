@@ -49,8 +49,9 @@ from features.chat.schemas import (
 from features.chat.tools import ToolContext
 from features.itinerary import service as itinerary_service
 from features.itinerary.schemas import TimelineWarning
+from features.planning import service as planning_service
 from features.plans.models import Plan
-from features.plans.schemas import StageStatus, TravelPlan
+from features.plans.schemas import PlanSnapshot, StageStatus
 from features.plans.stages import stage_status
 from shared.flights.types import FlightProvider
 from shared.llm.types import LLMClient, LLMError, LLMMessage
@@ -179,7 +180,7 @@ class _Reply:
 
 
 async def _redirect_events(
-    llm: LLMClient, plan: TravelPlan, latest: str
+    llm: LLMClient, plan: PlanSnapshot, latest: str
 ) -> AsyncIterator[ChatEvent]:
     async for text in guardrail.stream_redirect(llm, plan, latest):
         yield TokenEvent(text=text)
@@ -370,7 +371,7 @@ async def _redirect(
 # ---------------------------------------------------------------------------
 
 
-def _completed_stage(before: TravelPlan, after: TravelPlan | None) -> StageStatus | None:
+def _completed_stage(before: PlanSnapshot, after: PlanSnapshot | None) -> StageStatus | None:
     """The current stage's status when an approval just finished its checklist."""
     if after is None:
         return None
@@ -416,7 +417,7 @@ async def _apply_proposal(
                 break
             applied.append(outcome.content)
         if applied:
-            plan = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
+            plan = await planning_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
             yield PlanUpdatedEvent(plan=plan)
 
 
@@ -471,7 +472,7 @@ async def decide_proposal(
             applied: list[str] = []
             failures: list[str] = []
             before = await itinerary_service.snapshot(session, plan)
-            after: TravelPlan | None = None
+            after: PlanSnapshot | None = None
             async for event in _apply_proposal(ctx, changes, reply, applied, failures):
                 if isinstance(event, PlanUpdatedEvent):
                     after = event.plan

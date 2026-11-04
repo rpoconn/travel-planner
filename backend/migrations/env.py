@@ -18,6 +18,7 @@ from sqlalchemy.engine import Connection
 from features.auth import models as auth_models
 from features.chat import models as chat_models
 from features.itinerary import models as itinerary_models
+from features.planning import models as planning_models
 from features.plans import models as plans_models
 from shared.config import get_settings
 from shared.db import Base, UTCDateTime, create_engine
@@ -26,7 +27,14 @@ from shared.search import models as search_models
 
 # Every model module must be imported so `Base.metadata` knows all tables. Listed here so
 # the imports count as used (a bare side-effect import is easy for linters to drop).
-MODEL_MODULES = (auth_models, chat_models, itinerary_models, plans_models, search_models)
+MODEL_MODULES = (
+    auth_models,
+    chat_models,
+    itinerary_models,
+    planning_models,
+    plans_models,
+    search_models,
+)
 
 # ---------------------------------------------------------------------------
 # Setup

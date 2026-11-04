@@ -14,7 +14,7 @@ from features.chat.prompts import agent_system_prompt, review_messages
 from features.chat.schemas import ProposedChange, ReviewVerdict
 from features.itinerary.gaps import find_gaps
 from features.itinerary.schemas import ItineraryItem, TransferItem
-from features.plans.schemas import PlanDetails, TravelPlan
+from features.plans.schemas import PlanDetails, PlanSnapshot, PlanStage
 from features.plans.stages import plan_progress
 from shared.llm.fake import FakeRequest
 from shared.llm.schema import inline_schema
@@ -23,7 +23,7 @@ from tests.features.itinerary.factories import HOME, PLAN_ID, flight, lodging
 CREATED = date(2026, 10, 1)
 
 
-def _ground_plan(items: list[ItineraryItem]) -> TravelPlan:
+def _ground_plan(items: list[ItineraryItem]) -> PlanSnapshot:
     details = PlanDetails.model_validate(
         {
             "id": PLAN_ID,
@@ -46,7 +46,7 @@ def _ground_plan(items: list[ItineraryItem]) -> TravelPlan:
         }
     )
     progress = plan_progress(details, items)
-    return TravelPlan.model_validate(
+    return PlanSnapshot.model_validate(
         {**dict(details), "items": items, "stages": progress.stages, "gaps": progress.gaps}
     )
 
@@ -101,7 +101,7 @@ def _review_request(
     latest: str, changes: list[ProposedChange], previous_reply: str | None = None
 ) -> FakeRequest:
     return FakeRequest(
-        messages=review_messages("lodging", latest, changes, previous_reply),
+        messages=review_messages(PlanStage.LODGING, latest, changes, previous_reply),
         tools=[],
         format=inline_schema(ReviewVerdict),
         streamed=False,
