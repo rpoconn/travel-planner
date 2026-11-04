@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from features.itinerary.schemas import Gap
 from features.planning.models import PlanningOffer
 from features.planning.schemas import Candidate, NightRange, Offer, OfferStatus
+from features.planning.search_types import title_key
 from features.plans.schemas import PlanStage, SlotName
 from shared.db import utc_now
 
@@ -43,6 +44,24 @@ async def current_offer(session: AsyncSession, plan_id: UUID) -> Offer | None:
     )
     row = result.scalar_one_or_none()
     return Offer.model_validate(row) if row is not None else None
+
+
+async def offered_titles(
+    session: AsyncSession, plan_id: UUID, query_hash: str, plan_version: int
+) -> frozenset[str]:
+    """Titles (as `title_key`s) of every candidate offered for this search since the plan
+    last changed: what "More options" leaves out. Offers from before a change don't count,
+    since the plan they were found for is gone."""
+    result = await session.execute(
+        select(PlanningOffer.candidates).where(
+            PlanningOffer.plan_id == plan_id,
+            PlanningOffer.query_hash == query_hash,
+            PlanningOffer.plan_version == plan_version,
+        )
+    )
+    return frozenset(
+        title_key(str(candidate["title"])) for rows in result.scalars() for candidate in rows
+    )
 
 
 async def _get_row(session: AsyncSession, plan_id: UUID, offer_id: UUID) -> PlanningOffer:

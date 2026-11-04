@@ -100,9 +100,10 @@ export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
         await runTurn(null, (signal) => streamPlanningInput(plan.id, body, { signal }))
     }
 
-    async function continuePlanning() {
+    /** Drive the planner on; with `refresh`, look for other options than the choices shown. */
+    async function continuePlanning(refresh = false) {
         if (busy) return
-        await runTurn(null, (signal) => streamPlanningContinue(plan.id, { signal }))
+        await runTurn(null, (signal) => streamPlanningContinue(plan.id, { signal, refresh }))
     }
 
     /**
@@ -214,6 +215,7 @@ export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
                                             candidate_ids: candidateIds,
                                         })
                                     }
+                                    onMore={() => void continuePlanning(true)}
                                 />
                             )}
                             {action.type === 'ask_input' && (

@@ -377,6 +377,38 @@ export const ASK_DATES: AskInput = {
     prefill: {},
 }
 
+/** Who's coming: adults (1-20) and optional children (0-20). */
+export const ASK_TRAVELERS: AskInput = {
+    type: 'ask_input',
+    slot: 'travelers',
+    stage: 'basics',
+    prompt: "Who's coming?",
+    fields: [
+        {
+            name: 'adults',
+            label: 'Adults',
+            kind: 'integer',
+            required: true,
+            options: [],
+            min: 1,
+            max: 20,
+            placeholder: '',
+        },
+        {
+            name: 'children',
+            label: 'Children',
+            kind: 'integer',
+            required: false,
+            options: [],
+            min: 0,
+            max: 20,
+            placeholder: '',
+        },
+    ],
+    optional: false,
+    prefill: {},
+}
+
 export const ASK_BUDGET: AskInput = {
     type: 'ask_input',
     slot: 'budget',
@@ -477,6 +509,7 @@ export const OFFER_FLIGHTS_OUT: OfferChoice = {
     max_picks: 1,
     gap: null,
     nights: null,
+    can_refresh: true,
 }
 
 /** Things to do: pick one to three of three. */
@@ -495,6 +528,7 @@ export const OFFER_ACTIVITIES: OfferChoice = {
     max_picks: 3,
     gap: null,
     nights: null,
+    can_refresh: true,
 }
 
 /** Places to stay for the nights of May 1 and 2. */
@@ -517,6 +551,7 @@ export const OFFER_LODGING: OfferChoice = {
     max_picks: 1,
     gap: null,
     nights: { check_in: '2027-05-01', check_out: '2027-05-03' },
+    can_refresh: true,
 }
 
 export const OFFER_TRANSFERS: OfferChoice = {
@@ -538,6 +573,8 @@ export const OFFER_TRANSFERS: OfferChoice = {
     max_picks: 1,
     gap: gap(),
     nights: null,
+    // Transfers come from rules that list every way across at once.
+    can_refresh: false,
 }
 
 /** A plan in `stage` whose engine shows `action`'s choices next. */

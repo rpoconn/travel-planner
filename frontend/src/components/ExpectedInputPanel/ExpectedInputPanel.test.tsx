@@ -3,7 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AskInput } from '@/api/types.gen'
-import { ASK_BUDGET, ASK_DATES, ASK_DESTINATION, ASK_FLIGHT_PREFERENCES } from '@/test/fixtures'
+import {
+    ASK_BUDGET,
+    ASK_DATES,
+    ASK_DESTINATION,
+    ASK_FLIGHT_PREFERENCES,
+    ASK_TRAVELERS,
+} from '@/test/fixtures'
 
 import { ExpectedInputPanel } from './ExpectedInputPanel'
 
@@ -60,6 +66,49 @@ describe('ExpectedInputPanel', () => {
 
         expect(onSubmit).toHaveBeenCalledWith({ dates: { start: '2027-05-01', end: '2027-05-08' } })
         expect(screen.getByLabelText('Trip dates: to')).toHaveAttribute('min', '2027-05-01')
+    })
+
+    it('shows how long the trip is and keeps its length when the start moves', () => {
+        renderPanel(ASK_DATES)
+        const from = screen.getByLabelText('Trip dates: from')
+        const to = screen.getByLabelText('Trip dates: to')
+
+        fireEvent.change(from, { target: { value: '2027-05-01' } })
+        fireEvent.change(to, { target: { value: '2027-05-08' } })
+        expect(screen.getByText('7 nights')).toBeInTheDocument()
+
+        fireEvent.change(from, { target: { value: '2027-06-10' } })
+        expect(to).toHaveValue('2027-06-17')
+        expect(screen.getByText('7 nights')).toBeInTheDocument()
+    })
+
+    it('starts the dates no earlier than today', () => {
+        vi.useFakeTimers({ now: new Date(2027, 2, 9, 12), toFake: ['Date'] })
+        try {
+            renderPanel(ASK_DATES)
+
+            expect(screen.getByLabelText('Trip dates: from')).toHaveAttribute('min', '2027-03-09')
+            expect(screen.getByLabelText('Trip dates: to')).toHaveAttribute('min', '2027-03-09')
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('counts travelers with steppers, within the limits', async () => {
+        const { user, onSubmit } = renderPanel(ASK_TRAVELERS)
+        const fewerAdults = screen.getByRole('button', { name: 'Fewer adults' })
+
+        // Counts start at their lowest: 1 adult, 0 children.
+        expect(screen.getByRole('spinbutton', { name: 'Adults' })).toHaveValue(1)
+        expect(fewerAdults).toBeDisabled()
+        await user.click(screen.getByRole('button', { name: 'More adults' }))
+        await user.click(screen.getByRole('button', { name: 'More children' }))
+        await user.click(screen.getByRole('button', { name: 'More children' }))
+        await user.click(screen.getByRole('button', { name: 'Fewer children' }))
+        expect(fewerAdults).toBeEnabled()
+        await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+        expect(onSubmit).toHaveBeenCalledWith({ adults: 2, children: 1 })
     })
 
     it('picks options from choice chips', async () => {

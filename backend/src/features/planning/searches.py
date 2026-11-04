@@ -10,10 +10,21 @@ import json
 
 from features.planning import activity_search, flight_search, lodging_search, transfer_search
 from features.planning.schemas import Candidate, RunSearch, SearchKind
-from features.planning.search_types import Runner, SearchContext, SearchFailedError
+from features.planning.search_types import (
+    NoMoreOptionsError,
+    Runner,
+    SearchContext,
+    SearchFailedError,
+)
 from features.plans.schemas import PlanSnapshot
 
-__all__ = ["SearchContext", "SearchFailedError", "query_hash", "run_search"]
+__all__ = [
+    "NoMoreOptionsError",
+    "SearchContext",
+    "SearchFailedError",
+    "query_hash",
+    "run_search",
+]
 
 _RUNNERS: dict[SearchKind, Runner] = {
     "flights_outbound": flight_search.outbound_flights,
@@ -31,11 +42,16 @@ def query_hash(plan: PlanSnapshot, action: RunSearch) -> str:
 
 
 async def run_search(ctx: SearchContext, plan: PlanSnapshot, action: RunSearch) -> list[Candidate]:
-    """The candidates for `action`, best first; `SearchFailedError` when there are none."""
+    """The candidates for `action`, best first, leaving out `ctx.exclude`;
+    `NoMoreOptionsError` when only excluded ones were found, `SearchFailedError` when none."""
     runner = _RUNNERS.get(action.kind)
     if runner is None:
         raise SearchFailedError(f"Searching isn't available here yet ({action.label.lower()}).")
     candidates = await runner(ctx, plan, action)
+    if not candidates and ctx.exclude:
+        raise NoMoreOptionsError(
+            "Those are all the options I found. Pick one of these, or go back and change the trip."
+        )
     if not candidates:
         raise SearchFailedError("The search found nothing that fits. Try again in a moment.")
     return candidates

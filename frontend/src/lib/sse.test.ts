@@ -85,7 +85,7 @@ describe('planning streams', () => {
         expect(await request.json()).toEqual({ content: 'two adults' })
     })
 
-    it('POSTs continue with no body', async () => {
+    it('POSTs continue without a refresh', async () => {
         const fetchSpy = mockFetch(sseResponse(PLANNING_EVENTS))
 
         await collect(streamPlanningContinue(PLAN_ID))
@@ -93,6 +93,16 @@ describe('planning streams', () => {
         const request = fetchSpy.mock.calls[0]?.[0] as Request
         expect(request.method).toBe('POST')
         expect(request.url).toBe(`http://api.test/plans/${PLAN_ID}/planning/continue`)
+        expect(await request.json()).toEqual({ refresh: false })
+    })
+
+    it('POSTs continue with a refresh for more options', async () => {
+        const fetchSpy = mockFetch(sseResponse(PLANNING_EVENTS))
+
+        await collect(streamPlanningContinue(PLAN_ID, { refresh: true }))
+
+        const request = fetchSpy.mock.calls[0]?.[0] as Request
+        expect(await request.json()).toEqual({ refresh: true })
     })
 
     it('reports a stale form (409) with the detail', async () => {

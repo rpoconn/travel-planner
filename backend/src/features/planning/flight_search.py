@@ -26,7 +26,7 @@ from features.planning.flight_choice import (
     stops_label,
 )
 from features.planning.schemas import Candidate, CandidateChange, RunSearch
-from features.planning.search_types import SearchContext, SearchFailedError
+from features.planning.search_types import SearchContext, SearchFailedError, unseen
 from features.plans.schemas import FlightPreferences, PlanSnapshot, active_budget
 from shared.domain import Money, Place
 from shared.flights.airports import city_airports
@@ -183,8 +183,12 @@ def _candidate(
     )
 
 
-def _top(options: list[FlightOption], prefs: FlightPreferences) -> list[FlightOption]:
-    return rank_for(options, prefs)[:TOP_CANDIDATES]
+def _top(
+    ctx: SearchContext, options: list[FlightOption], prefs: FlightPreferences
+) -> list[FlightOption]:
+    """The best few, leaving out flights already offered ("More options")."""
+    fresh = [option for option in rank_for(options, prefs) if unseen(ctx, _title(option))]
+    return fresh[:TOP_CANDIDATES]
 
 
 def _outbound_flight(plan: PlanSnapshot) -> FlightItem | None:
@@ -236,7 +240,7 @@ async def outbound_flights(
             "Round-trip fare for everyone, with the cheapest flight home",
             [_add_flight(option, prefs, "outbound", option.price)],
         )
-        for number, option in enumerate(_top(options, prefs), start=1)
+        for number, option in enumerate(_top(ctx, options, prefs), start=1)
     ]
 
 
@@ -254,11 +258,11 @@ async def return_flights(
                 "One-way fare for everyone",
                 [_add_flight(option, prefs, "return", option.price)],
             )
-            for number, option in enumerate(_top(options, prefs), start=1)
+            for number, option in enumerate(_top(ctx, options, prefs), start=1)
         ]
     options = await _search(ctx, flight_query(plan), departure_token=prefs.outbound_token)
     outbound = _outbound_flight(plan)
     return [
         _round_trip_home(number, option, prefs, outbound)
-        for number, option in enumerate(_top(options, prefs), start=1)
+        for number, option in enumerate(_top(ctx, options, prefs), start=1)
     ]

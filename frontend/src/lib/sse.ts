@@ -164,13 +164,21 @@ export function streamPlanningChat(
     )
 }
 
-/** Let the planner act with no input: move on, run or retry a search, re-ask the form. */
+interface ContinueOptions extends StreamOptions {
+    /** Search the pending choices again for other options ("More options"). */
+    refresh?: boolean
+}
+
+/**
+ * Let the planner act with no input: move on, run or retry a search, re-ask the form; or,
+ * with `refresh`, look for other options than the pending choices.
+ */
 export function streamPlanningContinue(
     planId: string,
-    { signal }: StreamOptions = {},
+    { signal, refresh = false }: ContinueOptions = {},
 ): AsyncGenerator<PlanningEvent, void, undefined> {
     return streamEvents(
-        (options) => continuePlanning({ path: { plan_id: planId }, ...options }),
+        (options) => continuePlanning({ path: { plan_id: planId }, body: { refresh }, ...options }),
         signal,
         parsePlanningEvent,
     )

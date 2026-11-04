@@ -192,6 +192,7 @@ def _pick_or_search(
             max_picks=spec.max_picks,
             gap=gap,
             nights=nights,
+            can_refresh=kind != "transfers",
         )
     return RunSearch(kind=kind, slot=slot, stage=spec.stage, label=label, gap=gap, nights=nights)
 
@@ -314,6 +315,16 @@ def next_action(plan: PlanSnapshot, offer: Offer | None) -> NextAction:
     if stage_status(plan, stage).ready:
         return AdvanceStage(to=following)
     return _RULES[stage](plan, offer) or AdvanceStage(to=following)
+
+
+def refresh_search(plan: PlanSnapshot) -> RunSearch | None:
+    """The search behind the plan's pending choices, to run again for other options
+    ("More options"): what the engine would ask for if the offer were gone. None when the
+    plan isn't at choices that can be refreshed."""
+    pending = next_action(plan, None)
+    if not isinstance(pending, RunSearch) or pending.kind == "transfers":
+        return None
+    return pending
 
 
 # ---------------------------------------------------------------------------

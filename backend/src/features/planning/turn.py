@@ -11,6 +11,8 @@ A turn starts from one trigger:
   gets the slot's fixed nudge, or a short answer when it is a question. With nothing
   pending it is a question about the trip.
 - `Continue`: no input; just drive (the "Find flights" / "Retry" / "Continue" button).
+  With `refresh` ("More options"), the pending choices' search runs again first, leaving
+  out everything it has already offered; the new offer replaces the old one.
 
 Then `_drive` loops `{snapshot → assessment → act}`: it advances finished stages, runs
 searches, and stops at the next form, the next choices, or the end of the trip. Every
@@ -39,6 +41,7 @@ from features.planning.answers import (
     describe_answer,
     skip_slot,
 )
+from features.planning.engine import refresh_search
 from features.planning.events import (
     PlanningDoneEvent,
     PlanningErrorEvent,
@@ -64,7 +67,13 @@ from features.planning.schemas import (
     StageRecord,
     TravelPlan,
 )
-from features.planning.searches import SearchContext, SearchFailedError, query_hash, run_search
+from features.planning.searches import (
+    NoMoreOptionsError,
+    SearchContext,
+    SearchFailedError,
+    query_hash,
+    run_search,
+)
 from features.planning.slots import SLOTS, SlotSpec
 from features.plans import service as plans_service
 from features.plans.schemas import PlanSnapshot, PlanStage, SlotName, StageChange
@@ -81,6 +90,9 @@ logger = logging.getLogger(__name__)
 MAX_DRIVE_STEPS = 12
 
 GENERIC_FAILURE = "Something went wrong. Please try again."
+# Stored as the user's message for "More options", so the transcript shows why the choices
+# changed.
+MORE_OPTIONS_TEXT = "Show me other options."
 EMPTY_ANSWER = "Sorry, I don't have an answer for that."
 
 
@@ -125,7 +137,7 @@ class Text:
 
 @dataclass(frozen=True)
 class Continue:
-    pass
+    refresh: bool = False  # checked by the router: only with refreshable choices pending
 
 
 Trigger = Answer | Skip | Pick | Text | Continue
@@ -333,24 +345,20 @@ async def _advance(
     yield PlanningPlanEvent(plan=await _snapshot(ctx))
 
 
-async def _search(
-    ctx: TurnContext, plan: TravelPlan, action: RunSearch
-) -> AsyncIterator[PlanningEvent]:
-    """Run the search and open an offer with its candidates; on failure store why (the
-    action stays a `RunSearch`, so the UI offers Retry)."""
-    yield PlanningStatusEvent(text=f"{action.label}…")
-    try:
-        search_ctx = SearchContext(
-            session=ctx.session,
-            today=ctx.today,
-            flights=ctx.flights,
-            hotels=ctx.hotels,
-            places=ctx.places,
-        )
-        candidates = await run_search(search_ctx, plan, action)
-    except SearchFailedError as exc:
-        yield await _store(ctx, "system", str(exc), kind=MessageKind.ERROR)
-        return
+def _search_context(ctx: TurnContext, exclude: frozenset[str] = frozenset()) -> SearchContext:
+    return SearchContext(
+        session=ctx.session,
+        today=ctx.today,
+        flights=ctx.flights,
+        hotels=ctx.hotels,
+        places=ctx.places,
+        exclude=exclude,
+    )
+
+
+async def _open(
+    ctx: TurnContext, plan: TravelPlan, action: RunSearch, candidates: list[Candidate]
+) -> None:
     await offers.open_offer(
         ctx.session,
         plan_id=ctx.plan_id,
@@ -362,6 +370,43 @@ async def _search(
         gap=action.gap,
         nights=action.nights,
     )
+
+
+async def _search(
+    ctx: TurnContext, plan: TravelPlan, action: RunSearch
+) -> AsyncIterator[PlanningEvent]:
+    """Run the search and open an offer with its candidates; on failure store why (the
+    action stays a `RunSearch`, so the UI offers Retry)."""
+    yield PlanningStatusEvent(text=f"{action.label}…")
+    try:
+        candidates = await run_search(_search_context(ctx), plan, action)
+    except SearchFailedError as exc:
+        yield await _store(ctx, "system", str(exc), kind=MessageKind.ERROR)
+        return
+    await _open(ctx, plan, action, candidates)
+
+
+async def _more_options(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
+    """Search again for the pending choices, leaving out every candidate already offered
+    for that search, and replace the offer with what's new. When nothing new turns up (or
+    the search fails) the current choices stay open, with a note saying why."""
+    yield await _store(ctx, "user", MORE_OPTIONS_TEXT)
+    plan = await _snapshot(ctx)
+    action = refresh_search(plan)
+    if action is None:  # the router checked; the plan moved on since
+        return
+    yield PlanningStatusEvent(text=f"{action.label}…")
+    key = query_hash(plan, action)
+    exclude = await offers.offered_titles(ctx.session, ctx.plan_id, key, plan.version)
+    try:
+        candidates = await run_search(_search_context(ctx, exclude), plan, action)
+    except NoMoreOptionsError as exc:
+        yield await _store(ctx, "assistant", str(exc), kind=MessageKind.NUDGE)
+        return
+    except SearchFailedError as exc:
+        yield await _store(ctx, "system", str(exc), kind=MessageKind.ERROR)
+        return
+    await _open(ctx, plan, action, candidates)
 
 
 async def _drive(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
@@ -429,6 +474,9 @@ async def run_turn(ctx: TurnContext, trigger: Trigger) -> AsyncIterator[Planning
                 async for event in _free_text(ctx, trigger.content, outcome):
                     yield event
                 drive = outcome.drive
+            case Continue(refresh=True):
+                async for event in _more_options(ctx):
+                    yield event
             case Continue():
                 pass
         if drive:

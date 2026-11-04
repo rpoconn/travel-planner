@@ -81,6 +81,11 @@ test('picks the flights out and home by list and by free text, then moves on', a
     const out = page.getByRole('region', { name: 'Pick your flight out.' })
     await expect(out.getByRole('article')).toHaveCount(2)
 
+    // More options searches again; the canned search has nothing new, so the list stays.
+    await out.getByRole('button', { name: 'More options' }).click()
+    await expect(conversation(page)).toContainText('Those are all the options I found.')
+    await expect(out.getByRole('article')).toHaveCount(2)
+
     // Free text picks from the list ("the second one"), and the flights home are listed.
     await sendChatMessage(page, 'the second one')
     await expect(conversation(page)).toContainText('Got it: Example Air EX 102.')

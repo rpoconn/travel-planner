@@ -5,10 +5,16 @@ import { ASK_FLIGHT_PREFERENCES } from '@/test/fixtures'
 
 import {
     buildValue,
+    canStep,
     earliestEnd,
     initialFormState,
+    nightsBetween,
     partKey,
+    rangeSummary,
+    setRangeStart,
     setText,
+    stepCount,
+    todayIso,
     togglePick,
     type FormState,
 } from './ExpectedInputPanelService'
@@ -179,5 +185,98 @@ describe('buildValue', () => {
         [INTERESTS, state({}, { interests: [] }), 'Choose at least 1 interests.'],
     ])('rejects a bad %s value', (spec, form, error) => {
         expect(buildValue([spec], form)).toEqual({ ok: false, error })
+    })
+})
+
+// ----- dates -----
+
+function range(start: string, end: string): FormState {
+    return {
+        text: { [partKey('dates', 'start')]: start, [partKey('dates', 'end')]: end },
+        picks: {},
+    }
+}
+
+describe('todayIso', () => {
+    it('is the local date, zero padded', () => {
+        expect(todayIso(new Date(2027, 0, 5, 23, 30))).toBe('2027-01-05')
+    })
+})
+
+describe('nightsBetween', () => {
+    it('counts nights across months and clock changes', () => {
+        expect(nightsBetween('2027-03-25', '2027-04-02')).toBe(8)
+        expect(nightsBetween('2027-05-01', '2027-05-01')).toBe(0)
+    })
+
+    it('is null for an incomplete or backwards range', () => {
+        expect(nightsBetween('', '2027-05-01')).toBeNull()
+        expect(nightsBetween('2027-05-08', '2027-05-01')).toBeNull()
+        expect(nightsBetween('2027-05-01', 'soon')).toBeNull()
+    })
+})
+
+describe('setRangeStart', () => {
+    it('moves the end with the start, keeping the trip length', () => {
+        const next = setRangeStart(range('2027-05-01', '2027-05-08'), 'dates', '2027-05-30')
+
+        expect(next.text[partKey('dates', 'end')]).toBe('2027-06-06')
+    })
+
+    it('moves an end before the start up to it when there was no length yet', () => {
+        const next = setRangeStart(range('', '2027-05-03'), 'dates', '2027-05-10')
+
+        expect(next.text[partKey('dates', 'start')]).toBe('2027-05-10')
+        expect(next.text[partKey('dates', 'end')]).toBe('2027-05-10')
+    })
+
+    it('leaves the end alone when there is none, or the start is cleared', () => {
+        expect(setRangeStart(range('', ''), 'dates', '2027-05-10').text['dates.end']).toBe('')
+        expect(
+            setRangeStart(range('2027-05-01', '2027-05-08'), 'dates', '').text['dates.end'],
+        ).toBe('2027-05-08')
+    })
+})
+
+describe('rangeSummary', () => {
+    it('says how many nights', () => {
+        expect(rangeSummary(range('2027-05-01', '2027-05-08'), 'dates')).toBe('7 nights')
+        expect(rangeSummary(range('2027-05-01', '2027-05-02'), 'dates')).toBe('1 night')
+        expect(rangeSummary(range('2027-05-01', '2027-05-01'), 'dates')).toBe('Day trip')
+    })
+
+    it('is null until the range is complete', () => {
+        expect(rangeSummary(range('2027-05-01', ''), 'dates')).toBeNull()
+    })
+})
+
+// ----- steppers -----
+
+describe('steppers', () => {
+    const adults = field({ name: 'adults', kind: 'integer', min: 1, max: 3 })
+
+    function count(value: string): FormState {
+        return { text: { adults: value }, picks: {} }
+    }
+
+    it('steps within the limits', () => {
+        expect(stepCount(count('1'), adults, 1).text.adults).toBe('2')
+        expect(stepCount(count('3'), adults, 1).text.adults).toBe('3')
+        expect(stepCount(count('1'), adults, -1).text.adults).toBe('1')
+    })
+
+    it('treats an empty or unreadable count as the minimum', () => {
+        expect(stepCount(count(''), adults, 1).text.adults).toBe('2')
+        expect(stepCount(count('two'), adults, 1).text.adults).toBe('2')
+    })
+
+    it('pulls a typed count outside the limits back in', () => {
+        expect(stepCount(count('9'), adults, -1).text.adults).toBe('3')
+    })
+
+    it('knows when a step would leave the limits', () => {
+        expect(canStep(count('1'), adults, -1)).toBe(false)
+        expect(canStep(count('1'), adults, 1)).toBe(true)
+        expect(canStep(count('3'), adults, 1)).toBe(false)
     })
 })

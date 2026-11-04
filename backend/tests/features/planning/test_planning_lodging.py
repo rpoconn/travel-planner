@@ -3,6 +3,7 @@ without a place to stay, picking one adds it, and the planner searches the next 
 every night is covered. The hotel search is a recording fake (canned hotels), the model a
 strict `FakeLLM`."""
 
+from decimal import Decimal
 from typing import Any
 
 from fastapi import FastAPI
@@ -12,8 +13,9 @@ from features.itinerary.schemas import LodgingItem
 from features.planning.events import PlanningStatusEvent
 from features.planning.schemas import NightRange, OfferChoice
 from features.plans.schemas import PlanStage
+from shared.domain import Money
 from shared.hotels.fake import FakeHotelProvider
-from shared.hotels.types import HotelSearchError
+from shared.hotels.types import HotelOption, HotelSearchError
 from shared.llm.fake import FakeLLM, json_reply
 from tests.features.planning.planning_http import (
     BASICS,
@@ -64,6 +66,24 @@ def _nights(check_in: str, check_out: str) -> NightRange:
 def _stays(events: list[Any]) -> list[LodgingItem]:
     items = done(events).plan.items
     return sorted((i for i in items if isinstance(i, LodgingItem)), key=lambda s: s.start)
+
+
+def _hotels(count: int) -> list[HotelOption]:
+    """`count` 3-star hotels, best rated first: "Hotel 1" ranks above "Hotel 2"."""
+    return [
+        HotelOption(
+            name=f"Hotel {n}",
+            nightly_rate=Money(amount=Decimal(100), currency="USD"),
+            total_rate=Money(amount=Decimal(700), currency="USD"),
+            stars=3,
+            rating=5 - n / 10,
+        )
+        for n in range(1, count + 1)
+    ]
+
+
+async def _more(client: AsyncClient, headers: dict[str, str], plan_id: str) -> list[Any]:
+    return await post(client, headers, plan_id, "continue", {"refresh": True})
 
 
 async def _add_stay(
@@ -239,3 +259,89 @@ async def test_free_text_picks_a_stay(
         ("message", "Got it: Example Midtown Hotel."),
     ]
     assert [stay.title for stay in _stays(events)] == ["Example Midtown Hotel"]
+
+
+# ---------------------------------------------------------------------------
+# More options
+# ---------------------------------------------------------------------------
+
+MORE = ("message", "Show me other options.")
+
+
+async def test_more_options_lists_stays_not_offered_yet(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_hotels: FakeHotelProvider
+) -> None:
+    plan_id = await _at_lodging(app, client, headers)
+    fake_hotels.queue(_hotels(7), _hotels(7), _hotels(7))
+    first = _choices(await answer(client, headers, plan_id, "lodging_preferences", MIDRANGE))
+    assert first.can_refresh is True
+    assert [c.title for c in first.candidates] == [f"Hotel {n}" for n in range(1, 6)]
+
+    events = await _more(client, headers, plan_id)
+
+    status = next(e for e in events if isinstance(e, PlanningStatusEvent))
+    assert status.text == "Find a place to stay May 1 to May 8…"
+    assert stored(events) == [MORE, ("choices", "Pick a place to stay.")]
+    second = _choices(events)
+    assert second.offer_id != first.offer_id
+    assert [(c.id, c.title) for c in second.candidates] == [("1", "Hotel 6"), ("2", "Hotel 7")]
+    assert second.nights == first.nights
+
+    # Every stay has now been offered: the second list stays up.
+    events = await _more(client, headers, plan_id)
+
+    assert stored(events) == [
+        MORE,
+        (
+            "nudge",
+            "Those are all the options I found. Pick one of these, or go back and change the trip.",
+        ),
+        ("choices", "Pick a place to stay."),
+    ]
+    assert _choices(events).offer_id == second.offer_id
+    assert len(fake_hotels.searches) == 3
+
+
+async def test_a_stay_from_more_options_can_be_picked(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_hotels: FakeHotelProvider
+) -> None:
+    plan_id = await _at_lodging(app, client, headers)
+    fake_hotels.queue(_hotels(6), _hotels(6))
+    await answer(client, headers, plan_id, "lodging_preferences", MIDRANGE)
+    offer = _choices(await _more(client, headers, plan_id))
+
+    events = await _pick(client, headers, plan_id, offer, "1")
+
+    [stay] = _stays(events)
+    assert stay.title == "Hotel 6"
+
+
+async def test_more_options_keeps_the_choices_when_the_search_fails(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_hotels: FakeHotelProvider
+) -> None:
+    plan_id = await _at_lodging(app, client, headers)
+    offer = _choices(await answer(client, headers, plan_id, "lodging_preferences", MIDRANGE))
+    fake_hotels.queue(HotelSearchError("Hotel search timed out."))
+
+    events = await _more(client, headers, plan_id)
+
+    assert stored(events) == [
+        MORE,
+        ("error", "Hotel search timed out."),
+        ("choices", "Pick a place to stay."),
+    ]
+    assert _choices(events).offer_id == offer.offer_id
+
+
+async def test_more_options_needs_choices_to_be_showing(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_hotels: FakeHotelProvider
+) -> None:
+    plan_id = await _at_lodging(app, client, headers)  # asking for the preferences
+
+    response = await client.post(
+        f"/plans/{plan_id}/planning/continue", json={"refresh": True}, headers=headers
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "There are no choices to look for other options for."
+    assert fake_hotels.searches == []

@@ -1,4 +1,4 @@
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 
 import type { OfferChoice } from '@/api/types.gen'
@@ -19,7 +19,9 @@ import {
 // question and what it's for (which nights, which gap). Picking is the
 // approval, so a single pick is sent as soon as a card's Pick is pressed; a multi pick
 // (activities) toggles cards and sends them with one button. The server checks the pick
-// against the offer again. Mount with `key={action.offer_id}` so a new offer starts empty.
+// against the offer again. "More options" (when the offer allows it) asks the planner to
+// search again for ones not listed yet. Mount with `key={action.offer_id}` so a new offer
+// starts empty.
 
 // ----- types -----
 
@@ -28,15 +30,18 @@ interface ChoiceListProps {
     /** Disables every pick, e.g. while a turn streams. */
     disabled?: boolean
     onPick: (candidateIds: string[]) => void
+    /** Search again for options not listed yet; the button shows when the offer allows it. */
+    onMore?: () => void
 }
 
-export function ChoiceList({ action, disabled = false, onPick }: ChoiceListProps) {
+export function ChoiceList({ action, disabled = false, onPick, onMore }: ChoiceListProps) {
     // ----- state -----
     const [selected, setSelected] = useState<string[]>([])
     const multi = isMulti(action)
     const hint = pickHint(action)
     const nights = nightsHint(action)
     const route = gapHint(action)
+    const canAskForMore = action.can_refresh && onMore !== undefined
 
     // ----- event handlers -----
     function pick(id: string) {
@@ -76,19 +81,33 @@ export function ChoiceList({ action, disabled = false, onPick }: ChoiceListProps
                 ))}
             </ul>
 
-            {multi && (
-                <div className="flex justify-end">
-                    <Button
-                        type="button"
-                        size="sm"
-                        disabled={disabled || !canSubmit(selected, action)}
-                        onClick={() => {
-                            onPick(selected)
-                        }}
-                    >
-                        {submitLabel(selected, action)}
-                        <ArrowRight aria-hidden />
-                    </Button>
+            {(multi || canAskForMore) && (
+                <div className="flex justify-end gap-1.5">
+                    {canAskForMore && (
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={disabled}
+                            onClick={onMore}
+                        >
+                            <RefreshCw aria-hidden />
+                            More options
+                        </Button>
+                    )}
+                    {multi && (
+                        <Button
+                            type="button"
+                            size="sm"
+                            disabled={disabled || !canSubmit(selected, action)}
+                            onClick={() => {
+                                onPick(selected)
+                            }}
+                        >
+                            {submitLabel(selected, action)}
+                            <ArrowRight aria-hidden />
+                        </Button>
+                    )}
                 </div>
             )}
         </section>

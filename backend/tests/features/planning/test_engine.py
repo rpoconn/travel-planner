@@ -9,7 +9,13 @@ from uuid import uuid4
 import pytest
 
 from features.itinerary.schemas import ItineraryItem, TimelineWarning
-from features.planning.engine import evaluate, next_action, night_ranges, offer_fits
+from features.planning.engine import (
+    evaluate,
+    next_action,
+    night_ranges,
+    offer_fits,
+    refresh_search,
+)
 from features.planning.schemas import (
     AdvanceStage,
     AskInput,
@@ -359,6 +365,35 @@ def test_a_transfer_search_names_both_ends() -> None:
     assert isinstance(action, RunSearch)
     assert action.gap == plan.gaps[0]
     assert action.label == "Find a way from Home (San Francisco) to Hotel Okura"
+
+
+def test_searched_choices_can_be_refreshed_but_transfers_cannot() -> None:
+    activities = snapshot(stage=PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS)
+    ground = snapshot([lodging("2027-05-01T15:00", "2027-05-04T11:00")], stage=PlanStage.GROUND)
+
+    picked = next_action(activities, _offer(SlotName.ACTIVITIES, PlanStage.ACTIVITIES))
+    transfer = next_action(ground, _offer(SlotName.TRANSFER, PlanStage.GROUND, gap=ground.gaps[0]))
+
+    assert isinstance(picked, OfferChoice) and picked.can_refresh is True
+    # Transfers come from rules that list every way across at once: nothing more to find.
+    assert isinstance(transfer, OfferChoice) and transfer.can_refresh is False
+
+
+def test_refresh_search_is_the_search_behind_the_choices() -> None:
+    plan = snapshot(stage=PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS)
+
+    action = refresh_search(plan)
+
+    assert action == next_action(plan, None)
+    assert isinstance(action, RunSearch) and action.kind == "activities"
+
+
+def test_refresh_search_is_none_without_searched_choices() -> None:
+    asking = snapshot(stage=PlanStage.ACTIVITIES)  # no preferences yet: a form
+    ground = snapshot([lodging("2027-05-01T15:00", "2027-05-04T11:00")], stage=PlanStage.GROUND)
+
+    assert refresh_search(asking) is None
+    assert refresh_search(ground) is None
 
 
 # ---------------------------------------------------------------------------

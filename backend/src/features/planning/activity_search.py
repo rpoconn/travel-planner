@@ -29,7 +29,7 @@ from features.itinerary.schemas import ActivityCategory
 from features.planning.lodging_search import destination_zone
 from features.planning.scheduler import Request, Slot, schedule
 from features.planning.schemas import Candidate, CandidateChange, RunSearch
-from features.planning.search_types import SearchContext, SearchFailedError
+from features.planning.search_types import SearchContext, SearchFailedError, unseen
 from features.plans.schemas import ActivityPreferences, PlanSnapshot, active_budget
 from shared.costs import format_money, totals_by_currency
 from shared.domain import Money, Place
@@ -339,7 +339,13 @@ async def activities(ctx: SearchContext, plan: PlanSnapshot, action: RunSearch) 
     zone = _zone(plan)
     interests = list(dict.fromkeys(prefs.interests))
     results = await _search_all(ctx, [place_query(plan, interest) for interest in interests])
-    ranked = rank(plan, interests, results)
+    # Places already offered ("More options") are left out before scheduling, so they
+    # don't hold free windows the next best ones could use.
+    ranked = [
+        found
+        for found in rank(plan, interests, results)
+        if unseen(ctx, found.option.name[:_MAX_TITLE])
+    ]
     requests = [Request(f.key, f.category, f.option.hours) for f in ranked]
     slots = schedule(plan, requests, zone)
     placed = [found for found in ranked if found.key in slots][:TOP_CANDIDATES]

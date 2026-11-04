@@ -299,3 +299,23 @@ async def test_skipping_flights_moves_on_to_lodging(
     plan = done(events).plan
     assert (plan.stage, plan.flights_skipped) == ("lodging", True)
     assert len(fake_flights.searches) == 1
+
+
+# ---------------------------------------------------------------------------
+# More options
+# ---------------------------------------------------------------------------
+
+
+async def test_more_options_with_every_flight_shown_keeps_the_choices(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_flights: FakeFlightProvider
+) -> None:
+    plan_id = await _at_flights(app, client, headers)
+    offer = _choices(await answer(client, headers, plan_id, "flight_preferences", ECONOMY))
+
+    events = await post(client, headers, plan_id, "continue", {"refresh": True})
+
+    # The canned search finds the same two flights, both already offered.
+    assert [kind for kind, _ in stored(events)] == ["message", "nudge", "choices"]
+    assert _choices(events).offer_id == offer.offer_id
+    assert len(fake_flights.searches) == 2
+    assert fake_flights.searches[1].query == fake_flights.searches[0].query

@@ -183,6 +183,9 @@ class OfferChoice(BaseModel):
     max_picks: int = 1
     gap: Gap | None = None
     nights: NightRange | None = None
+    # Whether "More options" can search again for others (`POST /continue` with
+    # `refresh`). Transfers come from rules that list every way across at once.
+    can_refresh: bool = False
 
 
 class RunSearch(BaseModel):

@@ -18,7 +18,12 @@ from features.chat import service as chat_service
 from features.chat.dependencies import LLMDep, limit_chat_messages
 from features.planning import service as planning_service
 from features.planning.answers import AnswerError, parse_answer
-from features.planning.events import PlanningEvent, PlanningMessage, PlanningText
+from features.planning.events import (
+    ContinueRequest,
+    PlanningEvent,
+    PlanningMessage,
+    PlanningText,
+)
 from features.planning.picks import PickError, picked_candidates
 from features.planning.schemas import AskInput, ChoicePick, OfferChoice, PlanningInput, SlotSkip
 from features.planning.turn import (
@@ -105,6 +110,26 @@ async def get_checked_input(body: PlanningInput, plan: OwnedPlan, session: Sessi
 CheckedInput = Annotated[Trigger, Depends(get_checked_input)]
 
 
+async def get_checked_continue(
+    plan: OwnedPlan, session: SessionDep, body: ContinueRequest | None = None
+) -> Continue:
+    """Continue as a turn trigger: 409 when it asks for more options and the plan isn't
+    showing choices that can be searched again."""
+    if body is None or not body.refresh:
+        return Continue()
+    snapshot = await planning_service.snapshot(session, plan)
+    action = snapshot.assessment.next_action
+    if not isinstance(action, OfferChoice) or not action.can_refresh:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="There are no choices to look for other options for.",
+        )
+    return Continue(refresh=True)
+
+
+CheckedContinue = Annotated[Continue, Depends(get_checked_continue)]
+
+
 def get_turn_context(
     session: SessionDep,
     llm: LLMDep,
@@ -176,11 +201,12 @@ async def send_message(body: PlanningText, turn: Turn) -> AsyncIterator[Planning
     "/continue",
     operation_id="continuePlanning",
     response_class=EventSourceResponse,
-    responses=error_responses(status.HTTP_429_TOO_MANY_REQUESTS),
+    responses=error_responses(status.HTTP_409_CONFLICT, status.HTTP_429_TOO_MANY_REQUESTS),
     dependencies=[Depends(limit_chat_messages)],
 )
-async def continue_planning(turn: Turn) -> AsyncIterator[PlanningEvent]:
+async def continue_planning(trigger: CheckedContinue, turn: Turn) -> AsyncIterator[PlanningEvent]:
     """Let the planner act with no new input: move on from a finished stage, run (or retry)
-    a search, or show the pending form again."""
-    async for event in run_turn(turn, Continue()):
+    a search, or show the pending form again. With `refresh` ("More options"), search the
+    pending choices again for ones not offered yet."""
+    async for event in run_turn(turn, trigger):
         yield event

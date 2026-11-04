@@ -162,6 +162,21 @@ describe('PlanningPanel', () => {
         })
     })
 
+    it('asks for more options than the choices shown', async () => {
+        mockTranscript([])
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(sseResponse([{ type: 'done', plan: travelPlan() }]))
+        const { user } = renderPanel(planChoosing(OFFER_FLIGHTS_OUT))
+
+        await user.click(await screen.findByRole('button', { name: 'More options' }))
+
+        expect(await sentRequest(fetchSpy)).toEqual({
+            url: `http://api.test/plans/${PLAN_ID}/planning/continue`,
+            body: { refresh: true },
+        })
+    })
+
     it('lists what is left to fix at review', async () => {
         mockTranscript([])
         const missing = issue({ stage: 'lodging', message: 'a place to stay the night of May 3' })

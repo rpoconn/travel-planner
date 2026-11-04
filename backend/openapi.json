@@ -1507,7 +1507,7 @@
           "planning"
         ],
         "summary": "Continue Planning",
-        "description": "Let the planner act with no new input: move on from a finished stage, run (or retry)\na search, or show the pending form again.",
+        "description": "Let the planner act with no new input: move on from a finished stage, run (or retry)\na search, or show the pending form again. With `refresh` (\"More options\"), search the\npending choices again for ones not offered yet.",
         "operationId": "continuePlanning",
         "security": [
           {
@@ -1526,6 +1526,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ContinueRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1609,6 +1626,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "429": {
             "content": {
@@ -2404,6 +2431,18 @@
         "type": "object",
         "title": "Complete",
         "description": "At review: nothing left to ask. Remaining issues are in the assessment."
+      },
+      "ContinueRequest": {
+        "properties": {
+          "refresh": {
+            "type": "boolean",
+            "title": "Refresh",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ContinueRequest",
+        "description": "`POST /plans/{id}/planning/continue`. With `refresh`, the pending choices are\nsearched again for other options (\"More options\"); without it (or with no body) the\nplanner just carries on."
       },
       "Cost-Input": {
         "properties": {
@@ -4201,6 +4240,11 @@
                 "type": "null"
               }
             ]
+          },
+          "can_refresh": {
+            "type": "boolean",
+            "title": "Can Refresh",
+            "default": false
           }
         },
         "type": "object",
@@ -4214,7 +4258,8 @@
           "min_picks",
           "max_picks",
           "gap",
-          "nights"
+          "nights",
+          "can_refresh"
         ],
         "title": "OfferChoice",
         "description": "Show the open offer's candidates; picking is the approval."

@@ -18,8 +18,9 @@ import { ChoiceList } from './ChoiceList'
 function renderList(action: OfferChoice, { disabled = false } = {}) {
     const user = userEvent.setup()
     const onPick = vi.fn<(ids: string[]) => void>()
-    render(<ChoiceList action={action} disabled={disabled} onPick={onPick} />)
-    return { user, onPick }
+    const onMore = vi.fn<() => void>()
+    render(<ChoiceList action={action} disabled={disabled} onPick={onPick} onMore={onMore} />)
+    return { user, onPick, onMore }
 }
 
 // ----- tests -----
@@ -85,5 +86,27 @@ describe('ChoiceList', () => {
         renderList(OFFER_FLIGHTS_OUT, { disabled: true })
 
         expect(screen.getByRole('button', { name: 'Pick Example Air EX 101' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
+    })
+
+    it('asks for more options', async () => {
+        const { user, onMore, onPick } = renderList(OFFER_LODGING)
+
+        await user.click(screen.getByRole('button', { name: 'More options' }))
+
+        expect(onMore).toHaveBeenCalledOnce()
+        expect(onPick).not.toHaveBeenCalled()
+    })
+
+    it('offers no more options when the offer lists them all', () => {
+        renderList(OFFER_TRANSFERS)
+
+        expect(screen.queryByRole('button', { name: 'More options' })).not.toBeInTheDocument()
+    })
+
+    it('offers no more options without a handler', () => {
+        render(<ChoiceList action={OFFER_LODGING} onPick={vi.fn()} />)
+
+        expect(screen.queryByRole('button', { name: 'More options' })).not.toBeInTheDocument()
     })
 })

@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from features.itinerary.schemas import ItineraryItem, LodgingKind
 from features.itinerary.zones import legs, zone_at
 from features.planning.schemas import Candidate, CandidateChange, NightRange, RunSearch
-from features.planning.search_types import SearchContext, SearchFailedError
+from features.planning.search_types import SearchContext, SearchFailedError, unseen
 from features.plans.schemas import HotelClass, LodgingPreferences, PlanSnapshot, active_budget
 from shared.costs import format_money
 from shared.domain import Money, Place
@@ -382,7 +382,13 @@ async def stays(ctx: SearchContext, plan: PlanSnapshot, action: RunSearch) -> li
     query = hotel_query(plan, nights)
     zone = stay_zone(plan, nights)
     options = await _search(ctx, query)
-    ranked = rank_for(options, prefs, query.nights)[:TOP_CANDIDATES]
+    # Places already offered for these nights ("More options") make way for the next best.
+    fresh = [
+        option
+        for option in rank_for(options, prefs, query.nights)
+        if unseen(ctx, option.name[:_MAX_TITLE])
+    ]
+    ranked = fresh[:TOP_CANDIDATES]
     return [
         _candidate(number, option, plan, prefs, nights, zone)
         for number, option in enumerate(ranked, start=1)

@@ -38,6 +38,14 @@ class PlanningText(BaseModel):
     content: MessageContent
 
 
+class ContinueRequest(BaseModel):
+    """`POST /plans/{id}/planning/continue`. With `refresh`, the pending choices are
+    searched again for other options ("More options"); without it (or with no body) the
+    planner just carries on."""
+
+    refresh: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Server-sent events: each event's `data:` is one of these as JSON, told apart by `type`.
 # ---------------------------------------------------------------------------

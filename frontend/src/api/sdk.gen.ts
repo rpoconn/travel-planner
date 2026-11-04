@@ -268,10 +268,15 @@ export const sendPlanningMessage = <ThrowOnError extends boolean = false>(option
  * Continue Planning
  *
  * Let the planner act with no new input: move on from a finished stage, run (or retry)
- * a search, or show the pending form again.
+ * a search, or show the pending form again. With `refresh` ("More options"), search the
+ * pending choices again for ones not offered yet.
  */
 export const continuePlanning = <ThrowOnError extends boolean = false>(options: Options<ContinuePlanningData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<ContinuePlanningResponses>> => (options.client ?? client).sse.post<ContinuePlanningResponses, ContinuePlanningErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/plans/{plan_id}/planning/continue',
-    ...options
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });

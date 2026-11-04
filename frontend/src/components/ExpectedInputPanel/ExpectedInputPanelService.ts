@@ -29,6 +29,93 @@ export function earliestEnd(state: FormState, name: string): string | undefined 
     return start === '' ? undefined : start
 }
 
+// ----- dates -----
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** `now` as a local `YYYY-MM-DD`: the first day a trip may start (the server checks too). */
+export function todayIso(now: Date = new Date()): string {
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${String(now.getFullYear())}-${month}-${day}`
+}
+
+/** An ISO date as a UTC timestamp, or null when it isn't one. UTC keeps day sums exact. */
+function isoToUtc(iso: string): number | null {
+    if (!ISO_DATE.test(iso)) return null
+    const time = Date.parse(`${iso}T00:00:00Z`)
+    return Number.isNaN(time) ? null : time
+}
+
+function utcToIso(time: number): string {
+    return new Date(time).toISOString().slice(0, 10)
+}
+
+/** Nights from `start` to `end` (0 for a day trip), or null unless both are dates in order. */
+export function nightsBetween(start: string, end: string): number | null {
+    const from = isoToUtc(start)
+    const to = isoToUtc(end)
+    if (from === null || to === null || to < from) return null
+    return Math.round((to - from) / DAY_MS)
+}
+
+/**
+ * Set a date range's start. When both ends were already set, the end moves with it so the
+ * trip keeps its length (as flight search sites do); otherwise an end before the new start
+ * moves up to it.
+ */
+export function setRangeStart(state: FormState, name: string, start: string): FormState {
+    const startKey = partKey(name, 'start')
+    const endKey = partKey(name, 'end')
+    const end = state.text[endKey] ?? ''
+    const nights = nightsBetween(state.text[startKey] ?? '', end)
+    const newStart = isoToUtc(start)
+    let newEnd = end
+    if (newStart !== null && nights !== null) {
+        newEnd = utcToIso(newStart + nights * DAY_MS)
+    } else if (newStart !== null && end !== '' && end < start) {
+        newEnd = start
+    }
+    return { ...state, text: { ...state.text, [startKey]: start, [endKey]: newEnd } }
+}
+
+/** How long the picked range is ("7 nights", "Day trip"), or null until it is a range. */
+export function rangeSummary(state: FormState, name: string): string | null {
+    const nights = nightsBetween(
+        state.text[partKey(name, 'start')] ?? '',
+        state.text[partKey(name, 'end')] ?? '',
+    )
+    if (nights === null) return null
+    if (nights === 0) return 'Day trip'
+    return nights === 1 ? '1 night' : `${String(nights)} nights`
+}
+
+// ----- steppers -----
+
+/** An integer field's count: empty or unreadable text counts as the field's minimum. */
+function currentCount(state: FormState, field: FieldSpec): number {
+    const raw = (state.text[field.name] ?? '').trim()
+    const number = raw === '' ? NaN : Number(raw)
+    return Number.isInteger(number) ? number : (field.min ?? 0)
+}
+
+/** Whether a stepper button can move the count by `delta` without leaving min..max. */
+export function canStep(state: FormState, field: FieldSpec, delta: number): boolean {
+    const next = currentCount(state, field) + delta
+    if (field.min != null && next < field.min) return false
+    if (field.max != null && next > field.max) return false
+    return true
+}
+
+/** The count moved by `delta`, kept within the field's min..max. */
+export function stepCount(state: FormState, field: FieldSpec, delta: number): FormState {
+    let next = currentCount(state, field) + delta
+    if (field.min != null) next = Math.max(field.min, next)
+    if (field.max != null) next = Math.min(field.max, next)
+    return setText(state, field.name, String(next))
+}
+
 // ----- reading prefill -----
 
 function asRecord(value: unknown): Record<string, unknown> {

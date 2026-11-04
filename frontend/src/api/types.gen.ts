@@ -393,6 +393,20 @@ export type Complete = {
 };
 
 /**
+ * ContinueRequest
+ *
+ * `POST /plans/{id}/planning/continue`. With `refresh`, the pending choices are
+ * searched again for other options ("More options"); without it (or with no body) the
+ * planner just carries on.
+ */
+export type ContinueRequest = {
+    /**
+     * Refresh
+     */
+    refresh?: boolean;
+};
+
+/**
  * Cost
  */
 export type CostInput = {
@@ -1293,6 +1307,10 @@ export type OfferChoice = {
     max_picks: number;
     gap: Gap | null;
     nights: NightRange | null;
+    /**
+     * Can Refresh
+     */
+    can_refresh: boolean;
 };
 
 /**
@@ -3201,7 +3219,10 @@ export type SendPlanningMessageResponses = {
 };
 
 export type ContinuePlanningData = {
-    body?: never;
+    /**
+     * Body
+     */
+    body?: ContinueRequest | null;
     path: {
         /**
          * Plan Id
@@ -3221,6 +3242,10 @@ export type ContinuePlanningErrors = {
      * Not Found
      */
     404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
     /**
      * Validation Error
      */

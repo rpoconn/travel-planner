@@ -1,4 +1,4 @@
-import { ArrowRight, SkipForward } from 'lucide-react'
+import { ArrowRight, Minus, Plus, SkipForward } from 'lucide-react'
 import { useState, type SyntheticEvent } from 'react'
 
 import type { AskInput, FieldSpec } from '@/api/types.gen'
@@ -7,16 +7,22 @@ import { Input } from '@/components/ui/input'
 
 import {
     buildValue,
+    canStep,
     earliestEnd,
     initialFormState,
     partKey,
+    rangeSummary,
+    setRangeStart,
     setText,
+    stepCount,
+    todayIso,
     togglePick,
     type FormState,
 } from './ExpectedInputPanelService'
 
-// The planner's pending question as a form, drawn from the slot's field specs: date ranges,
-// counts, money, text, places, and choice chips. Submitting sends the value straight to the
+// The planner's pending question as a form, drawn from the slot's field specs: date ranges
+// (from today on, with the trip's length shown), counts with -/+ steppers, money, text,
+// places, and choice chips. Submitting sends the value straight to the
 // planner (no model involved); an optional question can be skipped. Mount with
 // `key={action.slot}` so the next question starts with a fresh form.
 
@@ -41,6 +47,8 @@ export function ExpectedInputPanel({
         initialFormState(action.fields, action.prefill),
     )
     const [error, setError] = useState<string | null>(null)
+    // Read once: a trip can't start in the past (the server rejects that too).
+    const [today] = useState(todayIso)
 
     // ----- event handlers -----
     function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
@@ -56,6 +64,14 @@ export function ExpectedInputPanel({
 
     function updateText(key: string, value: string) {
         setForm((current) => setText(current, key, value))
+    }
+
+    function updateStart(name: string, value: string) {
+        setForm((current) => setRangeStart(current, name, value))
+    }
+
+    function step(field: FieldSpec, delta: number) {
+        setForm((current) => stepCount(current, field, delta))
     }
 
     function pick(field: FieldSpec, index: number) {
@@ -84,9 +100,10 @@ export function ExpectedInputPanel({
                                 type="date"
                                 aria-label={`${field.label}: from`}
                                 className="w-auto"
+                                min={today}
                                 value={form.text[partKey(field.name, 'start')] ?? ''}
                                 onChange={(event) => {
-                                    updateText(partKey(field.name, 'start'), event.target.value)
+                                    updateStart(field.name, event.target.value)
                                 }}
                             />
                             <span className="text-muted-foreground text-xs">to</span>
@@ -95,28 +112,59 @@ export function ExpectedInputPanel({
                                 aria-label={`${field.label}: to`}
                                 className="w-auto"
                                 // The end can't come before the start.
-                                min={earliestEnd(form, field.name)}
+                                min={earliestEnd(form, field.name) ?? today}
                                 value={form.text[partKey(field.name, 'end')] ?? ''}
                                 onChange={(event) => {
                                     updateText(partKey(field.name, 'end'), event.target.value)
                                 }}
                             />
+                            {rangeSummary(form, field.name) && (
+                                <span aria-live="polite" className="text-muted-foreground text-xs">
+                                    {rangeSummary(form, field.name)}
+                                </span>
+                            )}
                         </div>
                     )}
 
                     {field.kind === 'integer' && (
-                        <Input
-                            type="number"
-                            inputMode="numeric"
-                            aria-label={field.label}
-                            className="w-24"
-                            min={field.min ?? undefined}
-                            max={field.max ?? undefined}
-                            value={form.text[field.name] ?? ''}
-                            onChange={(event) => {
-                                updateText(field.name, event.target.value)
-                            }}
-                        />
+                        <div className="flex items-center gap-1">
+                            <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                aria-label={`Fewer ${field.label.toLowerCase()}`}
+                                disabled={!canStep(form, field, -1)}
+                                onClick={() => {
+                                    step(field, -1)
+                                }}
+                            >
+                                <Minus aria-hidden />
+                            </Button>
+                            <Input
+                                type="number"
+                                inputMode="numeric"
+                                aria-label={field.label}
+                                className="w-16 text-center"
+                                min={field.min ?? undefined}
+                                max={field.max ?? undefined}
+                                value={form.text[field.name] ?? ''}
+                                onChange={(event) => {
+                                    updateText(field.name, event.target.value)
+                                }}
+                            />
+                            <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                aria-label={`More ${field.label.toLowerCase()}`}
+                                disabled={!canStep(form, field, 1)}
+                                onClick={() => {
+                                    step(field, 1)
+                                }}
+                            >
+                                <Plus aria-hidden />
+                            </Button>
+                        </div>
                     )}
 
                     {field.kind === 'money' && (
