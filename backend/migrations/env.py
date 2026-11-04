@@ -23,7 +23,6 @@ from features.plans import models as plans_models
 from shared.config import get_settings
 from shared.db import Base, UTCDateTime, create_engine
 from shared.migrations import migration_transaction
-from shared.search import models as search_models
 
 # Every model module must be imported so `Base.metadata` knows all tables. Listed here so
 # the imports count as used (a bare side-effect import is easy for linters to drop).
@@ -33,7 +32,6 @@ MODEL_MODULES = (
     itinerary_models,
     planning_models,
     plans_models,
-    search_models,
 )
 
 # ---------------------------------------------------------------------------

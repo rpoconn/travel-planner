@@ -1,4 +1,4 @@
-"""Run the API for the Playwright E2E suite: offline LLM + search, a fresh database each run.
+"""Run the API for the Playwright E2E suite: offline LLM and searches, a fresh database each run.
 
 Usage: `uv run python scripts/e2e_server.py [--port 8765] [--cors-origin http://localhost:5174]...`
 (started by `frontend/playwright.config.ts`; there's normally no need to run it by hand).
@@ -38,7 +38,6 @@ def main() -> None:
             "ENVIRONMENT": "test",
             "DATABASE_URL": f"sqlite+aiosqlite:///{E2E_DB.as_posix()}",
             "LLM_PROVIDER": "fake",
-            "SEARCH_PROVIDER": "fake",
             "FLIGHT_PROVIDER": "fake",
             "HOTEL_PROVIDER": "fake",
             "PLACES_PROVIDER": "fake",

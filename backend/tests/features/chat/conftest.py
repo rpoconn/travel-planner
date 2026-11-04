@@ -1,34 +1,20 @@
-"""Fixtures for chat tests: a scripted `FakeLLM`, `FakeSearchProvider` and
-`FakeFlightProvider` installed on the app, a user with a plan, and a DB session for
-calling the agent / tools directly."""
+"""Fixtures for the plan-change tests: a user with a plan, and a DB session and
+`ToolContext` for calling `chat.tools` directly."""
 
-import json
 from collections.abc import AsyncIterator
-from datetime import date, datetime, timedelta
-from decimal import Decimal
+from datetime import date
 from typing import Any
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
-from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from features.chat.schemas import ChatEvent, DoneEvent
 from features.chat.tools import ToolContext
-from features.plans import service as plans_service
-from features.plans.schemas import PlanStage
-from shared.domain import Money
-from shared.flights.airports import airport_timezone
-from shared.flights.fake import FakeFlightProvider
-from shared.flights.types import FlightLayover, FlightOption, FlightSegment, FlightStop
-from shared.llm.fake import FakeLLM
-from shared.search.fake import FakeSearchProvider
 from tests.conftest import RegisterUser
 
-# The tools refuse dates before "today"; fixed so the scripted dates below stay in the future.
+# Changes are refused for dates before "today"; fixed so the dates below stay in the future.
 TODAY = date(2026, 10, 1)
 
 PLAN: dict[str, Any] = {
@@ -38,7 +24,7 @@ PLAN: dict[str, Any] = {
     "destination": {"name": "Tokyo", "country": "Japan"},
 }
 
-# Arguments for the `add_lodging` tool (no `type`: the tool implies it).
+# Arguments of an `add_lodging` change (no `type`: the change's name implies it).
 HOTEL_ARGS: dict[str, Any] = {
     "title": "Hotel Okura",
     "start": "2027-05-02T15:00:00",
@@ -47,88 +33,10 @@ HOTEL_ARGS: dict[str, Any] = {
     "place": {"name": "Hotel Okura", "city": "Tokyo"},
 }
 
-_EVENTS: TypeAdapter[ChatEvent] = TypeAdapter(ChatEvent)
-
-
-def flight_option(
-    origin: str,
-    destination: str,
-    departs: str,
-    minutes: int,
-    price: int | None,
-    *,
-    airline: str = "ANA",
-    via: str | None = None,
-    departure_token: str | None = None,
-) -> FlightOption:
-    """A search result leaving `origin` at local time `departs` ("2027-05-01T15:00") and
-    landing `minutes` later at `destination`, in each airport's own zone; with `via`, one
-    stop there (half the time each way, no layover time, to keep the arithmetic simple)."""
-    start = datetime.fromisoformat(departs).replace(tzinfo=_zone(origin))
-    end = start + timedelta(minutes=minutes)
-    hops = [origin, via, destination] if via else [origin, destination]
-    times = [start, start + timedelta(minutes=minutes // 2), end] if via else [start, end]
-    segments = [
-        FlightSegment(
-            departure=_stop(hops[i], times[i]),
-            arrival=_stop(hops[i + 1], times[i + 1]),
-            airline=airline,
-            flight_number=f"NH {100 + i}",
-            duration_minutes=int((times[i + 1] - times[i]).total_seconds() // 60),
-        )
-        for i in range(len(hops) - 1)
-    ]
-    return FlightOption(
-        segments=segments,
-        layovers=[FlightLayover(iata=via, name=f"{via} Airport", duration_minutes=0)]
-        if via
-        else [],
-        total_duration_minutes=minutes,
-        price=Money(amount=Decimal(price), currency="USD") if price is not None else None,
-        departure_token=departure_token,
-    )
-
-
-def _zone(iata: str) -> ZoneInfo:
-    zone = airport_timezone(iata)
-    assert zone is not None, iata
-    return ZoneInfo(zone)
-
-
-def _stop(iata: str, at: datetime) -> FlightStop:
-    zone = _zone(iata)
-    return FlightStop(
-        iata=iata, name=f"{iata} Airport", time=at.astimezone(zone), timezone=str(zone)
-    )
-
 
 # ---------------------------------------------------------------------------
-# App / user / plan
+# User / plan / context
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def fake_llm(app: FastAPI) -> FakeLLM:
-    """A strict FakeLLM (no fallback): every model call must be scripted with `queue`."""
-    llm = FakeLLM()
-    app.state.llm = llm
-    return llm
-
-
-@pytest.fixture
-def fake_search(app: FastAPI) -> FakeSearchProvider:
-    """Canned results unless `queue`d otherwise; records every search it receives."""
-    search = FakeSearchProvider()
-    app.state.search = search
-    return search
-
-
-@pytest.fixture
-def fake_flights(app: FastAPI) -> FakeFlightProvider:
-    """Made-up flights unless `queue`d otherwise; records every search it receives."""
-    flights = FakeFlightProvider()
-    app.state.flights = flights
-    return flights
 
 
 @pytest.fixture
@@ -136,26 +44,12 @@ async def headers(register_user: RegisterUser) -> dict[str, str]:
     return await register_user("ada@example.com")
 
 
-async def move_to_stage(app: FastAPI, plan: dict[str, Any], stage: PlanStage) -> None:
-    """Put the plan at `stage` directly, skipping the readiness checks of the stage
-    endpoint, so a test can script a tool that only that stage offers."""
-    maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
-    async with maker() as db:
-        await plans_service.set_stage(
-            db, UUID(plan["user_id"]), UUID(plan["id"]), stage, flights_skipped=False
-        )
-
-
 @pytest.fixture
-async def plan(app: FastAPI, client: AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
+async def plan(client: AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     response = await client.post("/plans", json=PLAN, headers=headers)
     assert response.status_code == 201, response.text
     created: dict[str, Any] = response.json()
-    # The agent only gets the current stage's tools; most chat tests propose a hotel.
-    await move_to_stage(app, created, PlanStage.LODGING)
-    response = await client.get(f"/plans/{created['id']}", headers=headers)
-    moved: dict[str, Any] = response.json()
-    return moved
+    return created
 
 
 @pytest.fixture
@@ -167,73 +61,10 @@ async def session(app: FastAPI, client: AsyncClient) -> AsyncIterator[AsyncSessi
 
 
 @pytest.fixture
-def ctx(
-    session: AsyncSession,
-    plan: dict[str, Any],
-    fake_search: FakeSearchProvider,
-    fake_flights: FakeFlightProvider,
-) -> ToolContext:
+def ctx(session: AsyncSession, plan: dict[str, Any]) -> ToolContext:
     return ToolContext(
         session=session,
         user_id=UUID(plan["user_id"]),
         plan_id=UUID(plan["id"]),
-        search=fake_search,
-        flights=fake_flights,
         today=TODAY,
     )
-
-
-# ---------------------------------------------------------------------------
-# SSE
-# ---------------------------------------------------------------------------
-
-
-def parse_sse(body: str) -> list[ChatEvent]:
-    """Decode a `text/event-stream` body into validated events (one `data:` line each)."""
-    events: list[ChatEvent] = []
-    for block in body.replace("\r\n", "\n").split("\n\n"):
-        data = [
-            line[len("data:") :].strip() for line in block.split("\n") if line.startswith("data:")
-        ]
-        if data:
-            events.append(_EVENTS.validate_python(json.loads("\n".join(data))))
-    return events
-
-
-async def send(
-    client: AsyncClient,
-    headers: dict[str, str],
-    plan_id: str,
-    content: str,
-    fix: dict[str, Any] | None = None,
-) -> list[ChatEvent]:
-    body: dict[str, Any] = {"content": content} if fix is None else {"content": content, "fix": fix}
-    response = await client.post(f"/plans/{plan_id}/chat", json=body, headers=headers)
-    assert response.status_code == 200, response.text
-    assert response.headers["content-type"].startswith("text/event-stream")
-    return parse_sse(response.text)
-
-
-async def decide(
-    client: AsyncClient,
-    headers: dict[str, str],
-    plan_id: str,
-    proposal_id: str,
-    action: str,
-    message: str | None = None,
-) -> list[ChatEvent]:
-    """Answer a proposal card (approve / deny / revise) and decode the streamed events."""
-    body: dict[str, Any] = {"action": action}
-    if message is not None:
-        body["message"] = message
-    response = await client.post(
-        f"/plans/{plan_id}/chat/proposals/{proposal_id}/decision", json=body, headers=headers
-    )
-    assert response.status_code == 200, response.text
-    return parse_sse(response.text)
-
-
-def done_message(events: list[ChatEvent]) -> DoneEvent:
-    done = events[-1]
-    assert isinstance(done, DoneEvent), events
-    return done

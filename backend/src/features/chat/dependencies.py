@@ -4,25 +4,19 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from features.chat.offline import offline_reply
 from features.planning.offline import planning_reply
 from shared.config import Settings
-from shared.llm.fake import FakeLLM, FakeRequest
+from shared.llm.fake import FakeLLM
 from shared.llm.ollama_client import OllamaClient
-from shared.llm.types import LLMClient, LLMMessage
+from shared.llm.types import LLMClient
 from shared.rate_limit import CHAT_BUCKET, enforce_rate_limit
 from shared.security import CurrentUserId
-
-
-def _offline_reply(request: FakeRequest) -> LLMMessage:
-    # The planning flow's requests first; everything else is the chat flow's.
-    return planning_reply(request) or offline_reply(request)
 
 
 def create_llm(settings: Settings) -> LLMClient:
     """Build the client for `settings.llm_provider`; `create_app` stores it on app.state."""
     if settings.llm_provider == "fake":
-        return FakeLLM(fallback=_offline_reply)
+        return FakeLLM(fallback=planning_reply)
     return OllamaClient(
         host=settings.ollama_url,
         model=settings.ollama_model,
@@ -44,5 +38,5 @@ LLMDep = Annotated[LLMClient, Depends(get_llm)]
 
 
 def limit_chat_messages(request: Request, user_id: CurrentUserId) -> None:
-    """Per-user cap on chat messages: each one runs the local model (often several times)."""
+    """Per-user cap on planning turns that may run the local model or a metered search."""
     enforce_rate_limit(request, CHAT_BUCKET, str(user_id), "You're sending messages too quickly.")

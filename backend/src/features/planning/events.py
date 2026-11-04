@@ -1,8 +1,7 @@
 """The planning flow's transcript messages, its free-text request, and the server-sent events
 a planning turn streams.
 
-Kept apart from `planning.schemas` because these use the chat message types, and
-`chat.schemas` already imports `planning.schemas` (for `TravelPlan`).
+Kept apart from `planning.schemas` because these use the chat message types (`chat.schemas`).
 """
 
 from datetime import datetime
@@ -41,7 +40,6 @@ class PlanningText(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Server-sent events: each event's `data:` is one of these as JSON, told apart by `type`.
-# Prefixed with "Planning" so they don't clash with the chat flow's event schemas.
 # ---------------------------------------------------------------------------
 
 

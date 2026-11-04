@@ -1,9 +1,6 @@
-"""Picking flights from search results for the `choose_flights` tool.
-
-Small models pick flights badly (a 30-hour two-stop over a 14-hour nonstop) and get their
-times wrong across timezones, so the choice is made here: options are ranked by total
-travel time, then price, and the chosen one is turned into `add_flight` arguments with the
-provider's own airport-local times. The model never writes a flight's times.
+"""Flight search results as the flights stage uses them: ranked by total travel time,
+then price, described for a candidate card, and turned into `add_flight` arguments with
+the provider's own airport-local times (so nothing here does timezone arithmetic).
 """
 
 from collections.abc import Iterable
@@ -12,10 +9,6 @@ from typing import Any
 
 from shared.domain import Money
 from shared.flights.types import FlightCabin, FlightOption, FlightStop
-
-# How many ranked options the model is shown (and may pick from with `option`).
-TOP_FLIGHT_OPTIONS = 3
-
 
 # ---------------------------------------------------------------------------
 # Ranking
@@ -56,25 +49,9 @@ def stops_label(option: FlightOption) -> str:
     return f"{count} stop{'s' if count > 1 else ''} ({where})"
 
 
-def _price(price: Money | None) -> str:
-    return f"{price.amount:,.0f} {price.currency}" if price is not None else "no price"
-
-
 def local_time(stop: FlightStop) -> str:
     # `day` rather than `%-d`, which Windows' strftime doesn't support.
     return f"{stop.iata} {stop.time:%a %b} {stop.time.day} {stop.time:%H:%M}"
-
-
-def describe_flight(option: FlightOption, *, with_price: bool = True) -> str:
-    """One line for the model, e.g. 'Delta DL 123: PHL Sat May 1 15:00 -> HND Sun May 2
-    17:30, 13h 30m, nonstop, 1,234 USD'."""
-    numbers = ", ".join(s.flight_number for s in option.segments if s.flight_number)
-    airline = " / ".join(option.airlines) + (f" {numbers}" if numbers else "")
-    line = (
-        f"{airline}: {local_time(option.departure)} -> {local_time(option.arrival)}, "
-        f"{format_minutes(option.total_duration_minutes)}, {stops_label(option)}"
-    )
-    return f"{line}, {_price(option.price)}" if with_price else line
 
 
 # ---------------------------------------------------------------------------

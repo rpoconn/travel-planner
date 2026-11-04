@@ -1,13 +1,16 @@
 # Travel Planner
 
-A travel-itinerary chat app. Every message goes to a small local model (Ollama), which checks the
-message is about trip planning, gently redirects if not, and otherwise acts as an agent that can
-search the web and edit a structured itinerary shown as a timeline beside the chat.
+A trip planner that walks you through a trip stage by stage: basics, flights, lodging,
+activities, transfers, review. A rules engine decides what to ask next from the plan itself,
+real searches (flights, hotels, places) fill in the options, and picking an option is what
+adds it to the itinerary shown as a timeline beside the transcript. A small local model
+(Ollama) only reads free text into the pending question and answers short questions.
 
-> Status: **Phase 6 — complete.** Register/login (JWT), per-user trips, the itinerary API
-> (flights / lodging / activities / transfers plus a derived day-by-day timeline with warnings),
-> and the chat: topic guardrail, planning agent with itinerary tools and cached web search,
-> streamed over SSE into a chat panel whose edits show up live on the timeline. Alembic
+> Status: **Phase 6 of the planning-engine rewrite — complete.** Register/login (JWT), per-user
+> trips, the itinerary API (flights / lodging / activities / transfers plus a derived
+> day-by-day timeline with warnings), and the planning flow: typed forms, rule-ranked choices
+> and auto-advancing stages, streamed over SSE into a planning panel whose picks show up live
+> on the timeline. The old free-form chat agent and its proposal cards are gone. Alembic
 > migrations, rate limits and request caps, and a full-stack Playwright suite round it off.
 
 ## Architecture
@@ -16,41 +19,40 @@ search the web and edit a structured itinerary shown as a timeline beside the ch
 flowchart LR
     subgraph Browser["Browser — React 19 + TanStack Router/Query"]
         Sidebar[PlansSidebar]
-        Chat[ChatPanel]
+        Panel[PlanningPanel]
         Timeline[ItineraryTimeline]
         SDK["generated SDK<br/>(@hey-api, from openapi.json)"]
-        Sidebar & Chat & Timeline --> SDK
+        Sidebar & Panel & Timeline --> SDK
     end
 
     subgraph API["FastAPI — backend/src"]
         Auth[features/auth]
-        Plans[features/plans]
+        Plans["features/plans<br/>(stages)"]
         Itinerary["features/itinerary<br/>(items + timeline)"]
-        ChatAPI["features/chat<br/>guardrail → agent → tools"]
+        Planning["features/planning<br/>engine → turn → searches"]
+        Chat["features/chat<br/>transcript + change checks"]
         LLM["shared/llm<br/>LLMClient"]
-        Search["shared/search<br/>SearchProvider + cache"]
-        ChatAPI --> Itinerary --> Plans
-        ChatAPI --> LLM
-        ChatAPI --> Search
+        Providers["shared/flights · hotels · places"]
+        Planning --> Chat --> Itinerary --> Plans
+        Planning --> LLM
+        Planning --> Providers
     end
 
     SDK -- "REST (JSON, bearer JWT)" --> Auth & Plans & Itinerary
-    SDK -- "POST /plans/{id}/chat<br/>server-sent events" --> ChatAPI
+    SDK -- "POST /plans/{id}/planning/…<br/>server-sent events" --> Planning
     LLM --> Ollama[("Ollama<br/>qwen3:8b")]
-    Search --> Tavily[(Tavily)]
+    Providers --> SerpApi[(SerpApi)]
     API --> DB[("SQLite<br/>Alembic migrations")]
 ```
 
-One chat message: the user message is stored → the **guardrail** (one structured-output call)
-decides whether it's about trip planning → off-topic messages get a short **redirect** with no
-tools → on-topic ones go to the **agent**, which streams tokens and calls tools
-(`add_activity`, `web_search`, …) for up to 6 rounds. Tools that write to the plan only
-**validate and stage** the change: the reply ends with a **proposal card** listing every
-staged change, with **Approve / Deny / Other…** buttons, and nothing is written until the
-user approves. Approving (`POST /plans/{id}/chat/proposals/{proposal_id}/decision`) applies
-the whole card, emits a `plan_updated` event with the full plan (the UI writes it into its
-query cache, so the timeline redraws while the reply is still streaming), and lets the agent
-confirm and suggest the next step. See [Userflow.md](Userflow.md) for every decision along
+One planning turn: the user answers the pending form, picks from the pending choices, types
+free text, or presses Continue → the answer or pick is stored and written to the plan (a pick
+is validated by the same rules as any other change, and picking **is** the approval) → the
+turn **drives** the engine, `{snapshot → evaluate → act}`, until it needs the user again:
+it advances a finished stage, runs the next search, and stops at the next form, the next
+choices, or the end of the trip. Each stored message streams as an event, and every plan
+change emits `plan_updated` (the UI writes it into its query cache, so the timeline redraws
+while the turn is still running). See [Userflow.md](Userflow.md) for every decision along
 the way.
 
 ## Layout
@@ -118,13 +120,12 @@ In VS Code, the Run and Debug view has (`.vscode/launch.json`, needs `uv sync` f
 | Types | `uv run mypy src tests scripts migrations` | `npm run typecheck` |
 | Unit tests | `uv run pytest` | `npm test` |
 | E2E (full stack) | — | `npm run e2e` |
-| Real-model tests | `uv run pytest -m ollama` | — |
 
 `npm run e2e` starts its own backend and frontend on separate ports (API `:8765`, UI `:5174`), so it
 never touches a running dev stack: `backend/scripts/e2e_server.py` runs the API with
-`LLM_PROVIDER=fake`, `SEARCH_PROVIDER=fake` and a fresh `backend/e2e.db`. The specs in
-`frontend/e2e/` cover sign-up / sign-in, sending a chat message that adds an item which then
-appears on the timeline (and opens in the detail sheet), and the off-topic redirect.
+`LLM_PROVIDER=fake`, fake flight, hotel and place searches, and a fresh `backend/e2e.db`. The
+specs in `frontend/e2e/` cover sign-up / sign-in and walk a trip through every stage with forms
+and picks, plus free text read into a form, a nudge, a question, Skip flights and going back.
 
 ## Data & auth
 
@@ -158,17 +159,19 @@ appears on the timeline (and opens in the detail sheet), and the off-topic redir
   dates, items in another timezone than the traveller is in). The logic is pure and lives in
   `features/itinerary/timeline.py`.
 - Each timeline day carries the `timezone` the traveller ends it in, worked out from the
-  flights and transfers (`features/itinerary/zones.py`). The agent's tools reject a hotel,
-  activity or transfer whose timezone doesn't match it (e.g. a Tokyo dinner in New York time).
+  flights and transfers (`features/itinerary/zones.py`). The change checks
+  (`features/chat/tools.py`) refuse a pick whose hotel, activity or transfer is in another
+  timezone (e.g. a Tokyo dinner in New York time), breaks the flight route, isn't an overnight
+  stay, or goes over the budget or a spending limit.
 
 ## Hardening
 
 | | Default | Setting |
 |---|---|---|
-| Chat messages per user | 20 / minute | `CHAT_RATE_LIMIT_PER_MINUTE` |
+| Free-text / continue turns per user | 20 / minute | `CHAT_RATE_LIMIT_PER_MINUTE` |
 | Login + register attempts per IP | 10 / minute | `AUTH_RATE_LIMIT_PER_MINUTE` |
 | Request body | 64 KB | `MAX_REQUEST_BYTES` |
-| Chat message | 4000 characters | `MAX_MESSAGE_CHARS` in `features/chat/schemas.py` |
+| Free-text message | 4000 characters | `MAX_MESSAGE_CHARS` in `features/chat/schemas.py` |
 
 - Over a rate limit: `429` with a `Retry-After` header and a readable `detail`, which the UI shows
   as-is. Limits are kept in memory per process (`shared/rate_limit.py`); a multi-worker deployment
@@ -180,36 +183,32 @@ appears on the timeline (and opens in the detail sheet), and the off-topic redir
 - `ENVIRONMENT=production` refuses to start with the default or a short `JWT_SECRET`, or with `*`
   in `CORS_ORIGINS`.
 
-## Chat & web search
+## Planning flow & searches
 
-- `POST /plans/{id}/chat` streams server-sent events. Each message goes through a topic guardrail
-  (off-topic messages get a friendly redirect), then the planning agent, which proposes itinerary
-  changes with tools (`set_plan_details`, `add_round_trip` / `add_flight` / `add_lodging` /
-  `add_activity` / `add_transfer`, `update_item`, `remove_item`) and looks things up with
-  `web_search`. Flights default to round trips: `add_round_trip` stages the flight out and the
-  flight home as two `add_flight` changes on one card; `add_flight` alone is for multi-city
-  legs, connections and one-ways.
-- Plan changes are human-in-the-loop: write tools validate with the same schemas as the REST API
-  but write nothing. A turn's staged changes are stored as one proposal (`chat_proposals`, shown
-  as `ChatMessage.proposal`), and only the newest pending one per plan stays open (older ones are
-  `superseded`). `POST /plans/{id}/chat/proposals/{proposal_id}/decision` (`decideProposal`)
-  takes `{action: "approve" | "deny" | "revise", message?}` and streams the outcome like a chat
-  message: approve re-validates every change against the current plan and applies all of them
-  or none (`failed`), deny changes nothing without calling the model, and revise hands the
-  user's text to the agent, which proposes again. A decided card returns `409`.
-- The agent asks before it proposes: the system prompt has a checklist (dates, number of
-  travelers, origin; flight, lodging and meal preferences), and a new plan's `travelers` is
-  unknown (`null`) rather than defaulting to one adult.
-- `LLM_PROVIDER=fake` runs without Ollama: a keyword guardrail and canned replies, plus one
-  scripted command, so you can see a full round trip offline: "Add a visit to the Louvre"
-  makes the fake agent propose `add_activity`, and Approve puts it on the timeline
-  (`backend/src/features/chat/offline.py`).
-- `web_search` uses [Tavily](https://tavily.com): set `TAVILY_API_KEY`. Without a key the tool
-  reports that search is unavailable and the agent answers from general knowledge.
-  `SEARCH_PROVIDER=fake` returns placeholder results with no network access.
-- Short queries are filled in from the plan (`backend/src/shared/search/query.py`), e.g. "cheap"
-  with kind `flights` becomes "cheap flights from San Francisco to Tokyo May 2027". Results are
-  cached in the `search_cache` table for `SEARCH_CACHE_TTL_HOURS` (default 24).
+- Routes, under `/plans/{id}/planning`: `GET /messages` (the transcript, each message with the
+  form, choices or answer it showed), and three SSE routes that end in `done` (with the plan and
+  its assessment) or `error`. `POST /inputs` takes a form answer, a skip, or a pick, with **no
+  model call**: `409` if it isn't what is being asked, `422` if the value doesn't fit.
+  `POST /chat` takes free text. `POST /continue` drives with no input (the "Find flights" /
+  "Retry" button).
+- The engine (`features/planning/engine.py`, pure) reads only the plan: each stage has an
+  ordered list of slots (`planning/slots.py`), and the first unfilled one wins. A finished
+  stage advances by itself; Back and the stepper's earlier steps stay available, later ones
+  are locked. `GET /plans/{id}` carries the verdict as `assessment` (stage, issues, next
+  action).
+- Choices come from searches (`planning/searches.py`), kept as an **offer** (`planning_offers`)
+  so a reload never searches again. Each candidate carries its ready-made changes; picking
+  checks all of them first (`features/chat/tools.py`: route, overnight, timezone, budget), then
+  writes them, so a pick that doesn't fit changes nothing and says why.
+- The model makes two kinds of call and nothing else: the **extractor**
+  (`planning/extractor.py`) reads free text into the pending slot's schema, or into a pick
+  ("the second one"), with Ollama's JSON-schema `format` and two attempts; the reply is
+  validated with Pydantic, and anything else gets the slot's fixed nudge. A question gets a
+  short streamed **answer**, which is shown and stored but never parsed. No reply text is
+  ever matched with regexes.
+- `LLM_PROVIDER=fake` runs without Ollama (`planning/offline.py`): free text is read from a
+  small phrase table per slot ("two adults", "next month for a week", "the second one"),
+  questions get a fixed answer, and anything else is nudged.
 - Flight search uses Google Flights results from [SerpApi](https://serpapi.com): set
   `SERPAPI_API_KEY` (250 free searches a month; a round trip takes two). Results are
   structured, so flight times are copied from the search, never written by the model.
@@ -234,43 +233,33 @@ The model is picked by settings; nothing else changes:
 OLLAMA_MODEL=llama3.1:8b ./scripts/dev.sh      # or: ./scripts/dev.sh --model llama3.1:8b
 ```
 
-- The same model runs the guardrail and the agent, so it needs **tool calling** and
-  **structured outputs** (JSON-schema `format`). `qwen3:8b` (the default) is the model the
-  real-model tests were run with; `llama3.1:8b` is the intended fallback. Before trying a model,
-  check that `ollama show <model>` lists `tools` under its capabilities.
+- The model needs **structured outputs** (JSON-schema `format`); it is never offered tools.
+  `qwen3:8b` (the default) is the model the flow was built against; `llama3.1:8b` is the
+  intended fallback.
 - `LLM_THINK=true` turns on reasoning for models that support it (slower to first token).
   `LLM_TIMEOUT_SECONDS` / `LLM_MAX_ATTEMPTS` tune retries; `OLLAMA_URL` points at a remote Ollama.
-- `LLM_CONTEXT_TOKENS` (default 16384) sets the model's context window; Ollama's own default
-  (4096) overflows once search results are in the prompt. Lower it if the model doesn't fit in
-  VRAM. `LLM_MAX_OUTPUT_TOKENS` (default 2048) caps each reply. Tool schemas are trimmed for the
-  prompt (`backend/src/shared/llm/schema.py`, plus hidden fields in `features/chat/tools.py`) to
-  ~1.6k tokens, so `LLM_CONTEXT_TOKENS=8192` is a workable floor on small GPUs. Set the
-  `shared.llm.ollama_client` logger to DEBUG to see prompt/output token counts per round.
-- `uv run pytest -m ollama` runs the real-model tests against whatever `OLLAMA_MODEL` is set to;
-  it's the quickest way to see whether a new model follows the tool schemas.
+- `LLM_CONTEXT_TOKENS` (default 16384) sets the model's context window; lower it if the model
+  doesn't fit in VRAM. `LLM_MAX_OUTPUT_TOKENS` (default 2048) caps each reply. Extraction
+  schemas are trimmed for the prompt (`backend/src/shared/llm/schema.py`). Set the
+  `shared.llm.ollama_client` logger to DEBUG to see prompt/output token counts per call.
 - **Another backend** (llama.cpp server, vLLM, a hosted API): implement the `LLMClient` protocol
   in `backend/src/shared/llm/types.py` (`chat`, `stream`, `aclose`, raising `LLMError` with a
   user-safe message), add a value to `Settings.llm_provider`, and return your client from
   `create_llm` in `backend/src/features/chat/dependencies.py`. `OllamaClient` is the reference.
 
-## Swapping the search provider
-
-- Built in: `SEARCH_PROVIDER=tavily` (needs `TAVILY_API_KEY`) or `fake` (no network).
-- **Another provider** (Brave, SearXNG, …): implement the `SearchProvider` protocol in
-  `backend/src/shared/search/types.py` (`search(query, kind, *, max_results)` returning
-  `SearchResult`s, raising `SearchError` on failure; `aclose`), add a value to
-  `Settings.search_provider`, and return it from `create_search_provider` in
-  `backend/src/shared/search/provider.py`. Caching and query shaping wrap every provider, so
-  there's nothing else to wire. `TavilyProvider` (`tavily.py`) shows the retry/timeout pattern.
-
 ## Frontend
 
-- **Chat** (`components/ChatPanel`): history from `GET /plans/{id}/messages` plus the live turn.
-  `lib/sse.ts` streams `POST /plans/{id}/chat` through the generated SDK's SSE client (never
-  retried, since a retry would store the message twice) and narrows each event on `type`;
-  `lib/chatTurn.ts` folds the events into the turn (tokens, tool chips, redirect, error).
+- **Planning** (`components/PlanningPanel`): the transcript from
+  `GET /plans/{id}/planning/messages` plus the live turn, with the pending form
+  (`ExpectedInputPanel`, built from the slot's field specs) or choices (`ChoiceList` /
+  `CandidateCard`) under it, and the stage bar (`StageBar`: Back, Skip flights, Find… / Retry).
+  `lib/sse.ts` streams the three turn routes through the generated SDK's SSE client (never
+  retried, since a retry would store the input twice) and narrows each event on `type`;
+  `lib/planningTurn.ts` folds the events into the turn.
+- **Issues** (`components/IssuesPanel`, at the end of the stage stepper): the planner's
+  blocking issues and timeline warnings, each with "Go to" the stage that fixes it.
 - **Live itinerary**: each `plan_updated` event is written into the plan query cache and
-  invalidates the timeline (`lib/planCache.ts`), so the right-hand panel updates as the agent works.
+  invalidates the timeline (`lib/planCache.ts`), so the right-hand panel updates mid-turn.
 - **Timeline** (`components/ItineraryTimeline`): one column per day on a half-column CSS grid.
   Stays are drawn from mid check-in day to mid check-out day, so back-to-back stays share a lane
   (`layoutLodging` in `lib/timeline.ts`). Times show in each place's local time, read straight from

@@ -66,7 +66,7 @@ SpendingLimits = Annotated[
 
 def active_budget(budget: Money | None) -> Money | None:
     """`budget`, or None when it is 0: a $0 budget means "no budget", not "spend nothing".
-    Otherwise every cost would break it and the agent would push the user to raise it."""
+    Otherwise every cost would break it and nothing could be added."""
     return None if budget is not None and budget.amount == 0 else budget
 
 

@@ -1,8 +1,8 @@
 """The offline fake's planning replies (LLM_PROVIDER=fake)."""
 
+import json
 from datetime import date
 
-from features.chat.schemas import GuardrailVerdict
 from features.planning.extractor import PICK_SCHEMA, extraction_schema
 from features.planning.offline import OFFLINE_ANSWER, extract_reply, pick_reply, planning_reply
 from features.planning.prompts import question_messages
@@ -40,7 +40,6 @@ def test_a_question_and_anything_else() -> None:
 def test_the_slot_is_read_from_the_requested_schema() -> None:
     reply = planning_reply(_request(SlotName.DESTINATION, "lisbon"))
 
-    assert reply is not None
     assert '"Lisbon"' in reply.content and '"answered"' in reply.content
 
 
@@ -49,15 +48,16 @@ def test_a_question_request_gets_the_offline_answer() -> None:
 
     reply = planning_reply(FakeRequest(messages, [], None, streamed=True))
 
-    assert reply is not None and reply.content == OFFLINE_ANSWER
+    assert reply.content == OFFLINE_ANSWER
 
 
-def test_other_requests_are_left_to_the_chat_fake() -> None:
-    guardrail = FakeRequest([], [], GuardrailVerdict.model_json_schema(), streamed=False)
-    agent = FakeRequest([LLMMessage(role="system", content="You plan trips")], [], None, True)
+def test_any_other_request_gets_a_fixed_reply() -> None:
+    unknown_schema = {"type": "object", "properties": {"on_topic": {"type": "boolean"}}}
+    structured = FakeRequest([], [], unknown_schema, streamed=False)
+    plain = FakeRequest([LLMMessage(role="system", content="You plan trips")], [], None, True)
 
-    assert planning_reply(guardrail) is None
-    assert planning_reply(agent) is None
+    assert json.loads(planning_reply(structured).content) == {"status": "unrelated", "value": None}
+    assert planning_reply(plain).content == OFFLINE_ANSWER
 
 
 def test_a_pick_is_read_by_position() -> None:

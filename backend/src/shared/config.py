@@ -46,22 +46,12 @@ class Settings(BaseSettings):
     llm_think: bool = False
     llm_timeout_seconds: float = Field(default=120.0, gt=0)
     llm_max_attempts: int = Field(default=3, ge=1, le=10)
-    # Ollama's default 4096-token window is too small once the plan JSON, tool schemas and
-    # web search results are in the prompt. When it overflows, llama.cpp drops the oldest
-    # tokens (the system prompt and tools) and the model rambles until the read times out.
+    # Ollama's default 4096-token window is too small once the plan JSON and the recent
+    # transcript are in a question's prompt. When it overflows, llama.cpp drops the oldest
+    # tokens (the system prompt) and the model rambles until the read times out.
     llm_context_tokens: int = Field(default=16384, ge=2048)
     # Cap on tokens per reply, so a runaway generation ends instead of stalling the stream.
     llm_max_output_tokens: int = Field(default=2048, ge=128)
-    # Review each card the agent proposes with one more structured model call, withdrawing
-    # changes that don't fit the request or the stage (features.chat.review).
-    chat_review: bool = True
-
-    # Web search: "tavily" needs TAVILY_API_KEY; "fake" returns placeholder results offline.
-    search_provider: Literal["tavily", "fake"] = "tavily"
-    tavily_api_key: str | None = None
-    search_timeout_seconds: float = Field(default=15.0, gt=0)
-    search_cache_ttl_hours: float = Field(default=24.0, ge=0)
-
     # Flight search: "serpapi" (Google Flights results; needs SERPAPI_API_KEY) or "fake"
     # (made-up flights, no network). Google Flights pages take a few seconds to scrape.
     flight_provider: Literal["serpapi", "fake"] = "serpapi"
@@ -83,8 +73,9 @@ class Settings(BaseSettings):
     # Largest accepted request body; the biggest legitimate one (an item or plan with 5000
     # chars of notes) is a few KB.
     max_request_bytes: int = Field(default=64 * 1024, ge=1024)
-    # Per-minute limits (0 disables). Chat is per user: each message runs the local model,
-    # so this mostly protects the machine. Auth (login + register) is per client IP.
+    # Per-minute limits (0 disables). Chat is per user (free text and "continue" may run the
+    # local model or a metered search), so this mostly protects the machine. Auth (login +
+    # register) is per client IP.
     chat_rate_limit_per_minute: int = Field(default=20, ge=0)
     auth_rate_limit_per_minute: int = Field(default=10, ge=0)
 

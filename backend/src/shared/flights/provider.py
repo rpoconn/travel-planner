@@ -16,7 +16,7 @@ NOT_CONFIGURED = "Flight search is not configured (set SERPAPI_API_KEY to enable
 
 
 class UnavailableFlightProvider:
-    """Stands in when no flight backend is configured, so the agent learns why it can't
+    """Stands in when no flight backend is configured, so the user learns why it can't
     search."""
 
     async def search(

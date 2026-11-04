@@ -126,8 +126,8 @@ class Cost(Money):
     basis: CostBasis = Field(
         default="estimate",
         description=(
-            "exact = a price the user or a web_search result gave; estimate = your best "
-            "guess (e.g. from a $$ price range)"
+            "exact = a price the user or a search result gave; estimate = a best guess "
+            "(e.g. from a $$ price range)"
         ),
     )
 
@@ -139,6 +139,6 @@ class Cost(Money):
 
 class Travelers(BaseModel):
     # No default for adults: a plan with unknown travelers has `travelers: None` instead,
-    # so the agent sees the count is missing and asks rather than assuming one adult.
+    # so the planner sees the count is missing and asks rather than assuming one adult.
     adults: int = Field(ge=1, le=20)
     children: int = Field(default=0, ge=0, le=20)

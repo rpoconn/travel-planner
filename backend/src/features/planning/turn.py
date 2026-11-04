@@ -73,7 +73,6 @@ from shared.flights.types import FlightProvider
 from shared.hotels.types import HotelProvider
 from shared.llm.types import LLMClient, LLMError
 from shared.places.types import PlaceProvider
-from shared.search.types import SearchProvider
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +99,6 @@ class TurnContext:
     flights: FlightProvider
     hotels: HotelProvider
     places: PlaceProvider
-    # Not searched by the planner; the tool context that checks a pick's changes needs one.
-    search: SearchProvider
 
 
 @dataclass(frozen=True)
@@ -155,7 +152,7 @@ async def _store(
     role: MessageRole,
     content: str,
     *,
-    kind: MessageKind = "message",
+    kind: MessageKind = MessageKind.MESSAGE,
     payload: BaseModel | None = None,
 ) -> PlanningMessageEvent:
     row = await chat_service.add_message(
@@ -171,7 +168,7 @@ async def _last_payload(ctx: TurnContext) -> dict[str, Any] | None:
 
 async def _error(ctx: TurnContext, detail: str) -> PlanningErrorEvent:
     try:
-        event = await _store(ctx, "system", detail, kind="error")
+        event = await _store(ctx, "system", detail, kind=MessageKind.ERROR)
     except Exception:
         logger.exception("Could not store the error notice for plan %s", ctx.plan_id)
         return PlanningErrorEvent(detail=detail)
@@ -191,21 +188,22 @@ async def _write_answer(
     try:
         await apply_answer(ctx.session, ctx.user_id, plan, answer)
     except AnswerError as exc:
-        yield await _store(ctx, "assistant", f"That doesn't work: {exc}.", kind="nudge")
+        yield await _store(ctx, "assistant", f"That doesn't work: {exc}.", kind=MessageKind.NUDGE)
         return
     yield PlanningPlanEvent(plan=await _snapshot(ctx))
 
 
 async def _form_answer(ctx: TurnContext, trigger: Answer) -> AsyncIterator[PlanningEvent]:
     record = AnswerRecord(slot=trigger.slot, value=trigger.answer.model_dump(mode="json"))
-    yield await _store(ctx, "user", describe_answer(trigger.answer), kind="input", payload=record)
+    text = describe_answer(trigger.answer)
+    yield await _store(ctx, "user", text, kind=MessageKind.INPUT, payload=record)
     async for event in _write_answer(ctx, await _snapshot(ctx), trigger.answer):
         yield event
 
 
 async def _skip(ctx: TurnContext, trigger: Skip) -> AsyncIterator[PlanningEvent]:
     record = AnswerRecord(slot=trigger.slot, skipped=True)
-    yield await _store(ctx, "user", SKIPPED_TEXT, kind="input", payload=record)
+    yield await _store(ctx, "user", SKIPPED_TEXT, kind=MessageKind.INPUT, payload=record)
     await skip_slot(ctx.session, ctx.user_id, await _snapshot(ctx), trigger.slot)
     yield PlanningPlanEvent(plan=await _snapshot(ctx))
 
@@ -225,14 +223,12 @@ async def _write_pick(
         user_id=ctx.user_id,
         plan_id=ctx.plan_id,
         today=ctx.today,
-        search=ctx.search,
-        flights=ctx.flights,
     )
     try:
         await apply_pick(pick_ctx, plan, action, candidates)
     except PickError as exc:
         note = f"That one can't be added: {exc}. Pick another, or go back and change the trip."
-        yield await _store(ctx, "assistant", note, kind="nudge")
+        yield await _store(ctx, "assistant", note, kind=MessageKind.NUDGE)
         return
     yield PlanningPlanEvent(plan=await _snapshot(ctx))
 
@@ -245,7 +241,7 @@ async def _form_pick(ctx: TurnContext, trigger: Pick) -> AsyncIterator[PlanningE
         titles=[candidate.title for candidate in trigger.candidates],
     )
     content = describe_pick(trigger.candidates)
-    yield await _store(ctx, "user", content, kind="pick", payload=record)
+    yield await _store(ctx, "user", content, kind=MessageKind.PICK, payload=record)
     async for event in _write_pick(ctx, await _snapshot(ctx), trigger.action, trigger.candidates):
         yield event
 
@@ -284,7 +280,7 @@ async def _free_text(
             outcome.drive = True
         elif extraction.error is not None:
             note = f"That doesn't work: {extraction.error}."
-            yield await _store(ctx, "assistant", note, kind="nudge")
+            yield await _store(ctx, "assistant", note, kind=MessageKind.NUDGE)
             outcome.drive = True  # asks again
         elif extraction.status == "question":
             async for event in _answer_question(ctx, plan, content, spec):
@@ -292,7 +288,7 @@ async def _free_text(
             outcome.drive = True  # asks again
         else:
             # The nudge already repeats the question, so the form isn't asked again.
-            yield await _store(ctx, "assistant", spec.nudge, kind="nudge")
+            yield await _store(ctx, "assistant", spec.nudge, kind=MessageKind.NUDGE)
         return
 
     if isinstance(action, OfferChoice):
@@ -306,14 +302,14 @@ async def _free_text(
             outcome.drive = True
         elif pick.error is not None:
             note = f"That doesn't work: {pick.error}."
-            yield await _store(ctx, "assistant", note, kind="nudge")
+            yield await _store(ctx, "assistant", note, kind=MessageKind.NUDGE)
             outcome.drive = True  # shows the choices again
         elif pick.status == "question":
             async for event in _answer_question(ctx, plan, content, spec):
                 yield event
             outcome.drive = True
         else:
-            yield await _store(ctx, "assistant", spec.nudge, kind="nudge")
+            yield await _store(ctx, "assistant", spec.nudge, kind=MessageKind.NUDGE)
         return
 
     # Nothing to answer (a search to run, a stage to continue, or the trip is done). Not
@@ -333,7 +329,7 @@ async def _advance(
     await plans_service.set_stage(ctx.session, ctx.user_id, ctx.plan_id, stage, flights_skipped)
     text = f"{STAGE_LABELS[plan.stage].capitalize()} done. Next up: {STAGE_LABELS[stage]}."
     record = StageRecord(from_stage=plan.stage, to_stage=stage)
-    yield await _store(ctx, "system", text, kind="stage", payload=record)
+    yield await _store(ctx, "system", text, kind=MessageKind.STAGE, payload=record)
     yield PlanningPlanEvent(plan=await _snapshot(ctx))
 
 
@@ -353,7 +349,7 @@ async def _search(
         )
         candidates = await run_search(search_ctx, plan, action)
     except SearchFailedError as exc:
-        yield await _store(ctx, "system", str(exc), kind="error")
+        yield await _store(ctx, "system", str(exc), kind=MessageKind.ERROR)
         return
     await offers.open_offer(
         ctx.session,
@@ -388,8 +384,10 @@ async def _drive(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
             case AskInput() | OfferChoice():
                 # Shown once: a retry or a reload must not repeat the same question.
                 if await _last_payload(ctx) != action.model_dump(mode="json"):
-                    kind: MessageKind = (
-                        "expected_input" if isinstance(action, AskInput) else "choices"
+                    kind = (
+                        MessageKind.EXPECTED_INPUT
+                        if isinstance(action, AskInput)
+                        else MessageKind.CHOICES
                     )
                     yield await _store(ctx, "assistant", action.prompt, kind=kind, payload=action)
                 return

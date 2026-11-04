@@ -17,14 +17,14 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from features.chat.flight_choice import (
+from features.itinerary.schemas import FlightItem
+from features.planning.flight_choice import (
     flight_arguments,
     format_minutes,
     local_time,
     rank_flights,
     stops_label,
 )
-from features.itinerary.schemas import FlightItem
 from features.planning.schemas import Candidate, CandidateChange, RunSearch
 from features.planning.search_types import SearchContext, SearchFailedError
 from features.plans.schemas import FlightPreferences, PlanSnapshot, active_budget

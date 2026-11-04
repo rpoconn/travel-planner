@@ -1,4 +1,4 @@
-// Fake server-sent-event responses for chat tests. Each event is framed like the backend's
+// Fake server-sent-event responses for planning-turn tests. Each event is framed like the backend's
 // (`data: <json>` + blank line, no `event:` name).
 
 const encoder = new TextEncoder()

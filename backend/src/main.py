@@ -13,7 +13,6 @@ from fastapi.routing import APIRoute
 
 from features.auth.router import router as auth_router
 from features.chat.dependencies import create_llm
-from features.chat.router import router as chat_router
 from features.health.router import API_VERSION
 from features.health.router import router as health_router
 from features.itinerary.router import router as itinerary_router
@@ -28,7 +27,6 @@ from shared.middleware import BodySizeLimitMiddleware
 from shared.migrations import run_migrations
 from shared.places.provider import create_place_provider
 from shared.rate_limit import AUTH_BUCKET, CHAT_BUCKET, create_rate_limiters
-from shared.search.provider import create_search_provider
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +54,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Creating the engine doesn't connect; the first connection happens in the lifespan.
     engine = create_engine(settings.database_url)
     llm = create_llm(settings)
-    search = create_search_provider(settings)
     flights = create_flight_provider(settings)
     hotels = create_hotel_provider(settings)
     places = create_place_provider(settings)
@@ -66,7 +63,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await run_migrations(engine)
         yield
         await _app.state.llm.aclose()
-        await _app.state.search.aclose()
         await _app.state.flights.aclose()
         await _app.state.hotels.aclose()
         await _app.state.places.aclose()
@@ -84,8 +80,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessionmaker = create_sessionmaker(engine)
     # Read by the `LLMDep` dependency; tests replace it with a scripted FakeLLM.
     app.state.llm = llm
-    # Read by the `SearchDep` dependency; tests replace it with a `FakeSearchProvider`.
-    app.state.search = search
     # Used by flight search; tests replace it with a `FakeFlightProvider`.
     app.state.flights = flights
     # Used by the lodging stage's search; tests replace it with a `FakeHotelProvider`.
@@ -119,16 +113,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(plans_router)
     app.include_router(itinerary_router)
-    app.include_router(chat_router)
-    # The rules-driven planning flow, beside the chat flow until it replaces it.
     app.include_router(planning_router)
 
     logger.info(
-        "App created (environment=%s, llm=%s, model=%s, search=%s)",
+        "App created (environment=%s, llm=%s, model=%s, flights=%s)",
         settings.environment,
         settings.llm_provider,
         settings.ollama_model,
-        type(search).__name__,
+        type(flights).__name__,
     )
     return app
 

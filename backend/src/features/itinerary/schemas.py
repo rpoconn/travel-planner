@@ -126,7 +126,7 @@ class ItemFields(BaseModel):
     )
     booking_ref: ShortText | None = None
     source_url: SourceUrl | None = Field(
-        default=None, description="URL of the web_search result this came from"
+        default=None, description="URL of the search result this came from"
     )
     notes: ItemNotes = ""
 

@@ -7,8 +7,8 @@ York is 08:00 the next morning in Tokyo). Flights and transfers are what move th
 traveller, so the zone at any instant is the arrival zone of the last leg that landed
 before it, or the first leg's departure zone before the trip gets going.
 
-Pure functions over validated schemas, like the budget rules: the agent's tools reject a
-change in the wrong zone, and the timeline warns about items already in one.
+Pure functions over validated schemas, like the budget rules: the plan-change checks
+(`chat.tools`) reject a change in the wrong zone, and the timeline warns about items already in one.
 """
 
 from collections.abc import Iterable, Sequence

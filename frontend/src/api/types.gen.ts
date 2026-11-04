@@ -65,7 +65,7 @@ export type ActivityItem = {
     /**
      * Source Url
      *
-     * URL of the web_search result this came from
+     * URL of the search result this came from
      */
     source_url: string | null;
     /**
@@ -136,7 +136,7 @@ export type ActivityItemCreate = {
     /**
      * Source Url
      *
-     * URL of the web_search result this came from
+     * URL of the search result this came from
      */
     source_url?: string | null;
     /**
@@ -360,81 +360,6 @@ export type CandidateChange = {
 };
 
 /**
- * ChatMessage
- */
-export type ChatMessage = {
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Plan Id
-     */
-    plan_id: string;
-    /**
-     * Role
-     */
-    role: 'user' | 'assistant' | 'system';
-    /**
-     * Kind
-     */
-    kind: 'message' | 'redirect' | 'error' | 'decision' | 'nudge' | 'input' | 'pick' | 'expected_input' | 'choices' | 'stage';
-    /**
-     * Content
-     */
-    content: string;
-    /**
-     * Tool Calls
-     */
-    tool_calls: Array<ToolTrace>;
-    proposal: ChatProposal | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-};
-
-/**
- * ChatProposal
- *
- * The changes the assistant proposed in one reply, applied all-or-nothing on approval.
- */
-export type ChatProposal = {
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Plan Id
-     */
-    plan_id: string;
-    /**
-     * Message Id
-     */
-    message_id: string;
-    /**
-     * Status
-     */
-    status: 'pending' | 'approved' | 'denied' | 'revised' | 'superseded' | 'failed';
-    /**
-     * Changes
-     */
-    changes: Array<ProposedChange>;
-    /**
-     * Plan Version
-     */
-    plan_version: number;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Decided At
-     */
-    decided_at: string | null;
-};
-
-/**
  * ChoicePick
  *
  * Pick from the open offer: picking is the approval. The ids must be the offer's, and
@@ -486,7 +411,7 @@ export type CostInput = {
     /**
      * Basis
      *
-     * exact = a price the user or a web_search result gave; estimate = your best guess (e.g. from a $$ price range)
+     * exact = a price the user or a search result gave; estimate = a best guess (e.g. from a $$ price range)
      */
     basis?: 'exact' | 'estimate';
 };
@@ -510,39 +435,9 @@ export type CostOutput = {
     /**
      * Basis
      *
-     * exact = a price the user or a web_search result gave; estimate = your best guess (e.g. from a $$ price range)
+     * exact = a price the user or a search result gave; estimate = a best guess (e.g. from a $$ price range)
      */
     basis?: 'exact' | 'estimate';
-};
-
-/**
- * DoneEvent
- *
- * The stored assistant reply; always the last event of a successful turn.
- */
-export type DoneEvent = {
-    /**
-     * Type
-     */
-    type: 'done';
-    message: ChatMessage;
-};
-
-/**
- * ErrorEvent
- *
- * Answering failed; `message` is the stored system notice (when it could be saved).
- */
-export type ErrorEvent = {
-    /**
-     * Type
-     */
-    type: 'error';
-    /**
-     * Detail
-     */
-    detail: string;
-    message: ChatMessage | null;
 };
 
 /**
@@ -672,7 +567,7 @@ export type FlightItem = {
     /**
      * Source Url
      *
-     * URL of the web_search result this came from
+     * URL of the search result this came from
      */
     source_url: string | null;
     /**
@@ -768,7 +663,7 @@ export type FlightItemCreate = {
     /**
      * Source Url
      *
-     * URL of the web_search result this came from
+     * URL of the search result this came from
      */
     source_url?: string | null;
     /**
@@ -940,24 +835,6 @@ export type Gap = {
 };
 
 /**
- * GuardrailEvent
- */
-export type GuardrailEvent = {
-    /**
-     * Type
-     */
-    type: 'guardrail';
-    /**
-     * On Topic
-     */
-    on_topic: boolean;
-    /**
-     * Topic
-     */
-    topic: string;
-};
-
-/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -1103,7 +980,7 @@ export type LodgingItem = {
     /**
      * Source Url
      *
-     * URL of the web_search result this came from
+     * URL of the search result this came from
      */
     source_url: string | null;
     /**
@@ -1177,7 +1054,7 @@ export type LodgingItemCreate = {
     /**
      * Source Url
      *
-     * URL of the web_search result this came from
+     * URL of the search result this came from
      */
     source_url?: string | null;
     /**
@@ -1306,6 +1183,29 @@ export type LoginRequest = {
      */
     password: string;
 };
+
+/**
+ * MessageKind
+ *
+ * What a transcript message is, so the UI knows how to show it.
+ */
+export const MessageKind = {
+    MESSAGE: 'message',
+    ERROR: 'error',
+    NUDGE: 'nudge',
+    INPUT: 'input',
+    PICK: 'pick',
+    EXPECTED_INPUT: 'expected_input',
+    CHOICES: 'choices',
+    STAGE: 'stage'
+} as const;
+
+/**
+ * MessageKind
+ *
+ * What a transcript message is, so the UI knows how to show it.
+ */
+export type MessageKind = typeof MessageKind[keyof typeof MessageKind];
 
 /**
  * Money
@@ -1636,17 +1536,6 @@ export type PlanUpdate = {
 };
 
 /**
- * PlanUpdatedEvent
- */
-export type PlanUpdatedEvent = {
-    /**
-     * Type
-     */
-    type: 'plan_updated';
-    plan: TravelPlan;
-};
-
-/**
  * PlanningDoneEvent
  *
  * The turn finished; `plan` (with its assessment) is what the UI shows next.
@@ -1694,10 +1583,7 @@ export type PlanningMessage = {
      * Role
      */
     role: 'user' | 'assistant' | 'system';
-    /**
-     * Kind
-     */
-    kind: 'message' | 'redirect' | 'error' | 'decision' | 'nudge' | 'input' | 'pick' | 'expected_input' | 'choices' | 'stage';
+    kind: MessageKind;
     /**
      * Content
      */
@@ -1794,48 +1680,6 @@ export type PlanningTokenEvent = {
 };
 
 /**
- * ProposalDecision
- *
- * The user's answer to a proposal card. `message` is the free text of "Other…".
- */
-export type ProposalDecision = {
-    /**
-     * Action
-     */
-    action: 'approve' | 'deny' | 'revise';
-    /**
-     * Message
-     */
-    message?: string | null;
-};
-
-/**
- * ProposedChange
- *
- * One staged plan change: a validated write-tool call waiting for the user.
- */
-export type ProposedChange = {
-    /**
-     * Call Id
-     */
-    call_id: string;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Arguments
-     */
-    arguments: {
-        [key: string]: unknown;
-    };
-    /**
-     * Summary
-     */
-    summary: string;
-};
-
-/**
  * RegisterRequest
  */
 export type RegisterRequest = {
@@ -1875,17 +1719,6 @@ export type RunSearch = {
     label: string;
     nights: NightRange | null;
     gap: Gap | null;
-};
-
-/**
- * SendMessage
- */
-export type SendMessage = {
-    /**
-     * Content
-     */
-    content: string;
-    fix?: WarningToFix | null;
 };
 
 /**
@@ -2142,20 +1975,6 @@ export type TimelineWarning = {
 };
 
 /**
- * TokenEvent
- */
-export type TokenEvent = {
-    /**
-     * Type
-     */
-    type: 'token';
-    /**
-     * Text
-     */
-    text: string;
-};
-
-/**
  * TokenResponse
  */
 export type TokenResponse = {
@@ -2172,102 +1991,6 @@ export type TokenResponse = {
      */
     expires_in: number;
     user: UserRead;
-};
-
-/**
- * ToolCallEvent
- */
-export type ToolCallEvent = {
-    /**
-     * Type
-     */
-    type: 'tool_call';
-    /**
-     * Call Id
-     */
-    call_id: string;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Arguments
-     */
-    arguments: {
-        [key: string]: unknown;
-    };
-};
-
-/**
- * ToolResultEvent
- */
-export type ToolResultEvent = {
-    /**
-     * Type
-     */
-    type: 'tool_result';
-    /**
-     * Call Id
-     */
-    call_id: string;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Ok
-     */
-    ok: boolean;
-    /**
-     * Summary
-     */
-    summary: string;
-    /**
-     * Proposed
-     */
-    proposed: boolean;
-    /**
-     * Sources
-     */
-    sources: Array<string>;
-};
-
-/**
- * ToolTrace
- *
- * One tool the assistant ran: what it asked for and how it went.
- */
-export type ToolTrace = {
-    /**
-     * Call Id
-     */
-    call_id: string;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Arguments
-     */
-    arguments: {
-        [key: string]: unknown;
-    };
-    /**
-     * Ok
-     */
-    ok: boolean;
-    /**
-     * Summary
-     */
-    summary: string;
-    /**
-     * Proposed
-     */
-    proposed: boolean;
-    /**
-     * Sources
-     */
-    sources: Array<string>;
 };
 
 /**
@@ -2331,7 +2054,7 @@ export type TransferItem = {
     /**
      * Source Url
      *
-     * URL of the web_search result this came from
+     * URL of the search result this came from
      */
     source_url: string | null;
     /**
@@ -2405,7 +2128,7 @@ export type TransferItemCreate = {
     /**
      * Source Url
      *
-     * URL of the web_search result this came from
+     * URL of the search result this came from
      */
     source_url?: string | null;
     /**
@@ -2640,43 +2363,6 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
-};
-
-/**
- * WarningToFix
- *
- * A timeline warning sent back by the client, as it received it. A subclass only so
- * it gets its own schema name: using `TimelineWarning` itself as input too would split
- * it into `TimelineWarningInput` / `TimelineWarningOutput` in the generated SDK.
- */
-export type WarningToFix = {
-    /**
-     * Kind
-     */
-    kind: 'no_lodging' | 'overlap' | 'missing_transfer' | 'outside_trip' | 'missing_cost' | 'over_limit' | 'over_budget' | 'wrong_timezone' | 'wrong_departure';
-    /**
-     * Message
-     */
-    message: string;
-    /**
-     * Date
-     */
-    date?: string | null;
-    /**
-     * Item Ids
-     */
-    item_ids?: Array<string>;
-};
-
-/**
- * PlanUpdatedEvent
- */
-export type PlanUpdatedEventWritable = {
-    /**
-     * Type
-     */
-    type: 'plan_updated';
-    plan: TravelPlanWritable;
 };
 
 /**
@@ -3384,134 +3070,6 @@ export type GetTimelineResponses = {
 };
 
 export type GetTimelineResponse = GetTimelineResponses[keyof GetTimelineResponses];
-
-export type ListMessagesData = {
-    body?: never;
-    path: {
-        /**
-         * Plan Id
-         */
-        plan_id: string;
-    };
-    query?: never;
-    url: '/plans/{plan_id}/messages';
-};
-
-export type ListMessagesErrors = {
-    /**
-     * Unauthorized
-     */
-    401: ErrorResponse;
-    /**
-     * Not Found
-     */
-    404: ErrorResponse;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type ListMessagesError = ListMessagesErrors[keyof ListMessagesErrors];
-
-export type ListMessagesResponses = {
-    /**
-     * Response Listmessages
-     *
-     * Successful Response
-     */
-    200: Array<ChatMessage>;
-};
-
-export type ListMessagesResponse = ListMessagesResponses[keyof ListMessagesResponses];
-
-export type SendMessageData = {
-    body: SendMessage;
-    path: {
-        /**
-         * Plan Id
-         */
-        plan_id: string;
-    };
-    query?: never;
-    url: '/plans/{plan_id}/chat';
-};
-
-export type SendMessageErrors = {
-    /**
-     * Unauthorized
-     */
-    401: ErrorResponse;
-    /**
-     * Not Found
-     */
-    404: ErrorResponse;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-    /**
-     * Too Many Requests
-     */
-    429: ErrorResponse;
-};
-
-export type SendMessageError = SendMessageErrors[keyof SendMessageErrors];
-
-export type SendMessageResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type DecideProposalData = {
-    body: ProposalDecision;
-    path: {
-        /**
-         * Plan Id
-         */
-        plan_id: string;
-        /**
-         * Proposal Id
-         */
-        proposal_id: string;
-    };
-    query?: never;
-    url: '/plans/{plan_id}/chat/proposals/{proposal_id}/decision';
-};
-
-export type DecideProposalErrors = {
-    /**
-     * Unauthorized
-     */
-    401: ErrorResponse;
-    /**
-     * Not Found
-     */
-    404: ErrorResponse;
-    /**
-     * Conflict
-     */
-    409: ErrorResponse;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-    /**
-     * Too Many Requests
-     */
-    429: ErrorResponse;
-};
-
-export type DecideProposalError = DecideProposalErrors[keyof DecideProposalErrors];
-
-export type DecideProposalResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
 
 export type ListPlanningMessagesData = {
     body?: never;

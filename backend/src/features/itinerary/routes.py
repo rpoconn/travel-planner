@@ -7,8 +7,9 @@ A ground transfer between two flights can take them anywhere (land at NRT, train
 fly out of KIX), and transfer places rarely have airport codes, so a transfer in between
 skips the departure check.
 
-Pure functions over validated schemas, like the zone and budget rules: the agent's tools
-reject a flight that breaks them, and the timeline warns about flights already in the plan.
+Pure functions over validated schemas, like the zone and budget rules: the plan-change
+checks (`chat.tools`) reject a flight that breaks them, and the timeline warns about
+flights already in the plan.
 """
 
 from collections.abc import Sequence

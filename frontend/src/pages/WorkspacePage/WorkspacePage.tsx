@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { CalendarRange, LogOut, MessagesSquare, Plane } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { getPlanOptions } from '@/api/@tanstack/react-query.gen'
-import { ChatPanel, type ChatPanelHandle } from '@/components/ChatPanel/ChatPanel'
 import { EmptyPane } from '@/components/EmptyPane/EmptyPane'
 import { HomeSetup } from '@/components/HomeSetup/HomeSetup'
 import { IssuesPanel } from '@/components/IssuesPanel/IssuesPanel'
@@ -14,20 +13,17 @@ import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
 import { SplitPane } from '@/components/SplitPane/SplitPane'
 import { StageStepper } from '@/components/StageStepper/StageStepper'
 import { ThemeToggle } from '@/components/ThemeToggle/ThemeToggle'
-import { TimelineWarnings } from '@/components/TimelineWarnings/TimelineWarnings'
 import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/apiError'
 import { clearSession, useAuthSession } from '@/lib/auth'
 import { formatDateRange } from '@/lib/format'
-import { planningEngineEnabled } from '@/lib/planningEngine'
 
 // Shell: a full-height trips sidebar on the left; on the right the itinerary timeline stacked
-// above the chat. The chat and timeline are keyed by plan id so switching trips starts them
-// fresh (and aborts a streaming reply). The stage steps span the top of the page and lock
-// while a reply streams, since the assistant's tools depend on the stage the turn started in.
-// The Back / Next controls live inline in the chat transcript (see ChatPanel). The itinerary's
-// "things to check" sit at the right end of the stage bar, leaving the timeline its room: the
-// timeline's warnings in the chat flow, the planner's issues in the planning flow.
+// above the planning panel. Both are keyed by plan id so switching trips starts them fresh
+// (and aborts a streaming turn). The stage steps span the top of the page and lock while a
+// turn streams, since the turn acts on the stage it started in. The planner's issues ("things
+// to check", with "Go to" a stage) sit at the right end of the stage bar, leaving the
+// timeline its room.
 
 interface WorkspacePageProps {
     planId?: string
@@ -42,12 +38,8 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
         enabled: planId !== undefined,
     })
     const plan = planId === undefined ? undefined : planQuery.data
-    // The warnings' "Fix it" buttons send through the chat panel (a sibling), and are
-    // disabled while it streams a reply.
-    const chatRef = useRef<ChatPanelHandle>(null)
+    // The stage steps and issues lock while the planning panel streams a turn.
     const [chatBusy, setChatBusy] = useState(false)
-    // Until the chat flow is removed, an env switch picks which flow the right pane runs.
-    const planningEngine = planningEngineEnabled()
 
     // ----- event handlers -----
     function handleSelectPlan(id: string) {
@@ -86,24 +78,11 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 </div>
             </header>
 
-            {/* The planning steps span the whole page, with the itinerary's warnings at the end. */}
+            {/* The planning steps span the whole page, with the planner's issues at the end. */}
             {plan && (
                 <div className="flex items-center gap-4 border-b pr-4">
                     <StageStepper plan={plan} disabled={chatBusy} />
-                    {/* The planning flow lists the engine's issues, with "Go to" a stage to fix
-                        them; the chat flow lists the timeline's warnings, with "Fix it". */}
-                    {planningEngine ? (
-                        <IssuesPanel key={plan.id} plan={plan} disabled={chatBusy} />
-                    ) : (
-                        <TimelineWarnings
-                            key={plan.id}
-                            planId={plan.id}
-                            onRequestFix={(warning) => {
-                                chatRef.current?.sendFix(warning)
-                            }}
-                            fixDisabled={chatBusy}
-                        />
-                    )}
+                    <IssuesPanel key={plan.id} plan={plan} disabled={chatBusy} />
                 </div>
             )}
 
@@ -142,7 +121,8 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                                             formatDateRange(plan.start_date, plan.end_date),
                                         ]
                                             .filter(Boolean)
-                                            .join(' · ') || 'Tell the assistant where and when'}
+                                            .join(' · ') ||
+                                            'Answer the planner to fill in where and when'}
                                     </p>
                                 </div>
                             )}
@@ -162,16 +142,9 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                                     <p role="alert" className="text-destructive p-6 text-sm">
                                         {errorMessage(planQuery.error, "Couldn't load this trip")}
                                     </p>
-                                ) : planningEngine ? (
+                                ) : (
                                     <PlanningPanel
                                         key={planQuery.data.id}
-                                        plan={planQuery.data}
-                                        onBusyChange={setChatBusy}
-                                    />
-                                ) : (
-                                    <ChatPanel
-                                        key={planQuery.data.id}
-                                        ref={chatRef}
                                         plan={planQuery.data}
                                         onBusyChange={setChatBusy}
                                     />

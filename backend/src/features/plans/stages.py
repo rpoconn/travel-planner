@@ -23,7 +23,7 @@ from features.plans.schemas import (
     StageStatus,
 )
 
-# How each stage is named in messages to the user and the agent.
+# How each stage is named in messages to the user.
 STAGE_LABELS: dict[PlanStage, str] = {
     PlanStage.BASICS: "basics",
     PlanStage.FLIGHTS: "flights",

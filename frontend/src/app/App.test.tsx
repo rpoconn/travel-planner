@@ -60,7 +60,7 @@ describe('App', () => {
         vi.spyOn(sdk, 'getPlan').mockResolvedValue(
             sdkOk(travelPlan({ id: 'new-plan', title: 'Untitled trip' })),
         )
-        vi.spyOn(sdk, 'listMessages').mockResolvedValue(sdkOk([]))
+        vi.spyOn(sdk, 'listPlanningMessages').mockResolvedValue(sdkOk([]))
         vi.spyOn(sdk, 'getTimeline').mockResolvedValue(sdkOk(timeline()))
 
         render(<App />)

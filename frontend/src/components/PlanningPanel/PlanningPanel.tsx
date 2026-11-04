@@ -159,7 +159,8 @@ export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
     // ----- markup -----
     return (
         <div className="flex h-full flex-col">
-            {/* `*:shrink-0`: entries scroll, never squeeze (see ChatPanel). */}
+            {/* `*:shrink-0`: entries keep their height and the log scrolls, rather than squeezing
+                them to fit. */}
             <div
                 ref={scrollRef}
                 role="log"

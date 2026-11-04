@@ -2,8 +2,6 @@ import type {
     ActivityItem,
     AskInput,
     Candidate,
-    ChatMessage,
-    ChatProposal,
     FlightItem,
     Gap,
     Issue,
@@ -316,50 +314,6 @@ export function gap(overrides: Partial<Gap> = {}): Gap {
         leave_after: null,
         arrive_before: '2027-05-01T11:00:00-07:00',
         timezone: 'America/Los_Angeles',
-        ...overrides,
-    }
-}
-
-// ----- chat -----
-
-export function chatMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
-    return {
-        id: 'message-1',
-        plan_id: PLAN_ID,
-        role: 'assistant',
-        kind: 'message',
-        content: 'Happy to help plan Tokyo!',
-        tool_calls: [],
-        proposal: null,
-        created_at: '2026-10-01T12:00:00Z',
-        ...overrides,
-    }
-}
-
-/** A pending proposal of one hotel, made by the assistant message `message-1`. */
-export function chatProposal(overrides: Partial<ChatProposal> = {}): ChatProposal {
-    return {
-        id: 'proposal-1',
-        plan_id: PLAN_ID,
-        message_id: 'message-1',
-        status: 'pending',
-        changes: [
-            {
-                call_id: 'c1',
-                name: 'add_lodging',
-                arguments: {
-                    title: 'Hotel Okura',
-                    start: '2027-05-02T15:00:00+09:00',
-                    end: '2027-05-06T11:00:00+09:00',
-                    timezone: 'Asia/Tokyo',
-                    place: { name: 'Hotel Okura', city: 'Tokyo' },
-                },
-                summary: 'Add lodging “Hotel Okura” on 2027-05-02 15:00',
-            },
-        ],
-        plan_version: 1,
-        created_at: '2026-10-01T12:00:00Z',
-        decided_at: null,
         ...overrides,
     }
 }

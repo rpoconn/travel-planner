@@ -1,15 +1,16 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from features.chat.flight_choice import (
-    describe_flight,
+from features.itinerary.schemas import FlightItemCreate
+from features.planning.flight_choice import (
     flight_arguments,
     format_minutes,
+    local_time,
     rank_flights,
+    stops_label,
 )
-from features.itinerary.schemas import FlightItemCreate
 from shared.domain import Money
-from tests.features.chat.conftest import flight_option
+from tests.shared.flights.builders import flight_option
 
 # ---------------------------------------------------------------------------
 # Ranking
@@ -78,13 +79,14 @@ def test_a_connection_is_one_flight_with_its_layovers() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_describe_flight() -> None:
+def test_local_times_and_stops() -> None:
     option = flight_option("PHL", "HND", "2027-05-01T15:00", 14 * 60 + 30, 1234)
+    connection = flight_option("PHL", "HND", "2027-05-01T15:00", 16 * 60, 900, via="ORD")
 
-    assert describe_flight(option) == (
-        "ANA NH 100: PHL Sat May 1 15:00 -> HND Sun May 2 18:30, 14h 30m, nonstop, 1,234 USD"
-    )
-    assert describe_flight(option, with_price=False).endswith("14h 30m, nonstop")
+    assert local_time(option.departure) == "PHL Sat May 1 15:00"
+    assert local_time(option.arrival) == "HND Sun May 2 18:30"
+    assert stops_label(option) == "nonstop"
+    assert stops_label(connection) == "1 stop (ORD 0m)"
 
 
 def test_format_minutes() -> None:

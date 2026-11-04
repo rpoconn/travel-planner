@@ -1,63 +1,37 @@
-"""Tools the planning agent can call, and the executor that runs them.
+"""Plan changes: validating an itinerary change against the plan, and writing it.
 
-Each tool validates the model's arguments with the same Pydantic schemas the REST API uses,
-so the model can't write anything the API wouldn't accept. Expected failures (bad
-arguments, unknown ids) come back as an unsuccessful `ToolOutcome` whose text is fed to the
-model so it can correct itself; they never raise.
+A change is a named write (`add_flight`, `add_lodging`, `add_activity`, `add_transfer`,
+`update_item`, `remove_item`) with JSON arguments, as a planning candidate carries it
+(`planning.schemas.CandidateChange`). Each one validates its arguments with the same
+Pydantic schemas the REST API uses, then runs the plan rules that the API alone doesn't:
+no dates in the past, lodging is overnight, an item is in the timezone the traveller is in
+then, flights follow on from each other, and the trip stays within its budget and limits.
 
-Item creation is split into one tool per item type (rather than one `add_item` taking a
-discriminated union): a flat schema per type is much easier for a small local model.
-
-Write tools are split in two. `prepare` validates a call against the plan (same models,
-past-date check, item lookup, flight direction and route) and writes nothing; `apply` writes a
-prepared change. The agent only prepares: each prepared change is staged into a proposal
-the user approves or denies, and approving runs `apply_change`, which prepares again (the
-plan may have changed since) before writing.
-
-`add_round_trip` is a shortcut, not a change of its own: it prepares the flight out and
-the flight home as two `add_flight` changes, so a trip gets both legs on one card by
-default. `add_flight` stays for the legs of a multi-city trip, connections and one-ways.
-
-`choose_flights` is the other shortcut: it searches flights itself, picks by travel time
-and then price (see features.chat.flight_choice), and stages the picks as `add_flight`
-changes with the search's own times. Approving a card never searches again.
-
-`web_search` is the only tool that reads instead of writing: it shapes the query with the
-plan's destination/dates and returns the top results as text for the model to cite.
+Each change is split in two. `prepare` validates and writes nothing; `apply` writes a
+prepared change. `check_change` only prepares; `apply_change` prepares again (the plan may
+have changed since) and writes. Expected failures come back as an unsuccessful
+`ToolOutcome` whose summary is shown to the user; they never raise.
 """
 
 import logging
-import re
 from collections.abc import Awaitable, Callable, Iterable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal
-from typing import Annotated, Any
-from urllib.parse import urlsplit
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from features.chat.flight_choice import (
-    TOP_FLIGHT_OPTIONS,
-    describe_flight,
-    flight_arguments,
-    rank_flights,
-)
-from features.chat.prompts import RETURN_FLIGHT_NUDGE
 from features.chat.schemas import ProposedChange
 from features.itinerary import budget as budget_rules
 from features.itinerary import routes as route_rules
 from features.itinerary import service as itinerary_service
 from features.itinerary import zones as zone_rules
-from features.itinerary.airports import same_area
 from features.itinerary.schemas import (
     ActivityItemCreate,
     ActivityItemPatch,
-    FlightDirection,
     FlightFields,
-    FlightItem,
     FlightItemCreate,
     FlightItemPatch,
     ItemFields,
@@ -71,38 +45,11 @@ from features.itinerary.schemas import (
 )
 from features.plans import service as plans_service
 from features.plans.models import Plan
-from features.plans.schemas import PlanSnapshot, PlanStage, PlanUpdate, active_budget
-from features.plans.stages import STAGE_LABELS
-from shared.domain import Cost, Money, Place, Travelers
-from shared.flights.types import (
-    FlightCabin,
-    FlightOption,
-    FlightProvider,
-    FlightQuery,
-    FlightSearchError,
-)
-from shared.llm.schema import inline_schema
-from shared.llm.types import LLMToolCall, ToolSpec
-from shared.search.query import shape_query
-from shared.search.types import (
-    SearchContext,
-    SearchError,
-    SearchKind,
-    SearchProvider,
-    SearchResult,
-)
+from features.plans.schemas import active_budget
+from shared.domain import Cost, Money, Travelers
 from shared.validation import summarize_validation_error
 
 logger = logging.getLogger(__name__)
-
-# What the model is told after staging a change. Small models tend to call the same tool
-# again when a result doesn't say it worked, hence the explicit "don't repeat".
-STAGED_CONTENT = (
-    "Staged for the user's approval: {summary}. Nothing is applied until they approve the "
-    "card. Do not call this tool again with the same change. When you have staged "
-    "everything for this step, stop calling tools and briefly summarise what you proposed "
-    "plus any questions you still have."
-)
 
 _CreateModel = (
     type[FlightItemCreate]
@@ -141,31 +88,19 @@ class ToolContext:
     session: AsyncSession
     user_id: UUID
     plan_id: UUID
-    search: SearchProvider
-    flights: FlightProvider
     today: date
-    # This turn's proposal card so far: its changes count towards the budget too. Empty
-    # when an approved card is applied, where earlier changes are already in the plan.
+    # Changes checked before this one that will be written with it (a pick's earlier
+    # changes): they count towards the budget and the route too. Empty when applying,
+    # where earlier changes are already in the plan.
     staged: Sequence[ProposedChange] = ()
-    # The plan's workflow stage: `execute` refuses tools that belong to another stage.
-    # None is ungated (applying an approved card, which may predate a stage change).
-    stage: PlanStage | None = None
-    # This turn's web_search results (web_search appends to the list), so a cited
-    # source_url or an "exact" price can be checked against what was really found. None is
-    # ungated, as when an approved card is applied: it was checked when it was staged.
-    evidence: list[SearchResult] | None = None
-    # Source URLs from before this turn (the plan's items, recent proposals, links the user
-    # pasted), normalised with `normalise_url`: citing one needs no new search.
-    known_sources: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
 class Prepared:
     """A validated plan change that hasn't been written yet."""
 
-    name: str  # the tool
-    # The call's arguments after validation (nulls dropped, defaults left out, a flight's
-    # direction filled in): what is stored in the proposal and prepared again on approval.
+    name: str  # the change, e.g. "add_flight"
+    # The arguments after validation (nulls dropped, defaults left out).
     arguments: dict[str, Any]
     summary: str  # imperative, e.g. 'Add flight “SFO → NRT” on 2027-05-01 11:00'
     payload: Any  # whatever `apply` needs: the validated create model, patch, item id...
@@ -174,77 +109,28 @@ class Prepared:
 @dataclass(frozen=True)
 class ToolOutcome:
     ok: bool
-    content: str  # fed back to the model
-    summary: str  # shown to the user
-    plan_changed: bool = False
-    # Set when a write tool's call validated: one change, or two for add_round_trip.
+    summary: str  # shown to the user, e.g. "Added lodging “Hotel Okura”"
+    # Set when `check_change` validated the change.
     prepared: tuple[Prepared, ...] = ()
-    # Set by web_search: the result URLs (normalised), kept on the reply's tool trace so a
-    # later turn ("add the second one") may cite them without searching again.
-    sources: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class Bundle:
-    """What a bundle tool stages, plus anything else the model should be told about it
-    (choose_flights: what it picked and the runners-up)."""
-
-    prepared: tuple[Prepared, ...]
-    note: str = ""
 
 
 class ToolError(Exception):
-    """An expected failure; the message is shown to both the model and the user."""
+    """An expected failure; the message is shown to the user."""
 
 
-RunHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[ToolOutcome]]
 PrepareHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[Prepared]]
-BundleHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[Bundle]]
 ApplyHandler = Callable[[ToolContext, Prepared], Awaitable[ToolOutcome]]
 
 
-# Keys of a JSON schema. A value made only of these is the parameter's schema echoed back
-# (`"budget": {"type": "object", "description": "Total trip budget"}`), not a value.
-_SCHEMA_KEYWORDS = frozenset({"type", "description", "title", "properties", "required"})
-
-
-def _is_schema_echo(value: Any) -> bool:
-    return isinstance(value, dict) and "type" in value and set(value) <= _SCHEMA_KEYWORDS
-
-
 def _drop_nulls(arguments: dict[str, Any]) -> dict[str, Any]:
-    # Small models often send every parameter, with null (or the parameter's own schema)
-    # for "leave unchanged". Treat both as "not provided" (the agent can't clear optional
-    # fields, which is fine).
-    return {
-        key: value
-        for key, value in arguments.items()
-        if value is not None and not _is_schema_echo(value)
-    }
-
-
-def _next_occurrence(day: date, today: date) -> date:
-    """The first date on or after `today` with `day`'s month and day."""
-    for year in range(today.year, today.year + 5):
-        try:
-            candidate = day.replace(year=year)
-        except ValueError:  # Feb 29 in a non-leap year
-            continue
-        if candidate >= today:
-            return candidate
-    return day  # unreachable: a leap year falls within any 5 years
+    # A null means "not provided", so it can't clear an optional field.
+    return {key: value for key, value in arguments.items() if value is not None}
 
 
 def _reject_past(day: date | None, field: str, today: date) -> None:
-    # Small models often take the year from their training data ("in May" -> last May), so
-    # past dates are refused with the year to use instead. Trips are planned, not logged.
-    if day is None or day >= today:
-        return
-    suggestion = _next_occurrence(day, today)
-    raise ToolError(
-        f"{field} {day.isoformat()} is in the past (today is {today.isoformat()}). A month "
-        f"or date without a year means its next occurrence, e.g. {suggestion.isoformat()}"
-    )
+    # Trips are planned, not logged.
+    if day is not None and day < today:
+        raise ToolError(f"{field} {day.isoformat()} is in the past (today is {today.isoformat()})")
 
 
 # ---------------------------------------------------------------------------
@@ -252,83 +138,10 @@ def _reject_past(day: date | None, field: str, today: date) -> None:
 # ---------------------------------------------------------------------------
 
 
-class SetPlanDetailsArgs(BaseModel):
-    title: str | None = Field(default=None, description="Short trip name")
-    origin: Place | None = Field(default=None, description="Where the travelers start from")
-    destination: Place | None = Field(default=None, description="Main destination")
-    start_date: str | None = Field(default=None, description="First day, YYYY-MM-DD")
-    end_date: str | None = Field(default=None, description="Last day, YYYY-MM-DD")
-    travelers: Travelers | None = None
-    budget: Money | None = Field(default=None, description="Total trip budget")
-    limits: list[SpendingLimit] | None = Field(
-        default=None,
-        description=(
-            "Per-person caps the user gave for one activity of a category, e.g. "
-            '[{"category": "food", "max_per_person": {"amount": 200, "currency": "USD"}}] '
-            'for "dinners under $200 a person". Send the whole list: it replaces the '
-            "current one"
-        ),
-    )
-
-
-class RoundTripArgs(BaseModel):
-    # Each leg is an add_flight call's arguments, validated when that leg is prepared.
-    # `return` is a keyword in Python, hence the alias.
-    model_config = ConfigDict(populate_by_name=True)
-
-    outbound: dict[str, Any]
-    return_flight: dict[str, Any] = Field(alias="return")
-
-
-def _airport_list(value: Any) -> Any:
-    # Small models send one airport as a bare string ("PHL") or several as "HND, NRT".
-    if isinstance(value, str):
-        return [code for code in re.split(r"[\s,/]+", value.upper()) if code]
-    if isinstance(value, list):
-        return [code.strip().upper() if isinstance(code, str) else code for code in value]
-    return value
-
-
-Airports = Annotated[
-    list[Annotated[str, Field(pattern=r"^[A-Z]{3}$")]],
-    Field(min_length=1, max_length=4),
-    BeforeValidator(_airport_list),
-]
-
-
-class ChooseFlightsArgs(BaseModel):
-    from_airports: Airports | None = Field(
-        default=None,
-        description='IATA codes to fly from, e.g. ["PHL"]. Defaults to the trip origin\'s',
-    )
-    to_airports: Airports | None = Field(
-        default=None,
-        description='IATA codes to fly to, e.g. ["HND", "NRT"] for Tokyo. Defaults to the '
-        "trip destination's",
-    )
-    depart_date: date | None = Field(
-        default=None, description="YYYY-MM-DD. Defaults to the trip's first day"
-    )
-    return_date: date | None = Field(
-        default=None, description="YYYY-MM-DD. Defaults to the trip's last day"
-    )
-    one_way: bool = Field(default=False, description="true only if the user asked for one-way")
-    cabin: FlightCabin = "economy"
-    option: int = Field(
-        default=1,
-        ge=1,
-        le=TOP_FLIGHT_OPTIONS,
-        description="1 = the best flights; 2 or 3 = a runner-up the user asked for instead",
-    )
-
-
 class UpdateItemArgs(BaseModel):
     item_id: UUID
     changes: dict[str, Any] = Field(
-        description=(
-            "Only the fields to change, using the same field names as the add_* tools, "
-            'e.g. {"start": "2027-05-03T15:00:00", "end": "2027-05-07T11:00:00"}'
-        )
+        description="Only the fields to change, with the item type's field names"
     )
 
 
@@ -336,20 +149,8 @@ class RemoveItemArgs(BaseModel):
     item_id: UUID
 
 
-class WebSearchArgs(BaseModel):
-    query: str = Field(
-        min_length=2,
-        max_length=300,
-        description='What to look for, e.g. "ryokan with private onsen in Hakone"',
-    )
-    kind: SearchKind = Field(
-        default="general",
-        description="flights, hotels, activities, transport (getting around), or general",
-    )
-
-
 # ---------------------------------------------------------------------------
-# Handlers
+# Budget rules
 # ---------------------------------------------------------------------------
 
 
@@ -357,62 +158,11 @@ def _field_list(names: Iterable[str]) -> str:
     return ", ".join(name.replace("_", " ") for name in names)
 
 
-async def _prepare_plan_details(ctx: ToolContext, arguments: dict[str, Any]) -> Prepared:
-    args = SetPlanDetailsArgs.model_validate(_drop_nulls(arguments))
-    fields = args.model_dump(mode="json", exclude_unset=True)
-    if not fields:
-        raise ToolError("No plan details were given")
-    # Dates are strings in the tool schema (simpler for the model); PlanUpdate parses them.
-    patch = PlanUpdate.model_validate(fields)
-    _reject_past(patch.start_date, "start_date", ctx.today)
-    _reject_past(patch.end_date, "end_date", ctx.today)
-    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
-    try:
-        plans_service.check_update(plan, patch)
-    except plans_service.InvalidPlanError as exc:
-        raise ToolError(str(exc)) from exc
-    return Prepared(
-        name="set_plan_details",
-        arguments=fields,
-        summary=f"Set trip {_field_list(fields)}",
-        payload=patch,
-    )
-
-
-async def _apply_plan_details(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
-    patch: PlanUpdate = prepared.payload
-    try:
-        await plans_service.update_plan(ctx.session, ctx.user_id, ctx.plan_id, patch)
-    except plans_service.InvalidPlanError as exc:
-        raise ToolError(str(exc)) from exc
-    changed = _field_list(prepared.arguments)
-    return ToolOutcome(
-        ok=True,
-        content=f"Plan updated ({changed}).",
-        summary=f"Updated trip {changed}",
-        plan_changed=True,
-    )
-
-
-# Appended to a budget rule's message to tell the model what to do about it.
-_NO_COST_HELP = (
-    "This plan has a budget or spending limits, so every item needs a cost in the budget's "
-    'currency: the price from the user or a web_search result (basis "exact"; for a '
-    'result, also set source_url to its URL), or your best estimate (basis "estimate"). '
-    "Use 0 for something free"
-)
-_OVER_LIMIT_HELP = "Choose a cheaper option, or ask the user whether to raise that limit"
-_OVER_BUDGET_HELP = (
-    "Choose a cheaper option, or ask the user whether to raise the budget. Do not lower the "
-    "price unless you found a cheaper one"
-)
-
-
 def _projected_costs(
     ctx: ToolContext, items: Sequence[ItineraryItem], name: str, arguments: dict[str, Any]
 ) -> dict[str, Cost | None]:
-    """Each active item's cost, by id, after this turn's staged changes. The change being
-    prepared (`name`, `arguments`) is skipped if it's already staged: models re-send them."""
+    """Each active item's cost, by id, after the staged changes. The change being prepared
+    (`name`, `arguments`) is skipped if it's already staged."""
     costs: dict[str, Cost | None] = {
         str(item.id): item.cost for item in items if item.status != "cancelled"
     }
@@ -450,31 +200,26 @@ async def _check_budget(
         return
     error = budget_rules.cost_error(item, budget)
     if error is not None:
-        raise ToolError(f"{error}. {_NO_COST_HELP}")
+        raise ToolError(error)
     travelers = Travelers.model_validate(plan.travelers) if plan.travelers else None
     error = budget_rules.limit_error(item, limits, travelers)
     if error is not None:
-        raise ToolError(f"{error}. {_OVER_LIMIT_HELP}")
+        raise ToolError(error)
     items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
     costs = _projected_costs(ctx, items, name, arguments)
     costs[str(item_id) if item_id is not None else "new"] = item.cost
     error = budget_rules.total_error(budget, costs.values())
     if error is not None:
-        raise ToolError(f"With {item.title} the trip {error}. {_OVER_BUDGET_HELP}")
+        raise ToolError(f"With {item.title} the trip {error}")
 
 
 # ---------------------------------------------------------------------------
 # Timezone and route checks
 # ---------------------------------------------------------------------------
 
-_WRONG_ZONE_HELP = (
-    "Times are local to where the traveller is: give start and end as local times in "
-    "{zone} and set timezone to {zone}"
-)
-
 
 def _staged_items(ctx: ToolContext, name: str, arguments: dict[str, Any]) -> list[ItemFields]:
-    """Items this turn's proposal adds, so a hotel staged right after its flight is checked
+    """Items the staged changes add, so a hotel staged right after its flight is checked
     against that flight. The change being prepared is skipped if it's already staged.
     Staged updates and removals aren't projected: the timeline flags what slips through."""
     items: list[ItemFields] = []
@@ -509,16 +254,8 @@ async def _check_zone(
     others = [other for other in items if other.id != item_id]
     result = zone_rules.zone_error(item, [*others, *_staged_items(ctx, name, arguments)])
     if result is not None:
-        problem, expected = result
-        raise ToolError(f"{problem}. {_WRONG_ZONE_HELP.format(zone=expected)}")
-
-
-_REPLACE_FLIGHT_HELP = (
-    "If this flight replaces {title}, first propose removing that one with remove_item "
-    '(item_id "{item_id}"), then propose this flight again. Otherwise fix the times or '
-    "airports"
-)
-_ROUTE_HELP = "Fix the times or airports so each flight leaves from where the last one landed"
+        problem, _expected = result
+        raise ToolError(problem)
 
 
 async def _check_route(
@@ -530,56 +267,26 @@ async def _check_route(
 ) -> None:
     """Raise a ToolError if `flight` (new, or flight `item_id` as it would be after an
     update) overlaps another flight or breaks the route (see features.itinerary.routes).
-    Flights this card already removes don't count, so a swap goes through."""
+    Flights the staged changes remove don't count, so a swap goes through."""
     items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
     removed = {str(c.arguments.get("item_id")) for c in ctx.staged if c.name == "remove_item"}
     others = [other for other in items if other.id != item_id and str(other.id) not in removed]
     problem = route_rules.route_problem(flight, [*others, *_staged_items(ctx, name, arguments)])
-    if problem is None:
-        return
-    # A clash with a planned flight is usually a replacement (a cheaper fare, another
-    # time), which small models add without removing the old one.
-    clash = problem.other
-    help_text = (
-        _REPLACE_FLIGHT_HELP.format(title=clash.title, item_id=clash.id)
-        if isinstance(clash, FlightItem)
-        else _ROUTE_HELP
-    )
-    raise ToolError(f"{problem.message}. {help_text}")
+    if problem is not None:
+        raise ToolError(problem.message)
 
 
 # ---------------------------------------------------------------------------
-# Plausibility checks (overnight stays, cited sources)
+# Overnight stays
 # ---------------------------------------------------------------------------
 
-# A stay shorter than this isn't a night's sleep, even when it crosses midnight (a small
-# model once proposed a dinner as lodging, 19:00 to 00:30).
+# A stay shorter than this isn't a night's sleep, even when it crosses midnight.
 _MIN_STAY = timedelta(hours=8)
 
 _NOT_OVERNIGHT = (
     "lodging is for overnight stays (check-out on a later day, at least 8 hours after "
-    "check-in), but this one is {start:%Y-%m-%d %H:%M} to {end:%Y-%m-%d %H:%M}. A meal, "
-    "show or tour is an activity (activities stage), not lodging"
+    "check-in), but this one is {start:%Y-%m-%d %H:%M} to {end:%Y-%m-%d %H:%M}"
 )
-
-# Hosts reserved for documentation and testing: a URL on one is made up.
-_PLACEHOLDER_HOST = re.compile(r"(?:^|\.)(?:example\.(?:com|org|net)|localhost)$", re.IGNORECASE)
-_URL = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
-
-
-def normalise_url(url: str) -> str:
-    """`url` as compared against the evidence: whitespace and a trailing "/" don't count."""
-    return url.strip().rstrip("/")
-
-
-def urls_in(text: str) -> frozenset[str]:
-    """The links in `text` (a user message), normalised. Trailing punctuation is dropped."""
-    return frozenset(normalise_url(match.rstrip(".,;:!?")) for match in _URL.findall(text))
-
-
-def _is_placeholder(url: str) -> bool:
-    host = urlsplit(url.strip()).hostname or ""
-    return _PLACEHOLDER_HOST.search(host) is not None
 
 
 def _check_overnight(item: ItemFields) -> None:
@@ -592,89 +299,22 @@ def _check_overnight(item: ItemFields) -> None:
     raise ToolError(_NOT_OVERNIGHT.format(start=item.start, end=item.end))
 
 
-def _check_evidence(ctx: ToolContext, item: ItemFields) -> None:
-    """Raise a ToolError if `item` cites a source this turn never found, or calls a price
-    "exact" without citing the search result that gave it. Ungated (no evidence) on
-    approval, and for choose_flights, whose flights come from a real search."""
-    if ctx.evidence is None:
-        return
-    found = [normalise_url(result.url) for result in ctx.evidence]
-    url = item.source_url
-    if url is not None:
-        if normalise_url(url) in found or normalise_url(url) in ctx.known_sources:
-            # Even a placeholder host: the offline search provider's results use one.
-            return
-        if _is_placeholder(url):
-            raise ToolError(
-                f"source_url {url} is made up. Never invent a URL: use one from a web_search "
-                "result, or leave source_url out"
-            )
-        # What it could cite instead: this turn's results first, then the sources the
-        # conversation already established (earlier searches, the plan's items, pasted
-        # links). Small models cite a hotel's own site in place of the result that listed
-        # it; naming the real URLs lets them correct the call instead of giving up.
-        citable = list(dict.fromkeys([*found, *sorted(ctx.known_sources)]))
-        if citable:
-            listed = ", ".join(citable)
-            raise ToolError(
-                f"source_url {url} is not from a web_search result. Use one of {listed}, "
-                "or leave source_url out"
-            )
-        raise ToolError(
-            f"source_url {url} is not from a web_search result (none ran this turn). Leave "
-            "source_url out, or search first and use a result's URL"
-        )
-    # Without a search this turn, an exact price is one the user quoted: allowed.
-    if found and item.cost is not None and item.cost.basis == "exact":
-        raise ToolError(
-            'cost is marked "exact" but has no source_url. Set source_url to the URL of the '
-            'web_search result that gave the price, or mark the cost basis "estimate"'
-        )
-
-
-def _flight_title(fields: dict[str, Any]) -> str | None:
-    """'Flight PHL to HND' from a flight's airports, or None if they don't validate (the
-    model's own validation then reports them)."""
-    try:
-        ends = [Place.model_validate(fields.get(key)) for key in ("from_place", "to_place")]
-    except ValidationError:
-        return None
-    return "Flight {} to {}".format(*(_airport(place) for place in ends))
+# ---------------------------------------------------------------------------
+# Handlers
+# ---------------------------------------------------------------------------
 
 
 def _prepare_add(item_type: ItemType) -> PrepareHandler:
     model = _CREATE_MODELS[item_type]
 
     async def prepare(ctx: ToolContext, arguments: dict[str, Any]) -> Prepared:
-        # `type` is implied by the tool, so it's not in the schema; set it here.
-        fields = {**_drop_nulls(arguments), "type": item_type}
-        # Small models often leave out a flight's title (especially in add_round_trip's
-        # nested legs); its airports say all a title would.
-        if item_type == "flight" and not fields.get("title"):
-            title = _flight_title(fields)
-            if title is not None:
-                fields["title"] = title
-        # Small models often leave out a flight's `direction`, or label the trip home
-        # "outbound". Validate with a placeholder when it's missing, then reconcile the
-        # label with the plan rather than trusting it or failing the call.
-        has_direction = "direction" in fields
-        if item_type == "flight" and not has_direction:
-            fields["direction"] = "internal"
-        data = model.model_validate(fields)
+        # `type` is implied by the change's name; set it here.
+        data = model.model_validate({**_drop_nulls(arguments), "type": item_type})
         _check_overnight(data)
-        _check_evidence(ctx, data)
         _reject_past(data.start.date(), "start", ctx.today)
-        # Also fails a deleted plan here rather than on approval.
+        # Also fails a deleted plan here rather than when writing.
         plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
-        if isinstance(data, FlightItemCreate):
-            given = data.direction if has_direction else None
-            items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
-            others = [item for item in items if isinstance(item, FlightItem)]
-            direction = _flight_direction(data, given, plan, others)
-            if direction != given:
-                logger.info("Flight %r direction %s -> %s", data.title, given, direction)
-            data = data.model_copy(update={"direction": direction})
-        # Defaults are left out to keep the proposal small; they come back on re-prepare.
+        # Defaults are left out to keep the stored change small; they come back on re-prepare.
         normalised = data.model_dump(mode="json", exclude_defaults=True, exclude={"type"})
         await _check_zone(ctx, data, f"add_{item_type}", normalised)
         if isinstance(data, FlightFields):
@@ -694,368 +334,12 @@ async def _apply_add(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
     item = await itinerary_service.add_item(
         ctx.session, ctx.user_id, ctx.plan_id, prepared.payload, created_by="assistant"
     )
-    return ToolOutcome(
-        ok=True,
-        content=f'Added {item.type} "{item.title}" with id {item.id}.',
-        summary=f"Added {item.type} “{item.title}”",
-        plan_changed=True,
-    )
-
-
-_prepare_flight = _prepare_add("flight")
-
-
-async def _prepare_leg(ctx: ToolContext, leg: str, arguments: dict[str, Any]) -> Prepared:
-    direction: FlightDirection = "outbound" if leg == "outbound" else "return"
-    try:
-        return await _prepare_flight(ctx, {**arguments, "direction": direction})
-    except ValidationError as exc:
-        # Name the leg: the error's location is inside it, so the model can't tell which.
-        raise ToolError(
-            f"Invalid arguments for add_round_trip's {leg} leg: {summarize_validation_error(exc)}"
-        ) from exc
-
-
-def _mirror_ends(leg: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]:
-    """`leg` with a missing airport taken from the `other` leg: a round trip's legs mirror
-    each other (out PHL -> HND, home HND -> PHL). Small models often send only where each
-    leg leaves from."""
-    filled = dict(leg)
-    for key, other_key in (("from_place", "to_place"), ("to_place", "from_place")):
-        if key not in filled and other_key in other:
-            filled[key] = other[other_key]
-    return filled
-
-
-async def _prepare_round_trip(ctx: ToolContext, arguments: dict[str, Any]) -> tuple[Prepared, ...]:
-    args = RoundTripArgs.model_validate(_drop_nulls(arguments))
-    out_leg, home_leg = _drop_nulls(args.outbound), _drop_nulls(args.return_flight)
-    outbound = await _prepare_leg(ctx, "outbound", _mirror_ends(out_leg, home_leg))
-    # The flight home is checked with the flight out already on the card, so the pair has
-    # to fit the budget together. The call id is a placeholder: this change isn't kept.
-    with_outbound = replace(
-        ctx,
-        staged=[
-            *ctx.staged,
-            ProposedChange(
-                call_id="round-trip",
-                name=outbound.name,
-                arguments=outbound.arguments,
-                summary=outbound.summary,
-            ),
-        ],
-    )
-    home = await _prepare_leg(with_outbound, "return", _mirror_ends(home_leg, out_leg))
-    # Aware datetimes (each in its own zone), so they compare as instants.
-    if home.payload.start <= outbound.payload.end:
-        raise ToolError(
-            "The return flight must leave after the outbound flight lands; usually it "
-            "leaves on the trip's last day"
-        )
-    return outbound, home
-
-
-async def _round_trip_bundle(ctx: ToolContext, arguments: dict[str, Any]) -> Bundle:
-    return Bundle(await _prepare_round_trip(ctx, arguments))
-
-
-# ---------------------------------------------------------------------------
-# Choosing flights (search, rank, stage the best)
-# ---------------------------------------------------------------------------
-
-
-def _plan_airports(place: dict[str, Any] | None) -> list[str] | None:
-    iata = place.get("iata") if place else None
-    return [iata] if iata else None
-
-
-def _flight_query(args: ChooseFlightsArgs, plan: Plan, today: date) -> FlightQuery:
-    origin = args.from_airports or _plan_airports(plan.origin)
-    destination = args.to_airports or _plan_airports(plan.destination)
-    if origin is None or destination is None:
-        missing = "from_airports" if origin is None else "to_airports"
-        raise ToolError(
-            f"Give {missing}: the IATA codes of the airports, e.g. HND and NRT for Tokyo"
-        )
-    depart = args.depart_date or plan.start_date
-    home = None if args.one_way else args.return_date or plan.end_date
-    if depart is None or (home is None and not args.one_way):
-        raise ToolError(
-            "The trip has no dates yet. Ask the user for them, or give depart_date and return_date"
-        )
-    _reject_past(depart, "depart_date", today)
-    if plan.travelers is None:
-        raise ToolError(
-            "The plan has no travelers yet. Ask how many are going (adults and children) "
-            "before choosing flights"
-        )
-    travelers = Travelers.model_validate(plan.travelers)
-    budget = active_budget(Money.model_validate(plan.budget) if plan.budget else None)
-    try:
-        return FlightQuery(
-            origin=tuple(origin),
-            destination=tuple(destination),
-            depart_date=depart,
-            return_date=home,
-            cabin=args.cabin,
-            # The search only takes adults; children are counted as adults so the price
-            # covers everyone (most international fares for children are close to adults').
-            adults=travelers.adults + travelers.children,
-            currency=budget.currency if budget is not None else "USD",
-        )
-    except ValidationError as exc:
-        raise ToolError(f"Can't search those flights: {summarize_validation_error(exc)}") from exc
-
-
-async def _search_flights(
-    ctx: ToolContext, query: FlightQuery, departure_token: str | None = None
-) -> list[FlightOption]:
-    try:
-        found = await ctx.flights.search(query, departure_token=departure_token)
-    except FlightSearchError as exc:
-        raise ToolError(str(exc)) from exc
-    return rank_flights(found)
-
-
-def _pick(options: list[FlightOption], option: int, what: str) -> FlightOption:
-    if not options:
-        raise ToolError(f"No {what} found. Try other airports or dates, or ask the user")
-    if option > len(options):
-        raise ToolError(f"There is no option {option}; choose 1 to {len(options)}")
-    return options[option - 1]
-
-
-def _choice_note(
-    picked: Sequence[tuple[str, FlightOption]],
-    price: Money | None,
-    runners_up: Sequence[tuple[int, FlightOption]],
-    round_trip: bool,
-) -> str:
-    """What the model is told about the choice, so it can describe it (and the
-    alternatives) without making up a single detail."""
-    lines = ["Chosen by shortest travel time, then lowest price:"]
-    lines += [f"- {leg}: {describe_flight(option, with_price=False)}" for leg, option in picked]
-    whole = "round trip" if round_trip else "one way"
-    if price is not None:
-        lines.append(f"Total price ({whole}, all travelers): {price.amount:,.0f} {price.currency}")
-    if runners_up:
-        lines.append(
-            "Other options for the flight out (prices are the cheapest " + whole + " with "
-            "it). If the user prefers one, call choose_flights with that option number in "
-            "your next reply, not now:"
-        )
-        lines += [f"{number}. {describe_flight(option)}" for number, option in runners_up]
-    return "\n".join(lines)
-
-
-async def _prepare_chosen_flights(ctx: ToolContext, arguments: dict[str, Any]) -> Bundle:
-    # The legs come from a real flight search (exact prices, no source_url), so they skip
-    # the checks against this turn's web results, even after a web_search.
-    ctx = replace(ctx, evidence=None)
-    args = ChooseFlightsArgs.model_validate(_drop_nulls(arguments))
-    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
-    query = _flight_query(args, plan, ctx.today)
-    outbound_options = await _search_flights(ctx, query)
-    out = _pick(outbound_options, args.option, "flights out")
-    runners_up = [
-        (number, option)
-        for number, option in enumerate(outbound_options[:TOP_FLIGHT_OPTIONS], start=1)
-        if option is not out
-    ]
-
-    if query.return_date is None:
-        prepared = await _prepare_leg(
-            ctx, "outbound", flight_arguments(out, query.cabin, out.price)
-        )
-        note = _choice_note([("Flight out", out)], out.price, runners_up, round_trip=False)
-        return Bundle((prepared,), note)
-
-    # A round trip is searched in two steps: the flights out, then the flights home for
-    # the chosen one. Each flight home is priced as the whole trip.
-    if out.departure_token is None:
-        raise ToolError("The flight search gave no way to find flights home for that flight")
-    home = _pick(
-        await _search_flights(ctx, query, departure_token=out.departure_token), 1, "flights home"
-    )
-    price = home.price or out.price
-    # The whole price goes on the flight out and the flight home costs 0, as with any
-    # round-trip fare (the budget checks count both legs together).
-    free = Money(amount=Decimal(0), currency=price.currency) if price is not None else None
-    legs = {
-        "outbound": flight_arguments(out, query.cabin, price),
-        "return": flight_arguments(home, query.cabin, free),
-    }
-    prepared_legs = await _prepare_round_trip(ctx, legs)
-    note = _choice_note(
-        [("Flight out", out), ("Flight home", home)], price, runners_up, round_trip=True
-    )
-    return Bundle(prepared_legs, note)
-
-
-# ---------------------------------------------------------------------------
-# Flight direction
-# ---------------------------------------------------------------------------
-
-
-def _mentions(haystack: str | None, needle: str | None) -> bool:
-    """`needle` appears as whole words in `haystack` ("Philadelphia" in "Philadelphia
-    International Airport"), ignoring case."""
-    if not haystack or not needle:
-        return False
-    pattern = rf"\b{re.escape(needle.casefold())}\b"
-    return re.search(pattern, haystack.casefold()) is not None
-
-
-def _is_origin(place: Place, origin: Place | None) -> bool:
-    if origin is None:
-        return False
-    if place.iata and origin.iata:
-        return same_area(place.iata, origin.iata)
-    # The origin is usually a city ("Philadelphia") and the flight an airport.
-    return any(
-        _mentions(haystack, needle)
-        for needle in (origin.name, origin.city)
-        for haystack in (place.name, place.city)
-    )
-
-
-def _same_airport(a: Place, b: Place) -> bool:
-    return a.iata is not None and b.iata is not None and same_area(a.iata, b.iata)
-
-
-def _direction_from_origin(flight: FlightItemCreate, plan: Plan) -> FlightDirection | None:
-    origin = Place.model_validate(plan.origin) if plan.origin else None
-    if _is_origin(flight.from_place, origin):
-        return "outbound"
-    if _is_origin(flight.to_place, origin):
-        return "return"
-    return None
-
-
-def _direction_from_dates(flight: FlightItemCreate, plan: Plan) -> FlightDirection | None:
-    # On (or outside) the trip's first day is outbound, on its last day a return. A one-day
-    # trip is both, so the date says nothing.
-    day = flight.start.date()
-    first = plan.start_date is not None and day <= plan.start_date
-    last = plan.end_date is not None and day >= plan.end_date
-    if first == last:
-        return None
-    return "outbound" if first else "return"
-
-
-def _direction_from_other_flights(
-    flight: FlightItemCreate, others: list[FlightItem]
-) -> FlightDirection | None:
-    # Mirror the flights already planned: landing where the outbound flight left from is
-    # the trip home, and leaving from where the return lands is the way out.
-    for other in others:
-        if other.direction == "outbound" and _same_airport(flight.to_place, other.from_place):
-            return "return"
-        if other.direction == "return" and _same_airport(flight.from_place, other.to_place):
-            return "outbound"
-    return None
-
-
-def _flight_direction(
-    flight: FlightItemCreate,
-    given: FlightDirection | None,
-    plan: Plan,
-    others: list[FlightItem],
-) -> FlightDirection:
-    """The direction to store, strongest evidence first.
-
-    1. Leaving / landing at the trip's origin, whatever the model said.
-    2. The trip's first / last day, unless the model said "internal" (a domestic hop on
-       arrival day is legitimate; "outbound" on the last day is a mislabelled trip home).
-    3. Mirroring the other flights in the plan.
-    4. The model's label, else "internal".
-    """
-    by_origin = _direction_from_origin(flight, plan)
-    if by_origin is not None:
-        return by_origin
-    by_date = _direction_from_dates(flight, plan)
-    if by_date is not None and given != "internal":
-        return by_date
-    mirrored = _direction_from_other_flights(flight, others)
-    if mirrored is not None:
-        return mirrored
-    return given or "internal"
-
-
-# ---------------------------------------------------------------------------
-# Return flight
-# ---------------------------------------------------------------------------
-
-
-def _flights_after(
-    items: Sequence[ItineraryItem], staged: Sequence[ProposedChange]
-) -> list[FlightFields]:
-    """The plan's active flights once `staged` is applied: added, removed, cancelled or
-    relabelled ones (no other update changes whether a flight goes out or home)."""
-    flights: dict[str, FlightFields] = {
-        str(item.id): item
-        for item in items
-        if isinstance(item, FlightItem) and item.status != "cancelled"
-    }
-    for index, change in enumerate(staged):
-        args = change.arguments
-        if change.name == "add_flight":
-            try:
-                flights[f"staged-{index}"] = FlightItemCreate.model_validate(
-                    {**args, "type": "flight"}
-                )
-            except ValidationError:
-                # Validated when staged; skip rather than fail the turn.
-                logger.warning("Staged add_flight no longer validates")
-        elif change.name == "remove_item":
-            flights.pop(args["item_id"], None)
-        elif change.name == "update_item" and args["item_id"] in flights:
-            changes = args["changes"]
-            if changes.get("status") == "cancelled":
-                flights.pop(args["item_id"])
-            elif "direction" in changes:
-                flight = flights[args["item_id"]]
-                flights[args["item_id"]] = flight.model_copy(
-                    update={"direction": changes["direction"]}
-                )
-    return list(flights.values())
-
-
-def _outbound_without_return(flights: Sequence[FlightFields]) -> list[FlightFields]:
-    """The outbound flights (in order) when no flight goes home, else []."""
-    if any(flight.direction == "return" for flight in flights):
-        return []
-    return sorted((f for f in flights if f.direction == "outbound"), key=lambda f: f.start)
-
-
-def _airport(place: Place) -> str:
-    return place.iata or place.name
-
-
-def return_flight_nudge(plan: PlanSnapshot, staged: Sequence[ProposedChange]) -> str | None:
-    """What to tell the model when this turn's proposal leaves the trip with a flight out
-    but none home, else None. Only a gap this turn opens counts: one already in the plan
-    was raised when it was proposed, and repeating it every turn would derail the talk
-    about hotels or dinners."""
-    if _outbound_without_return(_flights_after(plan.items, ())):
-        return None
-    outbound = _outbound_without_return(_flights_after(plan.items, staged))
-    if not outbound:
-        return None
-    # A connection is several outbound legs: home is where the first leaves, the
-    # destination where the last lands.
-    return RETURN_FLIGHT_NUDGE.format(
-        away=_airport(outbound[-1].to_place),
-        home=_airport(outbound[0].from_place),
-        when=f" on {plan.end_date.isoformat()}" if plan.end_date else "",
-    )
+    return ToolOutcome(ok=True, summary=f"Added {item.type} “{item.title}”")
 
 
 # Item fields whose change re-runs the budget checks.
 _BUDGET_FIELDS = frozenset({"cost", "category", "status"})
 _TIME_FIELDS = frozenset({"start", "end", "timezone", "end_timezone"})
-# Item fields whose change re-runs the source checks (a cited URL, an "exact" price).
-_EVIDENCE_FIELDS = frozenset({"source_url", "cost"})
 # Item fields whose change re-runs the route check (a flight's times, airports, status).
 _ROUTE_FIELDS = _TIME_FIELDS | {"from_place", "to_place", "status"}
 
@@ -1097,8 +381,6 @@ async def _prepare_update(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
     if patch.model_fields_set & _TIME_FIELDS:
         _check_overnight(merged)
         await _check_zone(ctx, merged, "update_item", arguments, item_id=args.item_id)
-    if patch.model_fields_set & _EVIDENCE_FIELDS:
-        _check_evidence(ctx, merged)
     if isinstance(merged, FlightFields) and patch.model_fields_set & _ROUTE_FIELDS:
         await _check_route(ctx, merged, "update_item", arguments, item_id=args.item_id)
     if patch.model_fields_set & _BUDGET_FIELDS:
@@ -1120,13 +402,7 @@ async def _apply_update(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
         )
     except itinerary_service.InvalidItemError as exc:
         raise ToolError(str(exc)) from exc
-    fields = ", ".join(sorted(prepared.arguments["changes"]))
-    return ToolOutcome(
-        ok=True,
-        content=f'Updated {item.type} "{item.title}" ({fields}).',
-        summary=f"Updated “{item.title}”",
-        plan_changed=True,
-    )
+    return ToolOutcome(ok=True, summary=f"Updated “{item.title}”")
 
 
 async def _prepare_remove(ctx: ToolContext, arguments: dict[str, Any]) -> Prepared:
@@ -1143,66 +419,7 @@ async def _prepare_remove(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
 async def _apply_remove(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
     change: _ItemChange = prepared.payload
     await itinerary_service.remove_item(ctx.session, ctx.user_id, ctx.plan_id, change.item_id)
-    return ToolOutcome(
-        ok=True,
-        content=f'Removed {change.type} "{change.title}".',
-        summary=f"Removed “{change.title}”",
-        plan_changed=True,
-    )
-
-
-def _search_context(plan: Plan) -> SearchContext:
-    return SearchContext(
-        origin=Place.model_validate(plan.origin) if plan.origin else None,
-        destination=Place.model_validate(plan.destination) if plan.destination else None,
-        travel_date=plan.start_date,
-    )
-
-
-def _format_results(query: str, results: list[SearchResult]) -> str:
-    lines = [f'Web results for "{query}":']
-    for number, result in enumerate(results, start=1):
-        lines.append(f"{number}. {result.title}\n   URL: {result.url}")
-        if result.snippet:
-            lines.append(f"   {result.snippet}")
-    lines.append(
-        "Prices and schedules in results can be out of date. When you add an item based on "
-        "a result, set its source_url to that result's URL."
-    )
-    return "\n".join(lines)
-
-
-async def _web_search(ctx: ToolContext, arguments: dict[str, Any]) -> ToolOutcome:
-    args = WebSearchArgs.model_validate(_drop_nulls(arguments))
-    plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
-    query = shape_query(args.query, args.kind, _search_context(plan))
-    try:
-        results = await ctx.search.search(query, args.kind)
-    except SearchError as exc:
-        # Built here rather than via ToolError: the model gets extra guidance the user
-        # doesn't need to see.
-        return ToolOutcome(
-            ok=False,
-            content=(
-                f"Error: {exc} Don't repeat this search. If web search is unavailable, "
-                "answer from general knowledge and say that details need checking."
-            ),
-            summary=str(exc),
-        )
-    if ctx.evidence is not None:
-        ctx.evidence.extend(results)
-    if not results:
-        return ToolOutcome(
-            ok=True,
-            content=f'No web results for "{query}". Try fewer or different words.',
-            summary=f"No web results for “{query}”",
-        )
-    return ToolOutcome(
-        ok=True,
-        content=_format_results(query, results),
-        summary=f"Searched the web for “{query}”",
-        sources=tuple(dict.fromkeys(normalise_url(result.url) for result in results)),
-    )
+    return ToolOutcome(ok=True, summary=f"Removed “{change.title}”")
 
 
 # ---------------------------------------------------------------------------
@@ -1211,255 +428,27 @@ async def _web_search(ctx: ToolContext, arguments: dict[str, Any]) -> ToolOutcom
 
 
 @dataclass(frozen=True)
-class ReadTool:
-    """A tool that only reads (web_search): it runs as soon as the model calls it."""
-
-    spec: ToolSpec
-    run: RunHandler
-
-
-@dataclass(frozen=True)
 class WriteTool:
-    """A tool that changes the plan: validated by `prepare`, written by `apply`."""
+    """A plan change: validated by `prepare`, written by `apply`."""
 
-    spec: ToolSpec
     prepare: PrepareHandler
     apply: ApplyHandler
 
 
-@dataclass(frozen=True)
-class BundleTool:
-    """A tool that stages changes of other write tools (add_round_trip, choose_flights:
-    add_flight). Proposals only ever hold those changes, so it has no `apply`."""
-
-    spec: ToolSpec
-    prepare: BundleHandler
-
-
-Tool = ReadTool | WriteTool | BundleTool
-
-
-# Fields the model shouldn't fill, so they're left out of the prompt: it can't know
-# coordinates, status should stay "proposed" (update_item can change it later), and
-# pickup/dropoff duplicate from/to. `type` is implied by the add_* tool. The models still
-# accept these if sent; they just aren't advertised.
-_HIDDEN_PLACE_FIELDS = frozenset({"lat", "lng", "country"})
-_HIDDEN_ITEM_FIELDS = frozenset({"type", "status", "pickup_location", "dropoff_location"})
-_HIDDEN_BY_TYPE: dict[ItemType, frozenset[str]] = {
-    "lodging": frozenset({"end_timezone"}),
-    "activity": frozenset({"end_timezone"}),
+TOOLS: dict[str, WriteTool] = {
+    **{f"add_{kind}": WriteTool(_prepare_add(kind), _apply_add) for kind in _CREATE_MODELS},
+    "update_item": WriteTool(_prepare_update, _apply_update),
+    "remove_item": WriteTool(_prepare_remove, _apply_remove),
 }
 
 
-def _hide_fields(schema: dict[str, Any], names: frozenset[str]) -> dict[str, Any]:
-    """`schema` without the `names` properties, and with places slimmed at any depth."""
-    if isinstance(schema.get("items"), dict):
-        schema = {**schema, "items": _hide_fields(schema["items"], frozenset())}
-    properties: dict[str, Any] | None = schema.get("properties")
-    if properties is None:
-        return schema
-    # A Place is the only object with an `iata` property.
-    if "iata" in properties:
-        names = names | _HIDDEN_PLACE_FIELDS
-    slimmed = {
-        name: _hide_fields(value, frozenset())
-        for name, value in properties.items()
-        if name not in names
-    }
-    required = [name for name in schema.get("required", []) if name not in names]
-    hidden = {**schema, "properties": slimmed}
-    if required:
-        hidden["required"] = required
-    else:
-        hidden.pop("required", None)
-    return hidden
-
-
-def _item_parameters(item_type: ItemType) -> dict[str, Any]:
-    hidden = _HIDDEN_ITEM_FIELDS | _HIDDEN_BY_TYPE.get(item_type, frozenset())
-    return _hide_fields(inline_schema(_CREATE_MODELS[item_type]), hidden)
-
-
-def _round_trip_parameters() -> dict[str, Any]:
-    # Both legs are add_flight's parameters; the direction comes from the leg's key.
-    leg = _hide_fields(_item_parameters("flight"), frozenset({"direction"}))
-    return {
-        "type": "object",
-        "properties": {
-            "outbound": {**leg, "description": "The flight from home to the destination"},
-            "return": {**leg, "description": "The flight home, usually on the trip's last day"},
-        },
-        "required": ["outbound", "return"],
-    }
-
-
-def _add_tool(item_type: ItemType, description: str) -> WriteTool:
-    return WriteTool(
-        spec=ToolSpec(
-            name=f"add_{item_type}",
-            description=description,
-            parameters=_item_parameters(item_type),
-        ),
-        prepare=_prepare_add(item_type),
-        apply=_apply_add,
-    )
-
-
-_ALL_TOOLS: list[Tool] = [
-    WriteTool(
-        spec=ToolSpec(
-            name="set_plan_details",
-            description=(
-                "Set trip-level details: title, origin, destination, start/end dates, "
-                "travelers, budget. Send only the fields that change."
-            ),
-            parameters=_hide_fields(inline_schema(SetPlanDetailsArgs), frozenset()),
-        ),
-        prepare=_prepare_plan_details,
-        apply=_apply_plan_details,
-    ),
-    BundleTool(
-        spec=ToolSpec(
-            name="choose_flights",
-            description=(
-                "Search real flights and propose the best ones: the flight out and the "
-                "flight home, with their real times and price. Use this for a trip's "
-                "flights instead of picking flights yourself. Airports and dates default "
-                "to the trip's, so usually only to_airports is needed."
-            ),
-            parameters=inline_schema(ChooseFlightsArgs),
-        ),
-        prepare=_prepare_chosen_flights,
-    ),
-    BundleTool(
-        spec=ToolSpec(
-            name="add_round_trip",
-            description=(
-                "Add the flight out and the flight home together, for specific flights "
-                "the user gave you (otherwise use choose_flights). Each leg: "
-                "from_place/to_place need IATA codes; timezone = departure airport's IANA "
-                "zone, end_timezone = arrival airport's; end is the local arrival time "
-                "there, often the next day; cost is that leg's total for everyone. With "
-                "only a round-trip price, put it on the outbound leg and cost the return 0."
-            ),
-            parameters=_round_trip_parameters(),
-        ),
-        prepare=_round_trip_bundle,
-    ),
-    _add_tool(
-        "flight",
-        "Add one flight leg: for a multi-city trip, a connection, or a one-way trip the "
-        "user asked for (otherwise use add_round_trip). from_place/to_place need IATA "
-        "codes. timezone = departure airport's IANA zone, end_timezone = arrival "
-        "airport's; end is the local arrival time there, often the next day. direction = "
-        "outbound (leaving home), return (going home) or internal.",
-    ),
-    _add_tool(
-        "lodging",
-        "Add a place to sleep: a hotel, hostel, rental or resort. start = check-in time, "
-        "end = check-out time (a later day). Only for overnight stays: never for a meal, "
-        "tour, show or event (those are activities).",
-    ),
-    _add_tool(
-        "activity",
-        "Add an activity: sightseeing, a meal, a tour, a museum visit, etc.",
-    ),
-    _add_tool(
-        "transfer",
-        "Add ground/sea transport between two places: train, taxi, car rental, ferry... "
-        "mode car_service is a booked private car with a driver (e.g. an airport pickup); "
-        "car_rental is only a car the traveller drives themselves.",
-    ),
-    WriteTool(
-        spec=ToolSpec(
-            name="update_item",
-            description="Change fields of an existing itinerary item, by id.",
-            parameters=inline_schema(UpdateItemArgs),
-        ),
-        prepare=_prepare_update,
-        apply=_apply_update,
-    ),
-    WriteTool(
-        spec=ToolSpec(
-            name="remove_item",
-            description="Delete an itinerary item, by id.",
-            parameters=inline_schema(RemoveItemArgs),
-        ),
-        prepare=_prepare_remove,
-        apply=_apply_remove,
-    ),
-    ReadTool(
-        spec=ToolSpec(
-            name="web_search",
-            description=(
-                "Search the web for current options and facts: flights, hotels, "
-                "activities, local transport, opening hours, prices. Use it before "
-                "suggesting specific places or prices. Trip destination and dates are "
-                "added to the query automatically."
-            ),
-            parameters=inline_schema(WebSearchArgs),
-        ),
-        run=_web_search,
-    ),
-]
-TOOLS: dict[str, Tool] = {tool.spec.name: tool for tool in _ALL_TOOLS}
-
-TOOL_SPECS: list[ToolSpec] = [tool.spec for tool in TOOLS.values()]
-
-
 # ---------------------------------------------------------------------------
-# Stage gating
-# ---------------------------------------------------------------------------
-
-# Offered in every stage: looking things up, and fixing or dropping what is already there.
-COMMON_TOOLS = frozenset({"web_search", "update_item", "remove_item"})
-# What each stage adds. Review adds nothing: the trip is complete.
-STAGE_TOOLS: dict[PlanStage, frozenset[str]] = {
-    PlanStage.BASICS: frozenset({"set_plan_details"}),
-    PlanStage.FLIGHTS: frozenset({"choose_flights", "add_round_trip", "add_flight"}),
-    PlanStage.LODGING: frozenset({"add_lodging"}),
-    PlanStage.ACTIVITIES: frozenset({"add_activity"}),
-    PlanStage.GROUND: frozenset({"add_transfer"}),
-    PlanStage.REVIEW: frozenset(),
-}
-
-STAGE_LOCKED = (
-    "{name} is not available in the {stage} stage{owner}. Only the user can change stages "
-    "with the Next/Back buttons; tell them which stage this belongs to."
-)
-
-
-def stage_tools(stage: PlanStage) -> frozenset[str]:
-    return STAGE_TOOLS[stage] | COMMON_TOOLS
-
-
-def specs_for_stage(stage: PlanStage) -> list[ToolSpec]:
-    """The tools the agent is offered in `stage`, in the usual order."""
-    allowed = stage_tools(stage)
-    return [tool.spec for tool in _ALL_TOOLS if tool.spec.name in allowed]
-
-
-def _stage_locked(name: str, stage: PlanStage) -> str:
-    owner = next((other for other, names in STAGE_TOOLS.items() if name in names), None)
-    return STAGE_LOCKED.format(
-        name=name,
-        stage=STAGE_LABELS[stage],
-        owner=f" (it belongs to the {STAGE_LABELS[owner]} stage)" if owner else "",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Executor
+# Checking and applying
 # ---------------------------------------------------------------------------
 
 
 def _failure(message: str) -> ToolOutcome:
-    return ToolOutcome(ok=False, content=f"Error: {message}", summary=message)
-
-
-def changes_plan(name: str) -> bool:
-    """Whether `name` is a tool that writes to the plan (unknown tools count as writes)."""
-    return not isinstance(TOOLS.get(name), ReadTool)
+    return ToolOutcome(ok=False, summary=message)
 
 
 async def _attempt(name: str, action: Callable[[], Awaitable[ToolOutcome]]) -> ToolOutcome:
@@ -1471,85 +460,37 @@ async def _attempt(name: str, action: Callable[[], Awaitable[ToolOutcome]]) -> T
     except ToolError as exc:
         return _failure(str(exc))
     except itinerary_service.ItemNotFoundError:
-        return _failure("No item with that id in this plan; use an id from the plan JSON")
+        return _failure("That item is no longer in this plan")
     except plans_service.PlanNotFoundError:
         return _failure("This plan no longer exists")
 
 
-def _staged(*prepared: Prepared, note: str = "") -> ToolOutcome:
-    summary = "; ".join(change.summary for change in prepared)
-    content = STAGED_CONTENT.format(summary=summary)
-    return ToolOutcome(
-        ok=True,
-        content=f"{content}\n{note}" if note else content,
-        summary=f"Proposed: {summary}",
-        prepared=prepared,
-    )
-
-
-def _logged(name: str, ctx: ToolContext, outcome: ToolOutcome) -> ToolOutcome:
-    log = logger.info if outcome.ok else logger.warning
-    log("Tool %s on plan %s: %s", name, ctx.plan_id, outcome.summary)
-    return outcome
-
-
 def _write_tool(name: str) -> WriteTool:
     tool = TOOLS.get(name)
-    if not isinstance(tool, WriteTool):
-        # Only reachable with a corrupted proposal row: proposals hold prepared writes.
+    if tool is None:
+        # Only reachable with a corrupted stored change: candidates are built in code.
         raise ToolError(f"{name!r} is not a plan change")
     return tool
 
 
-async def execute(ctx: ToolContext, call: LLMToolCall) -> ToolOutcome:
-    """Run a read tool, or prepare (stage) a write tool's change without applying it."""
-    tool = TOOLS.get(call.name)
-    available = list(TOOLS) if ctx.stage is None else [s.name for s in specs_for_stage(ctx.stage)]
-    if tool is None:
-        return _failure(f"Unknown tool {call.name!r}. Available tools: {', '.join(available)}")
-    if call.name not in available:
-        # The model is only offered this stage's tools, but may still name another one
-        # (from the history, or the prompt's general rules).
-        assert ctx.stage is not None  # every tool is available when ungated
-        return _logged(call.name, ctx, _failure(_stage_locked(call.name, ctx.stage)))
-
-    async def action() -> ToolOutcome:
-        if isinstance(tool, ReadTool):
-            return await tool.run(ctx, call.arguments)
-        if isinstance(tool, BundleTool):
-            bundle = await tool.prepare(ctx, call.arguments)
-            return _staged(*bundle.prepared, note=bundle.note)
-        return _staged(await tool.prepare(ctx, call.arguments))
-
-    return _logged(call.name, ctx, await _attempt(call.name, action))
-
-
 async def check_change(ctx: ToolContext, change: ProposedChange) -> ToolOutcome:
-    """Whether a proposed change still validates against the plan (writes nothing)."""
+    """Whether a change validates against the plan (writes nothing)."""
 
     async def action() -> ToolOutcome:
-        return _staged(await _write_tool(change.name).prepare(ctx, change.arguments))
+        prepared = await _write_tool(change.name).prepare(ctx, change.arguments)
+        return ToolOutcome(ok=True, summary=prepared.summary, prepared=(prepared,))
 
     return await _attempt(change.name, action)
 
 
 async def apply_change(ctx: ToolContext, change: ProposedChange) -> ToolOutcome:
-    """Prepare a proposed change again (the plan may have moved on) and write it."""
+    """Prepare a change again (the plan may have moved on) and write it."""
 
     async def action() -> ToolOutcome:
         tool = _write_tool(change.name)
         return await tool.apply(ctx, await tool.prepare(ctx, change.arguments))
 
-    return _logged(change.name, ctx, await _attempt(change.name, action))
-
-
-# Advice for the model at the end of some failures. The planning flow shows a failure to the
-# user instead, who picks from a list and has no "option" to change or user to ask.
-_MODEL_HELP = (_NO_COST_HELP, _OVER_LIMIT_HELP, _OVER_BUDGET_HELP, _ROUTE_HELP)
-
-
-def for_people(message: str) -> str:
-    """A failure's message without the advice addressed to the model."""
-    for help_text in _MODEL_HELP:
-        message = message.replace(f". {help_text}", "")
-    return message
+    outcome = await _attempt(change.name, action)
+    log = logger.info if outcome.ok else logger.warning
+    log("Change %s on plan %s: %s", change.name, ctx.plan_id, outcome.summary)
+    return outcome

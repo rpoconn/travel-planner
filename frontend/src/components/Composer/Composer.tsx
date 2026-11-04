@@ -4,8 +4,8 @@ import type { KeyboardEvent, SyntheticEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 
-// Message box under the chat. Controlled, so ChatPanel can restore the text when sending
-// fails. Enter sends; Shift+Enter adds a newline.
+// Message box under the transcript. Controlled, so PlanningPanel can restore the text when
+// sending fails. Enter sends; Shift+Enter adds a newline.
 
 // ----- types -----
 

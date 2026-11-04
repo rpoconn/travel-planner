@@ -1,4 +1,5 @@
-"""The planning flow's routes, beside the chat flow's until it replaces them.
+"""The planning flow's routes: the transcript, form answers and picks, free text, and
+"continue".
 
 Every check that can fail (the plan, the pending slot, the answer's shape) runs in a
 dependency, before the event stream opens, so a failure is a plain 404 / 409 / 422.
@@ -37,7 +38,6 @@ from shared.errors import error_responses
 from shared.flights.provider import FlightsDep
 from shared.hotels.provider import HotelsDep
 from shared.places.provider import PlacesDep
-from shared.search.provider import SearchDep
 
 router = APIRouter(
     prefix="/plans/{plan_id}/planning",
@@ -111,7 +111,6 @@ def get_turn_context(
     flights: FlightsDep,
     hotels: HotelsDep,
     places: PlacesDep,
-    search: SearchDep,
     user: CurrentUser,
     plan: OwnedPlan,
 ) -> TurnContext:
@@ -124,7 +123,6 @@ def get_turn_context(
         flights=flights,
         hotels=hotels,
         places=places,
-        search=search,
     )
 
 

@@ -19,9 +19,7 @@ from shared.migrations import (
     run_migrations,
 )
 
-_BASELINE_TABLES = frozenset(
-    {"users", "travel_plans", "itinerary_items", "chat_messages", "search_cache"}
-)
+_BASELINE_TABLES = frozenset({"users", "travel_plans", "itinerary_items", "chat_messages"})
 # Columns later migrations added to the baseline tables: create_all builds today's models,
 # so these are dropped again to get the pre-migration schema.
 _LATER_COLUMNS = {
@@ -29,6 +27,14 @@ _LATER_COLUMNS = {
     "chat_messages": ("payload",),
     "users": ("home",),
 }
+# What the baseline had that later migrations dropped: no model describes it any more, so
+# it is built by hand.
+_DROPPED_SINCE = (
+    "ALTER TABLE chat_messages ADD COLUMN tool_calls JSON NOT NULL DEFAULT '[]'",
+    "CREATE TABLE search_cache (key VARCHAR(64) NOT NULL PRIMARY KEY, kind VARCHAR(20) NOT "
+    "NULL, query TEXT NOT NULL, results JSON NOT NULL, created_at DATETIME NOT NULL)",
+    "CREATE INDEX ix_search_cache_created_at ON search_cache (created_at)",
+)
 
 
 @pytest.fixture
@@ -66,13 +72,16 @@ async def test_running_migrations_twice_is_a_no_op(engine: AsyncEngine) -> None:
     await run_migrations(engine)
     async with engine.begin() as connection:
         await connection.execute(
-            text("INSERT INTO search_cache VALUES ('k', 'general', 'q', '[]', '2026-01-01')")
+            text(
+                "INSERT INTO users (id, email, display_name, password_hash, created_at) "
+                f"VALUES ('{'a' * 32}', 'ada@example.com', 'Ada', 'x', '2026-01-01')"
+            )
         )
 
     await run_migrations(engine)
 
     async with engine.connect() as connection:
-        count = await connection.scalar(text("SELECT count(*) FROM search_cache"))
+        count = await connection.scalar(text("SELECT count(*) FROM users"))
     assert count == 1
 
 
@@ -85,6 +94,8 @@ async def test_pre_migration_database_is_adopted(engine: AsyncEngine) -> None:
         for table, columns in _LATER_COLUMNS.items():
             for column in columns:
                 await connection.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
+        for statement in _DROPPED_SINCE:
+            await connection.execute(text(statement))
 
     await run_migrations(engine)
 
@@ -112,7 +123,7 @@ async def test_downgrade_to_base_and_back(engine: AsyncEngine) -> None:
 # ---------------------------------------------------------------------------
 # SQLite batch migrations rebuild a table (copy, DROP the original, rename). With foreign
 # keys on, that DROP deletes every child row through ON DELETE CASCADE, so a plan rebuild
-# used to wipe its items, messages and proposals.
+# used to wipe its items and messages.
 
 _CHILD_TABLES = ("itinerary_items", "chat_messages")
 _NOW = "2026-10-01 12:00:00.000000"

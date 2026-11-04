@@ -178,7 +178,7 @@ def _budget_warnings(
     travelers: Travelers | None,
     items: Sequence[ItineraryItem],
 ) -> list[TimelineWarning]:
-    # The agent can't propose items that break these rules, but the user can add items,
+    # A pick can't add items that break these rules, but the user can add items,
     # set a budget after the fact or lower it, so the plan is checked as it stands.
     warnings: list[TimelineWarning] = []
     for item in items:

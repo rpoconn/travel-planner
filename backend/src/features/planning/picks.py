@@ -21,8 +21,6 @@ from features.planning import offers
 from features.planning.schemas import Candidate, OfferChoice
 from features.plans import service as plans_service
 from features.plans.schemas import PlanSnapshot, SlotName
-from shared.flights.types import FlightProvider
-from shared.search.types import SearchProvider
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +35,6 @@ class PickContext:
     user_id: UUID
     plan_id: UUID
     today: date
-    # Only for the tool context the changes are checked with; a pick never searches.
-    search: SearchProvider
-    flights: FlightProvider
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +97,6 @@ async def apply_pick(
         session=ctx.session,
         user_id=ctx.user_id,
         plan_id=ctx.plan_id,
-        search=ctx.search,
-        flights=ctx.flights,
         today=ctx.today,
     )
     changes = _changes(candidates)
@@ -112,7 +105,7 @@ async def apply_pick(
         # the flight out, several activities sharing the budget), as the user sees them.
         outcome = await tools.check_change(replace(tool_ctx, staged=changes[:index]), change)
         if not outcome.ok:
-            raise PickError(tools.for_people(outcome.summary))
+            raise PickError(outcome.summary)
     for change in changes:
         # Writes commit one by one; a failure here (the plan changed in between) leaves
         # the earlier ones applied, and the plan's new version retires the offer.
@@ -121,7 +114,7 @@ async def apply_pick(
             logger.warning(
                 "Pick on plan %s stopped at %s: %s", plan.id, change.name, outcome.summary
             )
-            raise PickError(tools.for_people(outcome.summary))
+            raise PickError(outcome.summary)
     await offers.close_offer(ctx.session, ctx.plan_id, action.offer_id, "picked")
     logger.info("Plan %s picked %s from offer %s", plan.id, action.slot, action.offer_id)
 

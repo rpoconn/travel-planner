@@ -1125,391 +1125,6 @@
         }
       }
     },
-    "/plans/{plan_id}/messages": {
-      "get": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "List Messages",
-        "description": "The plan's conversation, oldest first.",
-        "operationId": "listMessages",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "plan_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Plan Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ChatMessage"
-                  },
-                  "title": "Response Listmessages"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/plans/{plan_id}/chat": {
-      "post": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Send Message",
-        "description": "Send a message and stream the assistant's answer as server-sent events.\n\nEach event's `data` is a JSON `ChatEvent` discriminated by `type`: `guardrail` first,\nthen `token` / `tool_call` / `tool_result` as the answer is produced, and finally\n`done` (with the stored reply) or `error`. Plan changes the assistant makes are only\nstaged (`tool_result.proposed`): they arrive as `done.message.proposal`, and are applied\nonce the user approves them through `decideProposal`.",
-        "operationId": "sendMessage",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "plan_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Plan Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendMessage"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/event-stream": {
-                "itemSchema": {
-                  "type": "object",
-                  "properties": {
-                    "data": {
-                      "type": "string",
-                      "contentMediaType": "application/json",
-                      "contentSchema": {
-                        "oneOf": [
-                          {
-                            "$ref": "#/components/schemas/GuardrailEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/TokenEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/ToolCallEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/ToolResultEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/PlanUpdatedEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/DoneEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/ErrorEvent"
-                          }
-                        ],
-                        "discriminator": {
-                          "propertyName": "type",
-                          "mapping": {
-                            "guardrail": "#/components/schemas/GuardrailEvent",
-                            "token": "#/components/schemas/TokenEvent",
-                            "tool_call": "#/components/schemas/ToolCallEvent",
-                            "tool_result": "#/components/schemas/ToolResultEvent",
-                            "plan_updated": "#/components/schemas/PlanUpdatedEvent",
-                            "done": "#/components/schemas/DoneEvent",
-                            "error": "#/components/schemas/ErrorEvent"
-                          }
-                        },
-                        "title": "Streamitem Sendmessage"
-                      }
-                    },
-                    "event": {
-                      "type": "string"
-                    },
-                    "id": {
-                      "type": "string"
-                    },
-                    "retry": {
-                      "type": "integer",
-                      "minimum": 0
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "404": {
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "429": {
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/plans/{plan_id}/chat/proposals/{proposal_id}/decision": {
-      "post": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Decide Proposal",
-        "description": "Approve, deny or revise a pending proposal, streaming the outcome like `sendMessage`.\n\n- `approve`: every change is checked against the current plan, then applied in order\n  (`tool_call` / `tool_result` per change, then one `plan_updated`); if any no longer\n  fits, nothing is written and the proposal is `failed`. The assistant then confirms.\n- `deny`: nothing changes; a short stored reply, no model call.\n- `revise`: `message` goes to the assistant, which usually proposes again.",
-        "operationId": "decideProposal",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "plan_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Plan Id"
-            }
-          },
-          {
-            "name": "proposal_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Proposal Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProposalDecision"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/event-stream": {
-                "itemSchema": {
-                  "type": "object",
-                  "properties": {
-                    "data": {
-                      "type": "string",
-                      "contentMediaType": "application/json",
-                      "contentSchema": {
-                        "oneOf": [
-                          {
-                            "$ref": "#/components/schemas/GuardrailEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/TokenEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/ToolCallEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/ToolResultEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/PlanUpdatedEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/DoneEvent"
-                          },
-                          {
-                            "$ref": "#/components/schemas/ErrorEvent"
-                          }
-                        ],
-                        "discriminator": {
-                          "propertyName": "type",
-                          "mapping": {
-                            "guardrail": "#/components/schemas/GuardrailEvent",
-                            "token": "#/components/schemas/TokenEvent",
-                            "tool_call": "#/components/schemas/ToolCallEvent",
-                            "tool_result": "#/components/schemas/ToolResultEvent",
-                            "plan_updated": "#/components/schemas/PlanUpdatedEvent",
-                            "done": "#/components/schemas/DoneEvent",
-                            "error": "#/components/schemas/ErrorEvent"
-                          }
-                        },
-                        "title": "Streamitem Decideproposal"
-                      }
-                    },
-                    "event": {
-                      "type": "string"
-                    },
-                    "id": {
-                      "type": "string"
-                    },
-                    "retry": {
-                      "type": "integer",
-                      "minimum": 0
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "404": {
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "429": {
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/plans/{plan_id}/planning/messages": {
       "get": {
         "tags": [
@@ -2123,7 +1738,7 @@
               }
             ],
             "title": "Source Url",
-            "description": "URL of the web_search result this came from"
+            "description": "URL of the search result this came from"
           },
           "notes": {
             "type": "string",
@@ -2266,7 +1881,7 @@
               }
             ],
             "title": "Source Url",
-            "description": "URL of the web_search result this came from"
+            "description": "URL of the search result this came from"
           },
           "notes": {
             "type": "string",
@@ -2747,155 +2362,6 @@
         "title": "CandidateChange",
         "description": "The plan change picking a candidate makes: a write tool's name and arguments, run\nthrough the same validation as any other change (`chat.tools.check_change`)."
       },
-      "ChatMessage": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
-          "plan_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Plan Id"
-          },
-          "role": {
-            "type": "string",
-            "enum": [
-              "user",
-              "assistant",
-              "system"
-            ],
-            "title": "Role"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "message",
-              "redirect",
-              "error",
-              "decision",
-              "nudge",
-              "input",
-              "pick",
-              "expected_input",
-              "choices",
-              "stage"
-            ],
-            "title": "Kind"
-          },
-          "content": {
-            "type": "string",
-            "title": "Content"
-          },
-          "tool_calls": {
-            "items": {
-              "$ref": "#/components/schemas/ToolTrace"
-            },
-            "type": "array",
-            "title": "Tool Calls"
-          },
-          "proposal": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ChatProposal"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "plan_id",
-          "role",
-          "kind",
-          "content",
-          "tool_calls",
-          "proposal",
-          "created_at"
-        ],
-        "title": "ChatMessage"
-      },
-      "ChatProposal": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
-          "plan_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Plan Id"
-          },
-          "message_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Message Id"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "approved",
-              "denied",
-              "revised",
-              "superseded",
-              "failed"
-            ],
-            "title": "Status"
-          },
-          "changes": {
-            "items": {
-              "$ref": "#/components/schemas/ProposedChange"
-            },
-            "type": "array",
-            "title": "Changes"
-          },
-          "plan_version": {
-            "type": "integer",
-            "title": "Plan Version"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "decided_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decided At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "plan_id",
-          "message_id",
-          "status",
-          "changes",
-          "plan_version",
-          "created_at",
-          "decided_at"
-        ],
-        "title": "ChatProposal",
-        "description": "The changes the assistant proposed in one reply, applied all-or-nothing on approval."
-      },
       "ChoicePick": {
         "properties": {
           "type": {
@@ -2969,7 +2435,7 @@
               "estimate"
             ],
             "title": "Basis",
-            "description": "exact = a price the user or a web_search result gave; estimate = your best guess (e.g. from a $$ price range)",
+            "description": "exact = a price the user or a search result gave; estimate = a best guess (e.g. from a $$ price range)",
             "default": "estimate"
           }
         },
@@ -3000,7 +2466,7 @@
               "estimate"
             ],
             "title": "Basis",
-            "description": "exact = a price the user or a web_search result gave; estimate = your best guess (e.g. from a $$ price range)",
+            "description": "exact = a price the user or a search result gave; estimate = a best guess (e.g. from a $$ price range)",
             "default": "estimate"
           }
         },
@@ -3009,58 +2475,6 @@
           "amount"
         ],
         "title": "Cost"
-      },
-      "DoneEvent": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "done",
-            "title": "Type",
-            "default": "done"
-          },
-          "message": {
-            "$ref": "#/components/schemas/ChatMessage"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "message"
-        ],
-        "title": "DoneEvent",
-        "description": "The stored assistant reply; always the last event of a successful turn."
-      },
-      "ErrorEvent": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "error",
-            "title": "Type",
-            "default": "error"
-          },
-          "detail": {
-            "type": "string",
-            "title": "Detail"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ChatMessage"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "detail",
-          "message"
-        ],
-        "title": "ErrorEvent",
-        "description": "Answering failed; `message` is the stored system notice (when it could be saved)."
       },
       "ErrorResponse": {
         "properties": {
@@ -3283,7 +2697,7 @@
               }
             ],
             "title": "Source Url",
-            "description": "URL of the web_search result this came from"
+            "description": "URL of the search result this came from"
           },
           "notes": {
             "type": "string",
@@ -3463,7 +2877,7 @@
               }
             ],
             "title": "Source Url",
-            "description": "URL of the web_search result this came from"
+            "description": "URL of the search result this came from"
           },
           "notes": {
             "type": "string",
@@ -3911,31 +3325,6 @@
         "title": "Gap",
         "description": "A change of place with no transfer to cover it (found by `itinerary.gaps`).\n\n`None` item ids mean the traveller's home: `after_item_id=None` is the trip's start\n(home \u2192 first stop) and `before_item_id=None` is its end (last stop \u2192 home)."
       },
-      "GuardrailEvent": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "guardrail",
-            "title": "Type",
-            "default": "guardrail"
-          },
-          "on_topic": {
-            "type": "boolean",
-            "title": "On Topic"
-          },
-          "topic": {
-            "type": "string",
-            "title": "Topic"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "on_topic",
-          "topic"
-        ],
-        "title": "GuardrailEvent"
-      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -4158,7 +3547,7 @@
               }
             ],
             "title": "Source Url",
-            "description": "URL of the web_search result this came from"
+            "description": "URL of the search result this came from"
           },
           "notes": {
             "type": "string",
@@ -4316,7 +3705,7 @@
               }
             ],
             "title": "Source Url",
-            "description": "URL of the web_search result this came from"
+            "description": "URL of the search result this came from"
           },
           "notes": {
             "type": "string",
@@ -4665,6 +4054,21 @@
           "password"
         ],
         "title": "LoginRequest"
+      },
+      "MessageKind": {
+        "type": "string",
+        "enum": [
+          "message",
+          "error",
+          "nudge",
+          "input",
+          "pick",
+          "expected_input",
+          "choices",
+          "stage"
+        ],
+        "title": "MessageKind",
+        "description": "What a transcript message is, so the UI knows how to show it."
       },
       "Money-Input": {
         "properties": {
@@ -5376,25 +4780,6 @@
         "title": "PlanUpdate",
         "description": "Partial update: only fields present in the request body are applied.\n\nThe date range is re-checked by the service against the merged plan, since a patch may\ncarry only one of the two dates."
       },
-      "PlanUpdatedEvent": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "plan_updated",
-            "title": "Type",
-            "default": "plan_updated"
-          },
-          "plan": {
-            "$ref": "#/components/schemas/TravelPlan"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "plan"
-        ],
-        "title": "PlanUpdatedEvent"
-      },
       "PlanningDoneEvent": {
         "properties": {
           "type": {
@@ -5469,20 +4854,7 @@
             "title": "Role"
           },
           "kind": {
-            "type": "string",
-            "enum": [
-              "message",
-              "redirect",
-              "error",
-              "decision",
-              "nudge",
-              "input",
-              "pick",
-              "expected_input",
-              "choices",
-              "stage"
-            ],
-            "title": "Kind"
+            "$ref": "#/components/schemas/MessageKind"
           },
           "content": {
             "type": "string",
@@ -5642,68 +5014,6 @@
         "title": "PlanningTokenEvent",
         "description": "Part of the assistant's streamed answer to a question; the stored message follows."
       },
-      "ProposalDecision": {
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "approve",
-              "deny",
-              "revise"
-            ],
-            "title": "Action"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 4000,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "action"
-        ],
-        "title": "ProposalDecision",
-        "description": "The user's answer to a proposal card. `message` is the free text of \"Other\u2026\"."
-      },
-      "ProposedChange": {
-        "properties": {
-          "call_id": {
-            "type": "string",
-            "title": "Call Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "arguments": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Arguments"
-          },
-          "summary": {
-            "type": "string",
-            "title": "Summary"
-          }
-        },
-        "type": "object",
-        "required": [
-          "call_id",
-          "name",
-          "arguments",
-          "summary"
-        ],
-        "title": "ProposedChange",
-        "description": "One staged plan change: a validated write-tool call waiting for the user."
-      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -5793,31 +5103,6 @@
         ],
         "title": "RunSearch",
         "description": "Search for the slot's candidates (the \"Find flights\" / \"Retry\" button)."
-      },
-      "SendMessage": {
-        "properties": {
-          "content": {
-            "type": "string",
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Content"
-          },
-          "fix": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WarningToFix"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "content"
-        ],
-        "title": "SendMessage"
       },
       "SlotAnswer": {
         "properties": {
@@ -6228,26 +5513,6 @@
         ],
         "title": "TimelineWarning"
       },
-      "TokenEvent": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "token",
-            "title": "Type",
-            "default": "token"
-          },
-          "text": {
-            "type": "string",
-            "title": "Text"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "text"
-        ],
-        "title": "TokenEvent"
-      },
       "TokenResponse": {
         "properties": {
           "access_token": {
@@ -6275,135 +5540,6 @@
           "user"
         ],
         "title": "TokenResponse"
-      },
-      "ToolCallEvent": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "tool_call",
-            "title": "Type",
-            "default": "tool_call"
-          },
-          "call_id": {
-            "type": "string",
-            "title": "Call Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "arguments": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Arguments"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "call_id",
-          "name",
-          "arguments"
-        ],
-        "title": "ToolCallEvent"
-      },
-      "ToolResultEvent": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "tool_result",
-            "title": "Type",
-            "default": "tool_result"
-          },
-          "call_id": {
-            "type": "string",
-            "title": "Call Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "ok": {
-            "type": "boolean",
-            "title": "Ok"
-          },
-          "summary": {
-            "type": "string",
-            "title": "Summary"
-          },
-          "proposed": {
-            "type": "boolean",
-            "title": "Proposed",
-            "default": false
-          },
-          "sources": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Sources"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "call_id",
-          "name",
-          "ok",
-          "summary",
-          "proposed",
-          "sources"
-        ],
-        "title": "ToolResultEvent"
-      },
-      "ToolTrace": {
-        "properties": {
-          "call_id": {
-            "type": "string",
-            "title": "Call Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "arguments": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Arguments"
-          },
-          "ok": {
-            "type": "boolean",
-            "title": "Ok"
-          },
-          "summary": {
-            "type": "string",
-            "title": "Summary"
-          },
-          "proposed": {
-            "type": "boolean",
-            "title": "Proposed",
-            "default": false
-          },
-          "sources": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Sources"
-          }
-        },
-        "type": "object",
-        "required": [
-          "call_id",
-          "name",
-          "arguments",
-          "ok",
-          "summary",
-          "proposed",
-          "sources"
-        ],
-        "title": "ToolTrace",
-        "description": "One tool the assistant ran: what it asked for and how it went."
       },
       "TransferItem": {
         "properties": {
@@ -6507,7 +5643,7 @@
               }
             ],
             "title": "Source Url",
-            "description": "URL of the web_search result this came from"
+            "description": "URL of the search result this came from"
           },
           "notes": {
             "type": "string",
@@ -6684,7 +5820,7 @@
               }
             ],
             "title": "Source Url",
-            "description": "URL of the web_search result this came from"
+            "description": "URL of the search result this came from"
           },
           "notes": {
             "type": "string",
@@ -7298,56 +6434,6 @@
           "type"
         ],
         "title": "ValidationError"
-      },
-      "WarningToFix": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "no_lodging",
-              "overlap",
-              "missing_transfer",
-              "outside_trip",
-              "missing_cost",
-              "over_limit",
-              "over_budget",
-              "wrong_timezone",
-              "wrong_departure"
-            ],
-            "title": "Kind"
-          },
-          "message": {
-            "type": "string",
-            "title": "Message"
-          },
-          "date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Date"
-          },
-          "item_ids": {
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "type": "array",
-            "title": "Item Ids"
-          }
-        },
-        "type": "object",
-        "required": [
-          "kind",
-          "message"
-        ],
-        "title": "WarningToFix",
-        "description": "A timeline warning sent back by the client, as it received it. A subclass only so\nit gets its own schema name: using `TimelineWarning` itself as input too would split\nit into `TimelineWarningInput` / `TimelineWarningOutput` in the generated SDK."
       }
     },
     "securitySchemes": {

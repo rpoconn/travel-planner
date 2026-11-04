@@ -5,7 +5,7 @@
 - The costs of all active items add up to no more than the budget.
 
 Pure functions over validated schemas, returning a description of the problem or None. The
-agent's tools enforce them (a change that breaks one never reaches the user); the timeline
+plan-change checks (`chat.tools`) enforce them, so a pick that breaks one is refused; the timeline
 only warns, since the user may add items or lower the budget themselves.
 """
 

@@ -1,7 +1,7 @@
 """Deterministic `FlightProvider` for tests and `FLIGHT_PROVIDER=fake` (offline dev / E2E).
 
 Without scripted replies it makes up obviously fake but well-formed nonstop flights for
-the query ("Example Air"), so the agent loop can be exercised without network access or
+the query ("Example Air"), so the flights stage can be exercised without network access or
 an API key.
 """
 

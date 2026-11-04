@@ -3,15 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { PlanStage } from '@/api/types.gen'
 import { stageStatuses, travelPlan } from '@/test/fixtures'
 
-import {
-    currentStatus,
-    STAGE_META,
-    STAGES,
-    stageIndex,
-    stageState,
-    stageStatus,
-    suggestionsFor,
-} from './stages'
+import { currentStatus, STAGE_META, STAGES, stageIndex, stageState, stageStatus } from './stages'
 
 describe('stages', () => {
     it('lists every stage once, in workflow order, with a label', () => {
@@ -68,14 +60,5 @@ describe('stages', () => {
 
     it('takes the stage order from the generated enum', () => {
         expect(STAGES).toEqual(Object.values(PlanStage))
-    })
-
-    it('suggests messages for the current stage, naming the destination', () => {
-        expect(suggestionsFor(travelPlan({ stage: 'flights' }))[0]).toBe('Find flights to Tokyo')
-        expect(suggestionsFor(travelPlan({ stage: 'lodging' }))).toContain('Add a hotel')
-        expect(suggestionsFor(travelPlan({ stage: 'ground' }))).toContain('Add transfers')
-        expect(suggestionsFor(travelPlan({ destination: null }))[0]).toBe(
-            'I want to spend a week in Tokyo in May',
-        )
     })
 })

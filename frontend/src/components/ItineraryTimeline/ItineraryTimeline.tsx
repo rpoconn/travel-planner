@@ -12,8 +12,8 @@ import { findTimelineItem } from '@/lib/timeline'
 
 // The read-only itinerary panel: day columns left to right (outbound flight on the first day,
 // return on the last) and lodging bars spanning the nights. The layout comes from the server's
-// timeline view model; plan_updated events refetch it. The warnings list lives in the stage bar
-// (TimelineWarnings); per-day and per-item warnings still mark the cards here.
+// timeline view model; plan_updated events refetch it. The planner's issues live in the stage bar
+// (IssuesPanel); per-day and per-item warnings still mark the cards here.
 
 // ----- types -----
 

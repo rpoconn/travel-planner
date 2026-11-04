@@ -1,7 +1,6 @@
-"""Trip cost totals against the budget, spelled out for the agent.
+"""Trip cost totals against the budget, spelled out for people.
 
-Small models don't add up a plan's costs reliably and will call a price "within budget"
-without checking, so the totals are computed here and put in front of them.
+The totals are computed here, not by the model, and shown with the plan.
 
 Amounts are only summed within one currency: there are no exchange rates here, so costs
 in other currencies are listed separately rather than converted.
@@ -31,7 +30,7 @@ def _format(amount: Decimal, currency: str) -> str:
 
 
 def format_money(money: Money) -> str:
-    """Write `money` as "1,380.50 USD", the way amounts appear in messages to the agent."""
+    """Write `money` as "1,380.50 USD", the way amounts appear in messages."""
     return _format(money.amount, money.currency)
 
 

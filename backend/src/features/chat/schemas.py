@@ -1,51 +1,39 @@
-"""Chat API schemas: stored messages and proposals, the send-message and decision requests,
-the guardrail verdict, and the server-sent events streamed while the assistant answers."""
+"""Transcript message types shared by the planning flow, and the plan change a candidate's
+pick runs through `chat.tools`."""
 
-from datetime import datetime
-from typing import Annotated, Any, Literal, Self
-from uuid import UUID
+from enum import StrEnum
+from typing import Annotated, Any, Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StringConstraints,
-    field_validator,
-    model_validator,
-)
-
-from features.itinerary.schemas import TimelineWarning
-from features.planning.schemas import TravelPlan
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 # ---------------------------------------------------------------------------
 # Field types
 # ---------------------------------------------------------------------------
 
 MessageRole = Literal["user", "assistant", "system"]
-# "redirect": the guardrail judged the user's message off-topic and the assistant steered
-# back to trip planning. "error": a stored system notice that answering failed.
-# "decision": the user's answer to a proposal card (approve / deny / free-text revision).
-# The rest are the planning engine's (`planning.events.PlanningMessage`): "nudge", the fixed
-# reply to free text that doesn't answer the pending input; "input", the user's answer to a
-# form (or a skip); "pick", a choice from an offer; "expected_input" / "choices", the form or
-# the candidates shown; "stage", moving on to another stage.
-MessageKind = Literal[
-    "message",
-    "redirect",
-    "error",
-    "decision",
-    "nudge",
-    "input",
-    "pick",
-    "expected_input",
-    "choices",
-    "stage",
-]
-# pending: waiting for the user. approved / denied / revised: the user's decision.
-# superseded: a newer proposal replaced it before a decision. failed: approved, but a change
-# no longer validated against the plan, so nothing was applied.
-ProposalStatus = Literal["pending", "approved", "denied", "revised", "superseded", "failed"]
-ProposalAction = Literal["approve", "deny", "revise"]
+
+
+class MessageKind(StrEnum):
+    """What a transcript message is, so the UI knows how to show it."""
+
+    # Plain text: the user's free text, or the assistant's answer to a question.
+    MESSAGE = "message"
+    # A stored system notice that a turn failed.
+    ERROR = "error"
+    # The fixed reply to free text that doesn't answer the pending input, or a pick that
+    # doesn't fit.
+    NUDGE = "nudge"
+    # The user's answer to a form (or a skip).
+    INPUT = "input"
+    # The user's choice from an offer.
+    PICK = "pick"
+    # The form shown.
+    EXPECTED_INPUT = "expected_input"
+    # The candidates shown.
+    CHOICES = "choices"
+    # Moving on to another stage.
+    STAGE = "stage"
+
 
 MAX_MESSAGE_CHARS = 4000
 MessageContent = Annotated[
@@ -54,208 +42,16 @@ MessageContent = Annotated[
 
 
 # ---------------------------------------------------------------------------
-# Messages
+# Plan changes
 # ---------------------------------------------------------------------------
-
-
-class ToolTrace(BaseModel):
-    """One tool the assistant ran: what it asked for and how it went."""
-
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
-
-    call_id: str
-    name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
-    ok: bool
-    summary: str  # short human-readable outcome, e.g. "Added flight SFO → NRT"
-    # A plan change that was only staged into the message's proposal, not applied.
-    proposed: bool = False
-    # A web_search's result URLs: what a later turn may cite as source_url without
-    # searching again (see pipeline `_recent_sources`).
-    sources: list[str] = Field(default_factory=list)
 
 
 class ProposedChange(BaseModel):
-    """One staged plan change: a validated write-tool call waiting for the user."""
+    """One plan change waiting to be checked or written: a pick's change, with an id."""
 
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
     call_id: str
-    name: str  # the write tool, e.g. "add_flight"
-    arguments: dict[str, Any] = Field(default_factory=dict)  # normalised by the tool
+    name: str  # the change, e.g. "add_flight"
+    arguments: dict[str, Any] = Field(default_factory=dict)
     summary: str  # imperative, e.g. 'Add flight “SFO → NRT” on 2027-05-01 11:00'
-
-
-class ChatProposal(BaseModel):
-    """The changes the assistant proposed in one reply, applied all-or-nothing on approval."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    plan_id: UUID
-    message_id: UUID  # the assistant message that proposed it
-    status: ProposalStatus
-    changes: list[ProposedChange]
-    plan_version: int  # the plan's version when proposed (informational)
-    created_at: datetime
-    decided_at: datetime | None
-
-
-class ChatMessage(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    plan_id: UUID
-    role: MessageRole
-    kind: MessageKind
-    content: str
-    tool_calls: list[ToolTrace]
-    proposal: ChatProposal | None  # assistant messages that staged plan changes
-    created_at: datetime
-
-
-class WarningToFix(TimelineWarning):
-    """A timeline warning sent back by the client, as it received it. A subclass only so
-    it gets its own schema name: using `TimelineWarning` itself as input too would split
-    it into `TimelineWarningInput` / `TimelineWarningOutput` in the generated SDK."""
-
-
-class SendMessage(BaseModel):
-    content: MessageContent
-    # Set by the itinerary's "Fix it" button: `content` is still the visible, stored text
-    # ("Fix: …"), and the warning is handed to the assistant to propose a fix for.
-    fix: WarningToFix | None = None
-
-
-class ProposalDecision(BaseModel):
-    """The user's answer to a proposal card. `message` is the free text of "Other…"."""
-
-    action: ProposalAction
-    message: MessageContent | None = None
-
-    @model_validator(mode="after")
-    def _message_only_to_revise(self) -> Self:
-        if (self.action == "revise") != (self.message is not None):
-            raise ValueError('"message" is required to revise, and only then')
-        return self
-
-
-# ---------------------------------------------------------------------------
-# Guardrail
-# ---------------------------------------------------------------------------
-
-
-class GuardrailVerdict(BaseModel):
-    """Structured output of the topic classifier (also the JSON schema the model must
-    follow)."""
-
-    on_topic: bool
-    confidence: float = Field(ge=0, le=1)
-    topic: str = Field(max_length=200, description="A few words naming what the message is about")
-
-
-# Longer reviewer reasons are cut to this (they end up in a chip's summary).
-MAX_REASON_LENGTH = 300
-
-
-class ChangeVerdict(BaseModel):
-    """The reviewer's judgement of one proposed change."""
-
-    index: int = Field(description="The change's number as listed (the first change is 1)")
-    # Before the verdict, so the model says what the change really is before judging it
-    # (Ollama fills properties in schema order). Measured in tests/.../test_review_eval.py.
-    reason: str = Field(
-        description="What the change really adds or changes, and whether that is what the "
-        "user asked for, in one sentence",
-    )
-    fits_request: bool = Field(
-        description="true if it does what the user asked for and belongs to the current stage"
-    )
-
-    @field_validator("reason", mode="before")
-    @classmethod
-    def _shorten(cls, value: object) -> object:
-        # Cut, not rejected: prompt schemas drop maxLength (shared.llm.schema), and a
-        # verdict lost to a long reason made the reviewer fail open in the eval.
-        if isinstance(value, str) and len(value) > MAX_REASON_LENGTH:
-            return value[: MAX_REASON_LENGTH - 1].rstrip() + "…"
-        return value
-
-
-class ReviewVerdict(BaseModel):
-    """Structured output of the proposal reviewer (also the JSON schema the model must
-    follow). Changes with no verdict, and an empty list, are approved."""
-
-    verdicts: list[ChangeVerdict]
-
-
-# ---------------------------------------------------------------------------
-# Server-sent events: each event's `data:` is one of these as JSON, told apart by `type`.
-# (No SSE `event:` name is sent, so clients read every event through `onmessage`.)
-# ---------------------------------------------------------------------------
-
-
-class _Event(BaseModel):
-    # `type` has a default for convenience but is always sent, so keep it required in the
-    # schema the SDK is generated from.
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
-
-
-class GuardrailEvent(_Event):
-    type: Literal["guardrail"] = "guardrail"
-    on_topic: bool
-    topic: str
-
-
-class TokenEvent(_Event):
-    type: Literal["token"] = "token"
-    text: str
-
-
-class ToolCallEvent(_Event):
-    type: Literal["tool_call"] = "tool_call"
-    call_id: str
-    name: str
-    arguments: dict[str, Any]
-
-
-class ToolResultEvent(_Event):
-    type: Literal["tool_result"] = "tool_result"
-    call_id: str
-    name: str
-    ok: bool
-    summary: str
-    proposed: bool = False  # staged into the reply's proposal rather than applied
-    sources: list[str] = Field(default_factory=list)  # a web_search's result URLs
-
-
-class PlanUpdatedEvent(_Event):
-    type: Literal["plan_updated"] = "plan_updated"
-    plan: TravelPlan
-
-
-class DoneEvent(_Event):
-    """The stored assistant reply; always the last event of a successful turn."""
-
-    type: Literal["done"] = "done"
-    message: ChatMessage
-
-
-class ErrorEvent(_Event):
-    """Answering failed; `message` is the stored system notice (when it could be saved)."""
-
-    type: Literal["error"] = "error"
-    detail: str
-    message: ChatMessage | None = None
-
-
-ChatEvent = Annotated[
-    GuardrailEvent
-    | TokenEvent
-    | ToolCallEvent
-    | ToolResultEvent
-    | PlanUpdatedEvent
-    | DoneEvent
-    | ErrorEvent,
-    Field(discriminator="type"),
-]

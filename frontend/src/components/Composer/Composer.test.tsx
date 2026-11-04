@@ -7,7 +7,7 @@ import { Composer, MAX_MESSAGE_CHARS } from './Composer'
 
 // ----- setup -----
 
-/** Composer is controlled; this wrapper owns the text like ChatPanel does. */
+/** Composer is controlled; this wrapper owns the text like PlanningPanel does. */
 function Harness({ busy = false, onSubmit }: { busy?: boolean; onSubmit: (v: string) => void }) {
     const [value, setValue] = useState('')
     return <Composer value={value} onChange={setValue} onSubmit={onSubmit} busy={busy} />

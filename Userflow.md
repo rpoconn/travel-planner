@@ -1,404 +1,189 @@
-# User Flow: Chat → Guardrail → Agent → Proposal → Approval
+# User Flow: Form or Pick → Engine → Search → Choices
 
-How one chat message travels through the app, from the user's point of view, and every
-check that decides what happens to it along the way. The short version: the assistant
-never changes the trip on its own. Every change it wants to make is **staged** into a
-proposal card, and nothing is written until the user picks **Approve**.
+How a trip gets planned, from the user's point of view, and every rule that decides what
+happens next. The short version: the **rules engine** reads the plan and says what to ask
+next; the user answers a form or picks from a list; picking **is** the approval, so the pick
+is checked and written straight away; and a finished stage moves on by itself. The model
+never decides anything. It only reads free text into the question being asked, and answers
+short questions.
 
 - [1. The big picture (sequence)](#1-the-big-picture-sequence)
-- [2. Every decision in one turn (flowchart)](#2-every-decision-in-one-turn-flowchart)
-- [3. Decision logic reference](#3-decision-logic-reference)
-- [4. Approve / Deny / Other](#4-approve--deny--other)
-- [5. Inside a tool call](#5-inside-a-tool-call)
-- [6. What the user sees](#6-what-the-user-sees)
+- [2. One turn (flowchart)](#2-one-turn-flowchart)
+- [3. What each stage asks](#3-what-each-stage-asks)
+- [4. Free text](#4-free-text)
+- [5. Picking](#5-picking)
+- [6. Moving between stages](#6-moving-between-stages)
+- [7. What the user sees](#7-what-the-user-sees)
 
-Source of truth: [router.py](backend/src/features/chat/router.py),
-[pipeline.py](backend/src/features/chat/pipeline.py),
-[guardrail.py](backend/src/features/chat/guardrail.py),
-[agent.py](backend/src/features/chat/agent.py),
+Source of truth: [engine.py](backend/src/features/planning/engine.py),
+[slots.py](backend/src/features/planning/slots.py),
+[turn.py](backend/src/features/planning/turn.py),
+[router.py](backend/src/features/planning/router.py),
+[extractor.py](backend/src/features/planning/extractor.py),
+[picks.py](backend/src/features/planning/picks.py),
+[searches.py](backend/src/features/planning/searches.py),
 [tools.py](backend/src/features/chat/tools.py),
-[prompts.py](backend/src/features/chat/prompts.py),
-[service.py](backend/src/features/chat/service.py),
-[chatTurn.ts](frontend/src/lib/chatTurn.ts),
-[ProposalCard.tsx](frontend/src/components/ProposalCard/ProposalCard.tsx).
+[planningTurn.ts](frontend/src/lib/planningTurn.ts),
+[PlanningPanel.tsx](frontend/src/components/PlanningPanel/PlanningPanel.tsx).
 
 ---
 
 ## 1. The big picture (sequence)
 
-The same local model plays two roles: **topic classifier** (structured JSON-schema output)
-and **planning agent** (streams text and tool calls). Write tools only validate during a
-turn; the changes they stage are stored as one proposal on the assistant's reply.
+Every turn is one POST that streams server-sent events. A form answer or a pick
+(`POST /plans/{id}/planning/inputs`) never reaches the model. Free text
+(`POST /plans/{id}/planning/chat`) reaches it once, as an extractor with a fixed JSON
+schema, or as a short answer to a question.
 
 ```mermaid
 sequenceDiagram
-    autonumber
     actor U as User
-    participant UI as ChatPanel (UI)
-    participant API as Chat router
-    participant P as Pipeline
-    participant G as Guardrail
-    participant A as Agent loop
-    participant M as Model (Ollama)
-    participant T as Tools
-    participant DB as Database
+    participant UI as PlanningPanel
+    participant R as planning router
+    participant T as turn.run_turn
+    participant E as engine.evaluate
+    participant S as searches
+    participant M as Ollama
 
-    U->>UI: Types a message (or clicks "Fix it")
-    UI->>API: POST /plans/{id}/chat
-    Note over API: Pre-stream checks: auth, rate limit,<br/>body validation, plan ownership<br/>(failures are plain 401 / 429 / 422 / 404)
-    API->>P: answer_message()
-    P->>DB: Load last 12 messages, store user message
-
-    alt Normal message
-        P->>G: check_topic(last 6 messages, latest)
-        G->>M: chat(format = GuardrailVerdict schema)
-        M-->>G: on_topic, confidence, topic
-        G-->>P: allowed?
-    else "Fix it" request
-        Note over P: Skip classifier (on topic by construction)<br/>latest = warning details + fix instructions
-    end
-    P-->>UI: SSE guardrail event
-
-    alt Off topic
-        P->>M: stream redirect (no tools)
-        M-->>UI: SSE token events (friendly steer back to the trip)
-    else On topic
-        P->>A: run_agent(plan JSON, history, latest)
-        loop Up to 6 tool rounds (+1 final text-only round)
-            A->>M: stream(messages, tools)
-            M-->>UI: SSE token events
-            M-->>A: tool calls (if any)
-            opt Model requested tools
-                loop Each tool call
-                    A-->>UI: SSE tool_call
-                    alt web_search (read tool)
-                        A->>T: run
-                        T-->>A: results as text
-                    else Plan change (write tool)
-                        A->>T: prepare (validate only, no write)
-                        T-->>A: Prepared change, or an error
-                        Note over A: Valid change is staged<br/>(a repeat of a staged change is not)
-                    end
-                    A-->>UI: SSE tool_result (proposed = true when staged)
-                    Note over A: Tool result appended to messages<br/>so the model sees it next round
-                end
+    U->>UI: fill the form / pick / type / Continue
+    UI->>R: POST inputs | chat | continue (SSE)
+    R->>E: is this what is being asked?
+    alt not the pending slot or offer
+        R-->>UI: 409 (stale) / 422 (bad value)
+    else
+        R->>T: trigger
+        T->>T: store the user's message (input / pick / text)
+        opt free text
+            T->>M: extract into the slot's schema (format=…, think=False)
+            M-->>T: {status, value}
+        end
+        T->>T: write the answer or pick to the plan
+        loop drive: snapshot → evaluate → act
+            T->>E: next action?
+            alt AdvanceStage
+                T->>T: set the stage, store a divider
+            else RunSearch
+                T->>S: search (flights / hotels / places / transfer rules)
+                S-->>T: candidates → open an offer
+            else AskInput / OfferChoice
+                T-->>UI: message (the form or the choices); stop
+            else Complete
+                T-->>UI: stop
             end
         end
+        T-->>UI: done {plan, assessment}
     end
-
-    P->>DB: Store assistant reply + tool traces
-    opt Changes were staged
-        P->>DB: Store proposal (pending),<br/>mark any older pending proposal superseded
-    end
-    P-->>UI: SSE done (message.proposal = the card) or error
-    UI-->>U: Reply, tool chips, proposal card with Approve / Deny / Other…
 ```
 
-The user's answer to the card is a second request; see [section 4](#4-approve--deny--other).
-
----
-
-## 2. Every decision in one turn (flowchart)
-
-Diamonds are decisions. The label on each diamond is the actual rule in code. Tags like
-**D3** match the rows in [section 3](#3-decision-logic-reference).
+## 2. One turn (flowchart)
 
 ```mermaid
 flowchart TD
-    Start(["User sends message"]) --> D1{"D1 · Authenticated?"}
-    D1 -->|no| E401["401 Unauthorized"]
-    D1 -->|yes| D2{"D2 · Under 20 messages/min<br/>for this user?"}
-    D2 -->|no| E429["429 + Retry-After"]
-    D2 -->|yes| D3{"D3 · Body valid?<br/>1–4000 chars after trim"}
-    D3 -->|no| E422["422 Validation error"]
-    D3 -->|yes| D4{"D4 · Plan exists and<br/>belongs to user?"}
-    D4 -->|no| E404["404 Plan not found"]
-    D4 -->|yes| Stream["SSE stream opens"]
-
-    Stream --> Hist["Load last 12 messages<br/>keep kind = message or decision<br/>(drops redirects + error notices)"]
-    Hist --> Store["Store user message"]
-    Store --> D5{"D5 · Is this a<br/>'Fix it' request?"}
-
-    D5 -->|yes| Fix["allowed = true, topic = 'itinerary fix'<br/>latest = warning details + instructions"]
-    D5 -->|no| Topic["Topic classifier<br/>(last 6 messages + latest)"]
-
-    Topic --> D6{"D6 · JSON matches<br/>GuardrailVerdict?"}
-    D6 -->|"no, attempt 1"| Topic
-    D6 -->|"no, attempt 2"| FailOpen["Fail OPEN → allowed"]
-    D6 -->|yes| D7{"D7 · on_topic OR<br/>confidence below 0.5?"}
-    D7 -->|no| Redirect["Mark user msg kind=redirect<br/>Stream short redirect reply (no tools)"]
-    D7 -->|yes| Agent
-    FailOpen --> Agent
-    Fix --> Agent
-
-    Agent["Build messages:<br/>system prompt (rules + checklist + plan JSON + today)<br/>+ history + latest"] --> Round
-
-    Round["Stream model reply<br/>(tokens → UI, collect tool calls)"] --> D8{"D8 · Any tool calls?<br/>and not final round?"}
-    D8 -->|no| Empty
-    D8 -->|yes| Each["For each tool call:<br/>emit tool_call"]
-
-    Each --> D9{"D9 · Does the tool<br/>write to the plan?<br/>(unknown tool = write)"}
-    D9 -->|"no (web_search)"| Run["Run it (section 5)"]
-    D9 -->|yes| Prep["Prepare: validate only,<br/>write nothing (section 5)"]
-    Prep --> D10{"D10 · Valid?"}
-    D10 -->|no| Err["Error text for the model<br/>to correct and retry"]
-    D10 -->|yes| D11{"D11 · Same change<br/>already staged?"}
-    D11 -->|yes| Dup["'Already staged; do not repeat it'"]
-    D11 -->|no| Stage["Stage it<br/>'Staged for the user's approval…'"]
-
-    Run --> Result["emit tool_result"]
-    Err --> Result
-    Dup --> Result
-    Stage --> Result
-    Result --> Feed["Append tool result to messages"]
-    Feed --> D13{"D13 · More calls<br/>this round?"}
-    D13 -->|yes| Each
-    D13 -->|no| D14{"D14 · Used 6<br/>tool rounds?"}
-    D14 -->|no| Round
-    D14 -->|yes| Final["Add 'reply now, no more tools'<br/>Final round: tools disabled"]
-    Final --> Round
-
-    Redirect --> Empty
-    Empty{"D15 · Reply text empty?"}
-    Empty -->|"yes, changes staged"| FB0["'Here's what I'd change —<br/>approve the card to apply it.'"]
-    Empty -->|"yes, nothing staged"| FB2["'Sorry, I don't have an answer…'"]
-    Empty -->|no| Save
-    FB0 --> Save
-    FB2 --> Save
-    Save["Store assistant reply<br/>(kind + tool traces)"] --> D16{"D16 · Anything staged?"}
-    D16 -->|yes| Prop["Store proposal (pending)<br/>older pending one → superseded"]
-    D16 -->|no| Done
-    Prop --> Done(["emit done"])
-
-    Round -.->|"model unreachable<br/>after 3 retries"| LLMErr["Store error notice<br/>emit error"]
-    Topic -.-> LLMErr
+    A[Trigger] --> B{Which?}
+    B -- form answer / skip --> C[Router: slot is pending?<br/>value fits the slot model?]
+    C -- no --> X1[409 / 422, nothing stored]
+    C -- yes --> D[Store 'input', write the plan]
+    B -- pick --> P[Router: offer is open?<br/>ids and count allowed?]
+    P -- no --> X1
+    P -- yes --> Q[Check every change of every picked candidate]
+    Q -- one doesn't fit --> N1[Nudge: why, same choices again]
+    Q -- all fit --> W[Write them, close the offer]
+    B -- free text --> F{What is pending?}
+    F -- a form --> FX[Extractor] --> FS{status}
+    FS -- answered + valid --> D
+    FS -- answered, invalid --> N2[Nudge: what's wrong, ask again]
+    FS -- question --> QA[Short streamed answer, ask again]
+    FS -- unrelated / malformed twice --> N3[The slot's fixed nudge]
+    F -- choices --> PX[Pick extractor: 'the second one'] --> P
+    F -- nothing --> QA2[Short streamed answer, no drive]
+    B -- continue --> DR
+    D --> DR[Drive the engine]
+    W --> DR
+    N2 --> DR
+    QA --> DR
+    DR --> DONE[done]
+    N3 --> DONE
+    N1 --> DONE
+    QA2 --> DONE
 ```
 
----
+Notes:
 
-## 3. Decision logic reference
+- The drive loop runs at most one search per turn. If it fails, a notice is stored and the
+  next action stays a search, so the stage bar offers **Retry** (`POST /continue`).
+- A form or choices list is stored as a message only once: a retry or a reload never repeats
+  the same question.
+- Offers are persisted. An offer whose slot, stage, plan version, gap or nights no longer
+  match is ignored, so any change to the plan makes the next search run again.
 
-| # | Decision | Logic | If it fails | Where |
-|---|----------|-------|-------------|-------|
-| D1 | Authenticated | `CurrentUser` dependency resolves the session user | `401` before the stream opens | [router.py](backend/src/features/chat/router.py) |
-| D2 | Rate limit | Sliding 60 s window per user id, default **20** messages/min (`chat_rate_limit_per_minute`, 0 = off). Messages and card decisions share the budget. Rejected hits aren't counted. | `429` with `Retry-After` seconds | [rate_limit.py](backend/src/shared/rate_limit.py), [dependencies.py](backend/src/features/chat/dependencies.py) |
-| D3 | Body valid | `content` trimmed, 1–4000 chars. Optional `fix` = a `TimelineWarning` | `422` | [schemas.py](backend/src/features/chat/schemas.py) |
-| D4 | Plan ownership | `plans_service.get_plan(user_id, plan_id)` | `404` (checked before streaming so it's a normal HTTP error) | [router.py](backend/src/features/chat/router.py) |
-| D5 | Fix request? | `body.fix is not None` → skip the classifier and wrap the message with the warning + fix instructions. The agent has every tool, so it proposes the fix on a card (or asks which of 2-3 fixes the user wants). | n/a | [pipeline.py](backend/src/features/chat/pipeline.py), [prompts.py](backend/src/features/chat/prompts.py) |
-| D6 | Classifier output valid | `GuardrailVerdict.model_validate_json(reply)`; up to **2** attempts | **Fail open**: allow the message (a wrong redirect is worse than an occasional off-topic answer) | [guardrail.py](backend/src/features/chat/guardrail.py) |
-| D7 | On topic | `allowed = on_topic or confidence < 0.5`. Greetings, thanks and follow-ups like "yes please" count as on topic. | Redirect: user message re-tagged `kind=redirect` so it never enters future agent context, and the model writes 1–2 sentences steering back to the trip | [guardrail.py](backend/src/features/chat/guardrail.py), [prompts.py](backend/src/features/chat/prompts.py) |
-| D8 | Keep looping | Continue while the model returns tool calls and the round isn't the final one | Return: the turn's text is the answer | [agent.py](backend/src/features/chat/agent.py) |
-| D9 | Write tool? | `changes_plan(name)`: true for every tool except `web_search` (a `ReadTool`); an **unknown** tool name also counts as a write | n/a | [tools.py](backend/src/features/chat/tools.py) |
-| D10 | Change valid | The write tool's `prepare` step: same Pydantic schemas as the REST API, past-date check, item exists, plan rules, flight direction inference. **Nothing is written.** | Model gets `Error: …` and can correct the arguments | [tools.py](backend/src/features/chat/tools.py) |
-| D11 | Already staged | Same tool and same **normalised** arguments as a change staged earlier this turn (small models often re-send) | Not staged twice. Model is told "Already staged; do not repeat it" | [agent.py](backend/src/features/chat/agent.py) |
-| D14 | Round limit | `MAX_TOOL_ROUNDS = 6`. On round 7 a system note says "reply now", and tools are disabled, so the turn **always ends in text** | n/a | [agent.py](backend/src/features/chat/agent.py) |
-| D15 | Empty reply | Small models sometimes stop after tool calls with no text | Fallback: "Here's what I'd change — approve the card to apply it." if changes were staged, "I've updated your itinerary." after an approval applied them, else "Sorry, I don't have an answer for that. Could you rephrase?" | [pipeline.py](backend/src/features/chat/pipeline.py) |
-| D16 | Proposal | Staged changes are stored as one `chat_proposals` row on the reply (`status = pending`). Only one card per plan stays open: storing a new one marks any other pending one **superseded** in the same commit. | n/a | [service.py](backend/src/features/chat/service.py) |
-| — | Model transport | Connection errors, HTTP 429 and 5xx are retried with exponential backoff (default 3 attempts, `llm_max_attempts`). A 404 (model not pulled) is not retried. | `LLMError` → stored `system` notice (`kind=error`) + `error` event. Any other exception → rollback + "Something went wrong…" | [ollama_client.py](backend/src/shared/llm/ollama_client.py), [pipeline.py](backend/src/features/chat/pipeline.py) |
+## 3. What each stage asks
 
-**Asking before proposing.** The system prompt has a checklist the agent must cover before
-`set_plan_details` or any `add_*` tool: travel dates, number of travelers (adults and
-children) and origin; for flights, airline, departure-time and cabin preferences; for
-lodging, area, type and budget; for meals, dietary needs and whether a reservation is
-wanted. A new plan's `travelers` is unknown (`null`, left out of the plan JSON) rather than
-"1 adult", so the agent sees the gap and asks. Its worked example: *"I want to spend a week
-in Tokyo in May"* gets questions, not a tool call.
+The first rule that fires wins. A later stage first re-asks any basics it depends on (no
+flight search without dates).
 
-**Fail open vs. the user as the check:**
+| Stage | Asks, in order |
+|---|---|
+| Basics | destination → dates → travelers → origin (prefilled from home) → budget (optional, Skip) |
+| Flights | flight preferences → pick a flight out → pick a flight home (priced as the round trip); or **Skip flights** |
+| Lodging | lodging preferences → for each run of nights without a stay: pick a place to stay |
+| Activities | interests (1–5) → pick activities (at least one); the scheduler puts them in free time |
+| Transfers | for each gap between two places: pick a way to get there (taxi, train, shuttle…) |
+| Review | nothing: the trip is complete; blocking issues from earlier stages are listed |
 
-| Check | Protects against | When it breaks |
-|-------|------------------|----------------|
-| Topic classifier | Off-topic use of the assistant | **Open**: let the message through |
-| Proposal card | The agent inventing trip details | Can't break: a change only reaches the plan when the user approves it |
+Preferences (cabin, stops, hotel class, interests…) are stored on the plan, not as items.
+Skipping an optional input records it as declined, so it isn't asked again.
 
----
+## 4. Free text
 
-## 4. Approve / Deny / Other
+The composer always works. What it does depends on what is pending:
 
-Each proposal card is answered with one request,
-`POST /plans/{plan_id}/chat/proposals/{proposal_id}/decision` (SDK: `decideProposal`), body
-`{action: "approve" | "deny" | "revise", message?}`. It streams the same `ChatEvent`s as
-`sendMessage` and shares its rate limit. A card is all-or-nothing: Approve applies every
-change, Deny none.
+| Pending | Free text is read as | Outcome |
+|---|---|---|
+| A form | the slot's value (extractor) | answered: stored as "Got it: …" and written; invalid: a nudge saying why; a question: a short answer, then the form again; anything else: the slot's fixed nudge |
+| Choices | a pick ("the second one") | as for a form, but the answer is a pick |
+| Nothing (a search to run, the trip done) | a question about the trip | a short answer; nothing else runs, so a question never sets off a paid search |
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor U as User
-    participant UI as ProposalCard / ChatPanel
-    participant API as Chat router
-    participant P as Pipeline
-    participant T as Tools
-    participant A as Agent
-    participant DB as Database
+The extractor asks for one small schema (`{status, value}`), with `think=False` and two
+attempts. Malformed JSON twice counts as unrelated, so the user gets the deterministic
+nudge rather than a guess. Nothing else reads model output, and the answer to a question is
+shown and stored but never parsed.
 
-    U->>UI: Approve / Deny / Other… (+ text)
-    UI->>API: POST …/proposals/{id}/decision
-    Note over API: Pre-stream checks: auth, rate limit, plan ownership,<br/>proposal exists in this plan (404), still pending (409),<br/>revise has a message / others don't (422)
-    API->>P: decide_proposal()
-    P-->>UI: SSE guardrail (on_topic, "proposal decision"): no classifier call
+## 5. Picking
 
-    alt Approve
-        P->>DB: Store user decision "Approved the proposed changes."
-        loop Phase 1: each change
-            P->>T: check_change (prepare again, no write)
-        end
-        alt Every change still valid
-            loop Phase 2: each change, in order
-                P-->>UI: SSE tool_call
-                P->>T: apply_change (prepare again, then write)
-                T->>DB: write
-                P-->>UI: SSE tool_result ("Added lodging “…”")
-            end
-            P-->>UI: SSE plan_updated (timeline refreshes)
-            P->>DB: proposal → approved
-            P->>A: latest = "approved; these are now applied: …"
-        else A change no longer fits (item removed, date now past…)
-            Note over P: Nothing is written
-            P->>DB: proposal → failed
-            P->>A: latest = "approved, but could not be applied: …"
-        end
-        A-->>UI: Confirms in one sentence, suggests the next step<br/>(may stage a new proposal)
-    else Deny
-        P->>DB: Store user decision "Denied the proposed changes."
-        P->>DB: proposal → denied
-        P-->>UI: SSE token: "No problem — nothing was changed. …" (no model call)
-    else Other… (revise)
-        P->>DB: Store the user's text (kind = decision)
-        P->>DB: proposal → revised
-        P->>A: latest = text + the proposal it replaces
-        A-->>UI: Answers and usually re-proposes (a new card)
-    end
+Each candidate carries the plan changes picking it makes (`add_flight`, `add_lodging`,
+`add_activity`, `add_transfer`, and `update_item` for a round-trip fare). On a pick:
 
-    P->>DB: Store assistant reply (+ new proposal, if any)
-    P-->>UI: SSE done
-```
+1. Every change is checked against the plan with the earlier changes of the same pick
+   counted: dates not in the past, lodging is overnight, the item is in the timezone the
+   traveller is in then, flights follow on from each other, and the trip stays within its
+   budget and per-person limits.
+2. If any change doesn't fit, nothing is written and the reason is shown as a nudge; the
+   same choices stay open.
+3. Otherwise every change is written, the offer is closed, and (for a flight out) the token
+   that lists its flights home is kept for the next search.
 
-| Status | Meaning | Card shows |
-|--------|---------|------------|
-| `pending` | Waiting for the user | Approve / Deny / Other… buttons |
-| `approved` | Every change was applied | "Approved" badge |
-| `denied` | Nothing applied, by the user's choice | "Denied" badge |
-| `revised` | The user asked for something else instead | "Revised" badge |
-| `superseded` | A newer proposal replaced it before a decision | "Superseded" badge |
-| `failed` | Approved, but a change no longer validated; nothing (or, rarely, only the first part) was applied, and the agent was told exactly what | "Couldn't apply" badge |
+## 6. Moving between stages
 
-| Case | Response |
-|------|----------|
-| Proposal id unknown, or in another user's plan | `404` |
-| Proposal already decided or superseded (another tab, a double click) | `409` "This proposal was already …" |
-| `revise` without `message`, or `approve`/`deny` with one | `422` |
+- A stage whose checklist is complete **advances by itself**; a "Basics done. Next up:
+  flights." divider marks it in the transcript.
+- **Back** and the stepper's earlier steps go back a stage; later steps are locked. Going
+  back keeps what was planned, and the engine picks up where it left off.
+- **Skip flights** marks the flights stage skipped and moves on to lodging.
+- The issues flyout at the end of the stepper lists blocking issues and timeline warnings,
+  each with **Go to** the stage that fixes it.
 
-**Context after reload.** The model never sees its old tool calls, so in the agent's history
-an assistant message that proposed changes is rendered as its text plus
-`[Proposed changes (<status>): - <summary> …]`, and the user's decisions (`kind=decision`)
-are included like normal messages. Small models sometimes copy that note into a reply
-instead of calling a tool, which creates no card: the agent strips such copies (when storing
-a reply and when replaying history), and a reply that says "I've proposed …" with nothing
-staged gets one reminder to make the tool calls.
+## 7. What the user sees
 
-**"Fix it" flow.** Clicking *Fix it* on a timeline warning sends a turn with the warning
-details and fix instructions (D5). The agent proposes the fix on a card like any other
-change (or asks which fix the user wants), and Approve applies it. Only the visible
-`Fix: …` text is stored, not the injected instructions.
+| Message kind | Shown as |
+|---|---|
+| `expected_input` | the planner's question, with its form under the transcript |
+| `choices` | the planner's question, with the candidate cards under the transcript |
+| `input` / `pick` / `message` (user) | a bubble on the right: the answer, the pick, or the typed text |
+| `message` (assistant) | a bubble on the left: "Got it: …" or a short answer |
+| `nudge` | a soft hint card pointing back to the question |
+| `stage` | a divider between stages |
+| `error` | a notice (a failed search, the model unavailable) |
 
----
-
-## 5. Inside a tool call
-
-Every write tool has two steps: **prepare** (validate, write nothing) runs while the agent
-replies and again when the user approves; **apply** (write) runs only on approval, right
-after the re-prepare. Errors are returned to the model as text so it can correct itself.
-They never crash the turn.
-
-```mermaid
-flowchart TD
-    Call(["Tool call from model"]) --> K{"Known tool?"}
-    K -->|no| F0["Error: Unknown tool, lists available tools"]
-    K -->|yes| N["Drop null arguments and echoed schemas<br/>(both mean 'not provided')"]
-    N --> V{"Pydantic validation<br/>(same schemas as REST API)"}
-    V -->|fails| F1["Error: Invalid arguments<br/>field: message (sent keys: …)"]
-    V -->|passes| Past{"Any date before today?"}
-    Past -->|yes| F2["Error: date is in the past<br/>suggest next occurrence<br/>e.g. May → next May"]
-    Past -->|no| Ty{"Which tool?"}
-
-    Ty -->|add_flight| Dir["Infer flight direction<br/>(below)"]
-    Ty -->|"add_lodging / activity / transfer"| Stage
-    Ty -->|set_plan_details| PD{"Any fields given?<br/>Plan rules valid?"}
-    PD -->|no| F3["Error: No plan details / invalid plan"]
-    PD -->|yes| Stage
-    Ty -->|update_item| UI1{"Item exists?<br/>Fields exist on this item type?<br/>Any changes? Merged item valid?"}
-    UI1 -->|no| F4["Error: no item / no such field / no changes"]
-    UI1 -->|yes| Stage
-    Ty -->|remove_item| RI{"Item exists?"}
-    RI -->|no| F4
-    RI -->|yes| Stage
-    Ty -->|web_search| WS["Shape query with plan<br/>origin / destination / dates"]
-
-    Dir --> Stage["Stage (no write): normalised arguments<br/>+ summary, e.g. 'Add flight “SFO → NRT”<br/>on 2027-05-01 11:00'<br/>chip: 'Proposed: …'"]
-    WS --> SR{"Search succeeded?"}
-    SR -->|"no (provider error)"| F5["ok = false<br/>'Don't repeat this search,<br/>answer from general knowledge'"]
-    SR -->|"yes, 0 results"| R0["ok = true<br/>'Try fewer or different words'"]
-    SR -->|"yes, results"| R1["ok = true<br/>numbered results + URLs<br/>'set source_url when adding'"]
-```
-
-**Round trips.** `add_round_trip` takes an `outbound` and a `return` leg, prepares each as
-an `add_flight` (direction set by its key, the return checked with the outbound already on
-the card so the pair fits the budget together, and the return leaving after the outbound
-lands), and stages both on the card. Approval applies them as two ordinary flights.
-
-**Flight routes** (`features/itinerary/routes.py`). A new or moved flight must not overlap
-another flight, must leave from where the previous flight landed (airports of one city
-count as one; a ground transfer in between skips the check), and must not strand the next
-flight. A clash with a planned flight returns its id and tells the model to remove it with
-`remove_item` first, which is how a "cheaper flight" swap goes on one card. Flights the card
-already removes don't count, and on approval each change is checked with the card's earlier
-changes counted, so the swap passes there too. The timeline shows a `wrong_departure` warning
-for routes already broken.
-
-**Flight direction inference** (small models often mislabel the flight home as
-"outbound"). Strongest evidence wins; the inferred direction is part of the staged
-arguments, so the card shows what will be stored:
-
-```mermaid
-flowchart LR
-    S(["add_flight"]) --> O{"Leaves from or lands at<br/>the trip origin?<br/>(IATA same-area, or city name match)"}
-    O -->|"leaves origin"| OUT1["outbound"]
-    O -->|"lands at origin"| RET1["return"]
-    O -->|neither| Dt{"On trip's first day or last day?<br/>and model did NOT say 'internal'"}
-    Dt -->|"first day"| OUT2["outbound"]
-    Dt -->|"last day"| RET2["return"]
-    Dt -->|"neither / both / model said internal"| Mi{"Mirrors an existing flight?"}
-    Mi -->|"lands where outbound left"| RET3["return"]
-    Mi -->|"leaves where return landed"| OUT3["outbound"]
-    Mi -->|no| Def["Model's label,<br/>else 'internal'"]
-```
-
----
-
-## 6. What the user sees
-
-Each SSE event maps to something on screen
-([chatTurn.ts](frontend/src/lib/chatTurn.ts), [planCache.ts](frontend/src/lib/planCache.ts)):
-
-| Event | When | UI effect |
-|-------|------|-----------|
-| `guardrail` | Always first | `onTopic` set. `false` means the reply is a redirect. |
-| `token` | Model streaming text | Appended to the live reply |
-| `tool_call` | Agent invokes a tool, or an approved change is applied | Chip in *running* state, e.g. "Searching the web for “ryokan in Kyoto”…", "Preparing a flight…" |
-| `tool_result` | Tool finished | `proposed = true`: neutral chip "Proposed: Add flight “…”". Otherwise ok / failed with the server summary, e.g. "Added flight “…”" (after Approve) |
-| `plan_updated` | Approved changes were written | Plan written straight into the TanStack Query cache, so the itinerary timeline updates mid-turn |
-| `done` | Turn finished | Stored reply replaces the live text. `done.message.proposal` shows the card under the reply (inert until the history refetch); then history is refetched |
-| `error` | Model unreachable / unexpected failure | Error shown. A stored system notice keeps it in the history. |
-
-The card ([ProposalCard.tsx](frontend/src/components/ProposalCard/ProposalCard.tsx)) lists
-one row per change with its key details, and while pending offers **Approve**, **Deny** and
-**Other…** (a text box; Enter sends). Its buttons are disabled while any reply streams.
-Decisions appear in the transcript as the user's own messages.
-
-> **Offline mode** (`LLM_PROVIDER=fake`): a keyword match stands in for the topic
-> classifier, and only `"add <something>"` triggers a tool call (`add_activity` tomorrow
-> 10:00–12:00), which is proposed like any other change. After Approve the scripted reply is
-> "Done! It's on your itinerary."; "Other…" text starting with "add" proposes that instead.
-> The decision flow above is otherwise identical. See
-> [offline.py](backend/src/features/chat/offline.py).
+While a turn runs, the panel shows what the planner is doing ("Find flights out…"), the
+streamed answer to a question, or typing dots, and the stepper and issues are disabled.
+Each `plan_updated` event redraws the timeline straight away.

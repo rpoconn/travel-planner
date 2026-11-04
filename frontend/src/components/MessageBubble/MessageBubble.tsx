@@ -1,34 +1,25 @@
 import { CircleAlert, Compass, Flag } from 'lucide-react'
 
-import type { ChatMessage } from '@/api/types.gen'
-import { ToolChip } from '@/components/ToolChip/ToolChip'
+import type { PlanningMessage } from '@/api/types.gen'
 import { TypingDots } from '@/components/TypingDots/TypingDots'
-import type { ToolActivity } from '@/lib/chatTurn'
 
 // One transcript entry. Renders stored messages and the live, streaming reply the same way:
-// user bubbles on the right (including decisions on a proposal card and planning form
-// answers), assistant replies on the left with tool chips above the text (a planning
-// question, `expected_input`, reads as one too), off-topic redirects and planning nudges as
-// a soft hint card, a planning stage move as a divider, and failures as an error notice.
+// user bubbles on the right (free text, form answers and picks), assistant replies on the
+// left (a planner question, `expected_input` / `choices`, reads as one too), nudges back to
+// the pending question as a soft hint card, a stage move as a divider, and failures as an
+// error notice.
 
 // ----- types -----
 
 interface MessageBubbleProps {
-    role: ChatMessage['role']
-    kind: ChatMessage['kind']
+    role: PlanningMessage['role']
+    kind: PlanningMessage['kind']
     content: string
-    tools?: readonly ToolActivity[]
     /** The reply is still arriving: shows a typing indicator / caret. */
     streaming?: boolean
 }
 
-export function MessageBubble({
-    role,
-    kind,
-    content,
-    tools = [],
-    streaming = false,
-}: MessageBubbleProps) {
+export function MessageBubble({ role, kind, content, streaming = false }: MessageBubbleProps) {
     // ----- markup -----
     if (role === 'user') {
         return (
@@ -71,11 +62,11 @@ export function MessageBubble({
         )
     }
 
-    if (kind === 'redirect' || kind === 'nudge') {
+    if (kind === 'nudge') {
         return (
             <aside
                 // A nudge steers free text back to the planner's pending question.
-                aria-label={kind === 'nudge' ? 'Back to the question' : 'Off-topic reply'}
+                aria-label="Back to the question"
                 data-role="assistant"
                 className="border-terracotta/40 bg-accent/60 text-accent-foreground flex max-w-[85%] items-start gap-3 rounded-2xl border border-dashed px-4 py-3 text-sm"
             >
@@ -87,20 +78,9 @@ export function MessageBubble({
         )
     }
 
-    const waiting = streaming && !content && tools.length === 0
+    const waiting = streaming && !content
     return (
         <div className="flex max-w-[85%] flex-col gap-2" data-role="assistant">
-            {tools.length > 0 && (
-                <ul aria-label="Assistant actions" className="flex flex-wrap gap-1.5">
-                    {tools.map((tool) => (
-                        // max-w-full: caps the item at the row's width so the chip's
-                        // `truncate` kicks in, instead of a long summary overflowing the log.
-                        <li key={tool.callId} className="max-w-full">
-                            <ToolChip tool={tool} />
-                        </li>
-                    ))}
-                </ul>
-            )}
             {(content || waiting) && (
                 <div className="bg-card rounded-2xl rounded-bl-md border px-4 py-2 text-sm shadow-xs">
                     {waiting ? (

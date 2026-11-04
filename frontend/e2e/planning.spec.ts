@@ -2,8 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { createTrip, registerNewUser, sendChatMessage } from './helpers.ts'
 
-// The rules-driven planning flow (run by the `planning` project, VITE_PLANNING_ENGINE=true).
-// The API's offline fake reads free text from a fixed phrase table
+// The planning flow, stage by stage. The API's offline fake reads free text from a fixed phrase table
 // (backend/src/features/planning/offline.py), so typed answers here use its phrases.
 
 /** The planner's fixed answer to a question when offline (planning/offline.py). */

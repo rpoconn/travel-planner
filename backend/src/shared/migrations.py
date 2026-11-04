@@ -53,7 +53,7 @@ def migration_transaction(connection: Connection) -> Iterator[None]:
     a copy, copy the rows, DROP the original, rename. With foreign keys on (the app turns
     them on for every connection), that DROP deletes every row that references the table
     through ON DELETE CASCADE: rebuilding `travel_plans` would wipe all itinerary items,
-    messages and proposals. With them off the rows survive; `foreign_key_check` then makes
+    and messages. With them off the rows survive; `foreign_key_check` then makes
     sure nothing was left dangling before committing. `connection` must not be in a
     transaction yet.
     """

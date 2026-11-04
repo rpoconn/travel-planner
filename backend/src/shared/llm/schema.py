@@ -1,9 +1,8 @@
 """Turn Pydantic models into JSON schemas that small local models handle well.
 
-These schemas are for *prompting*, not validation: tool schemas are placed straight into
-the prompt on every agent round, so they're trimmed to what helps the model fill them in.
-Arguments are still validated against the full Pydantic models, and validation errors are
-fed back to the model.
+These schemas are for *prompting*, not validation: a structured-output schema is sent with
+every extraction call, so it's trimmed to what helps the model fill it in. Replies are
+still validated against the full Pydantic models.
 """
 
 from typing import Any

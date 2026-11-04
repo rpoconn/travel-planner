@@ -7,15 +7,13 @@ Playwright suite), so free text works with no model.
   else is unrelated.
 - Pick requests (`extractor.PICK_SCHEMA`) read "the first one", "the second one"... as
   that option's id; the ids are positions ("1", "2"), as the searches number them.
-- Question requests (`prompts.QA_INTRO`) get a fixed answer.
-
-Anything else returns None, so the chat flow's own fake (`chat.offline`) handles it.
+- Question requests (`prompts.QA_INTRO`), and anything else, get a fixed answer; a
+  structured request for an unknown schema is "unrelated", which fails closed to a nudge.
 """
 
 from datetime import date, timedelta
 from typing import Any
 
-from features.planning.prompts import QA_INTRO
 from features.planning.slots import SLOTS
 from features.plans.schemas import SlotName
 from shared.llm.fake import FakeRequest, json_reply, text
@@ -132,16 +130,13 @@ def _is_pick_schema(schema: dict[str, Any]) -> bool:
     return set(schema.get("properties", {})) == {"status", "candidate_ids"}
 
 
-def planning_reply(request: FakeRequest) -> LLMMessage | None:
-    """The fake's reply to a planning request, or None when the request isn't one."""
+def planning_reply(request: FakeRequest) -> LLMMessage:
+    """The fake's reply to any request the app makes (`FakeLLM`'s offline fallback)."""
     if request.format is not None and _is_pick_schema(request.format):
         return json_reply(pick_reply(_latest_user_text(request)))
     if request.format is not None:
         slot = _slot_for_schema(request.format)
         if slot is None:
-            return None
+            return json_reply({"status": "unrelated", "value": None})
         return json_reply(extract_reply(slot, _latest_user_text(request), date.today()))
-    system = request.messages[0].content if request.messages else ""
-    if request.streamed and system.startswith(QA_INTRO):
-        return text(OFFLINE_ANSWER)
-    return None
+    return text(OFFLINE_ANSWER)
