@@ -113,6 +113,10 @@ Notes:
   next action stays a search, so the stage bar offers **Retry** (`POST /continue`).
 - A form or choices list is stored as a message only once: a retry or a reload never repeats
   the same question.
+- **More options** under a list (`POST /continue` with `refresh`) runs its search again,
+  leaving out everything already offered for it since the plan last changed, and lists the
+  next best. When nothing new turns up, or the search fails, the current list stays with a
+  note. Transfers have no More options: the rules list every way across at once.
 - Offers are persisted. An offer whose slot, stage, plan version, gap or nights no longer
   match is ignored, so any change to the plan makes the next search run again.
 

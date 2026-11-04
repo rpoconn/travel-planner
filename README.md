@@ -120,12 +120,19 @@ In VS Code, the Run and Debug view has (`.vscode/launch.json`, needs `uv sync` f
 | Types | `uv run mypy src tests scripts migrations` | `npm run typecheck` |
 | Unit tests | `uv run pytest` | `npm test` |
 | E2E (full stack) | — | `npm run e2e` |
+| Model eval (needs Ollama) | `uv run pytest -m ollama -s` | — |
 
 `npm run e2e` starts its own backend and frontend on separate ports (API `:8765`, UI `:5174`), so it
 never touches a running dev stack: `backend/scripts/e2e_server.py` runs the API with
 `LLM_PROVIDER=fake`, fake flight, hotel and place searches, and a fresh `backend/e2e.db`. The
 specs in `frontend/e2e/` cover sign-up / sign-in and walk a trip through every stage with forms
 and picks, plus free text read into a form, a nudge, a question, Skip flights and going back.
+
+`uv run pytest -m ollama -s` runs the tests left out by default, against the local Ollama model:
+`tests/features/planning/test_extractor_eval.py` reads hand-written free text for dates,
+travelers and places (and questions or off-topic text, which must not be read as answers) and
+asserts a pass rate, printing the misses. Run it after changing `planning/prompts.py`, a slot's
+value model, or the model.
 
 ## Data & auth
 
@@ -190,7 +197,9 @@ and picks, plus free text read into a form, a nudge, a question, Skip flights an
   its assessment) or `error`. `POST /inputs` takes a form answer, a skip, or a pick, with **no
   model call**: `409` if it isn't what is being asked, `422` if the value doesn't fit.
   `POST /chat` takes free text. `POST /continue` drives with no input (the "Find flights" /
-  "Retry" button).
+  "Retry" button); with `{"refresh": true}` it searches the pending choices again for ones not
+  offered yet (the "More options" button; transfers come from rules and list every way at once,
+  so they have none).
 - The engine (`features/planning/engine.py`, pure) reads only the plan: each stage has an
   ordered list of slots (`planning/slots.py`), and the first unfilled one wins. A finished
   stage advances by itself; Back and the stepper's earlier steps stay available, later ones

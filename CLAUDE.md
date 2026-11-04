@@ -53,3 +53,11 @@
 13. **UI Services**
    -Any pure functions that sit outside of the UI component can be placed in a service class file that sits next to the UI component.  E
    example: MyComponent.tsx will have a MyComponentService.ts file, which has any pure functions that perform logic.  these services should have unit tests as well.
+### Planning Engine (`backend/src/features/planning/`)
+The planning flow is driven by rules, not by the model. Keep it that way:
+- **The engine decides.** `engine.py` is pure: it reads the plan (items, typed slot values, `preferences`) and returns the one next action (`AskInput`, `OfferChoice`, `RunSearch`, `AdvanceStage`, `Complete`). Stage order and readiness live in `plans/stages.py`. New flow behaviour is a new rule or slot (`slots.py`), with a table-driven case in `tests/features/planning/test_engine.py`. Never add it as prompt text.
+- **No regex or string matching over model output.** The model is called in two places only: the extractor (`extractor.py`, free text → the pending slot's Pydantic model or a pick, with Ollama's `format` schema, `think=False`, 2 attempts, failing closed to the slot's fixed nudge) and the short streamed Q&A answer, which is shown but never parsed.
+- **Forms and picks never touch the model.** `POST /planning/inputs` is checked against the pending slot or offer (409/422) and applied directly. Picking a candidate is the approval: its ready-made changes go through `chat/tools.check_change` / `apply_change`.
+- **Candidates come from providers or rules** (`shared/flights`, `shared/hotels`, `shared/places`, transfer rules), never from the model. Offers are persisted, so a reload never searches again.
+- `planning` imports `plans`, `itinerary` and `chat`. Outside `planning`, only routers, `main.py` and `chat/dependencies.py` (the offline fake) import it, which avoids cycles. Routers call `planning.service.snapshot` for a `TravelPlan` with its `assessment`.
+- After changing `planning/prompts.py`, a slot's value model, or the model, run the extractor eval: `uv run pytest -m ollama -s tests/features/planning/test_extractor_eval.py`.
