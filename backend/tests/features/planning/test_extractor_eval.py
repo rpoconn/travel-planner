@@ -1,5 +1,6 @@
-"""How well the slot extractor reads free text on a real model: `uv run pytest -m ollama
-tests/features/planning/test_extractor_eval.py -s`.
+"""How well the slot extractor reads free text on the real model `.env` selects
+(LLM_PROVIDER + ANTHROPIC_MODEL / OLLAMA_MODEL): `uv run pytest -m live_llm
+tests/features/planning/test_extractor_eval.py -s`. On Claude this makes real, billed API calls.
 
 Calls `extractor.extract` directly (no DB, no turn) with hand-written messages for the
 slots people most often type instead of using the form: dates, travelers and places. Each
@@ -19,15 +20,16 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
+from features.chat.dependencies import create_llm
 from features.planning.extractor import Extraction, extract
 from features.planning.schemas import DatesAnswer, DestinationAnswer, OriginAnswer
 from features.plans.schemas import SlotName
 from shared.config import get_settings
 from shared.domain import Place, Travelers
-from shared.llm.ollama_client import OllamaClient
+from shared.llm.types import LLMClient
 from tests.features.plans.builders import snapshot
 
-pytestmark = pytest.mark.ollama
+pytestmark = pytest.mark.live_llm
 
 logger = logging.getLogger(__name__)
 
@@ -165,17 +167,22 @@ CASES: tuple[Case, ...] = (
 
 
 @pytest.fixture
-async def llm() -> AsyncIterator[OllamaClient]:
+async def llm() -> AsyncIterator[LLMClient]:
     settings = get_settings()
-    try:
-        async with httpx.AsyncClient(base_url=settings.ollama_url, timeout=5) as http:
-            response = await http.get("/api/tags")
-    except httpx.HTTPError:
-        pytest.skip(f"Ollama is not reachable at {settings.ollama_url}")
-    names = {model["name"] for model in response.json().get("models", [])}
-    if settings.ollama_model not in names:
-        pytest.skip(f"Model {settings.ollama_model} is not pulled")
-    client = OllamaClient(host=settings.ollama_url, model=settings.ollama_model)
+    if settings.llm_provider == "fake":
+        pytest.skip("LLM_PROVIDER=fake; the eval needs a real model")
+    if settings.llm_provider == "anthropic" and settings.anthropic_api_key is None:
+        pytest.skip("ANTHROPIC_API_KEY is not set")
+    if settings.llm_provider == "ollama":
+        try:
+            async with httpx.AsyncClient(base_url=settings.ollama_url, timeout=5) as http:
+                response = await http.get("/api/tags")
+        except httpx.HTTPError:
+            pytest.skip(f"Ollama is not reachable at {settings.ollama_url}")
+        names = {model["name"] for model in response.json().get("models", [])}
+        if settings.ollama_model not in names:
+            pytest.skip(f"Model {settings.ollama_model} is not pulled")
+    client = create_llm(settings)
     yield client
     await client.aclose()
 
@@ -209,7 +216,7 @@ def _plan_missing(slot: SlotName) -> _MissingFields:
 # ---------------------------------------------------------------------------
 
 
-async def test_extractor_reads_free_text_answers(llm: OllamaClient) -> None:
+async def test_extractor_reads_free_text_answers(llm: LLMClient) -> None:
     misses: list[str] = []
     for case in CASES:
         plan = snapshot(**_plan_missing(case.slot))
@@ -220,7 +227,7 @@ async def test_extractor_reads_free_text_answers(llm: OllamaClient) -> None:
 
     passed = len(CASES) - len(misses)
     rate = passed / len(CASES)
-    model = get_settings().ollama_model
+    model = get_settings().llm_model
     report = f"Extractor on {model}: {passed}/{len(CASES)} read right ({rate:.0%})"
     # `-s` shows this; the log line keeps it in captured output when the assert fails.
     print("\n" + report + "".join(f"\n  {line}" for line in misses))  # noqa: T201

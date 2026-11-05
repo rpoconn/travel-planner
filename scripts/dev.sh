@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
-# Start the local dev stack: verifies Ollama + model, then runs backend and frontend.
+# Start the local dev stack: verifies Ollama + model (only when LLM_PROVIDER=ollama), then
+# runs backend and frontend.
 #
 # Usage: ./scripts/dev.sh [--model <tag>] [--skip-ollama]
 #   --model <tag>   Ollama model tag to use. Defaults to $OLLAMA_MODEL, then qwen3:8b.
-#   --skip-ollama   Skip the Ollama checks (e.g. when running with LLM_PROVIDER=fake).
+#   --skip-ollama   Skip the Ollama checks even when LLM_PROVIDER=ollama.
 
 set -euo pipefail
 
@@ -26,7 +27,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h | --help)
-            sed -n '3,7p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '3,8p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -39,6 +40,19 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/backend"
 FRONTEND_DIR="$REPO_ROOT/frontend"
+
+# The backend reads LLM_PROVIDER from the environment, then the root .env (default:
+# anthropic). Ollama is only needed when it's "ollama".
+PROVIDER="${LLM_PROVIDER:-}"
+if [[ -z "$PROVIDER" && -f "$REPO_ROOT/.env" ]]; then
+    # Last assignment wins (as in the backend); drop quotes and whitespace (incl. CRLF).
+    PROVIDER="$(sed -n 's/^LLM_PROVIDER=//p' "$REPO_ROOT/.env" | tail -n 1 | tr -d "[:space:]\"'")"
+fi
+PROVIDER="${PROVIDER:-anthropic}"
+if [[ "$PROVIDER" != ollama ]]; then
+    echo "LLM_PROVIDER=$PROVIDER; skipping the Ollama checks."
+    SKIP_OLLAMA=true
+fi
 
 # ---------------------------------------------------------------------------
 # Ollama: ensure server is reachable and the model is pulled

@@ -1,7 +1,7 @@
 [project]
 name = "travel-planner-backend"
 version = "0.1.0"
-description = "Travel itinerary chatbot API backed by a local Ollama model"
+description = "Travel itinerary chatbot API backed by Claude (or a local Ollama model)"
 readme = "../README.md"
 authors = [
     { name = "Ryan O'Connell", email = "rpoconn@gmail.com" }
@@ -11,6 +11,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "airportsdata>=20260905",
     "alembic>=1.20.1",
+    "anthropic>=2.5.0",
     "bcrypt>=5.0.0",
     "email-validator>=2.3.0",
     "fastapi>=0.162.0",
@@ -67,9 +68,9 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
-    "ollama: integration tests that require a running Ollama server (deselected by default)",
+    "live_llm: evals against the real model .env selects (deselected by default; Claude calls are billed)",
 ]
-addopts = "-m 'not ollama'"
+addopts = "-m 'not live_llm'"
 
 [dependency-groups]
 dev = [

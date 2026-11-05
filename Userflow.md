@@ -43,7 +43,7 @@ sequenceDiagram
     participant T as turn.run_turn
     participant E as engine.evaluate
     participant S as searches
-    participant M as Ollama
+    participant M as LLM (Claude)
 
     U->>UI: fill the form / pick / type / Continue
     UI->>R: POST inputs | chat | continue (SSE)

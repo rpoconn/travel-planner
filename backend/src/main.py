@@ -119,7 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "App created (environment=%s, llm=%s, model=%s, flights=%s)",
         settings.environment,
         settings.llm_provider,
-        settings.ollama_model,
+        settings.llm_model,
         type(flights).__name__,
     )
     return app

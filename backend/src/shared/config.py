@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Annotated, Literal, Self
 
 from fastapi import Depends, Request
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ---------------------------------------------------------------------------
@@ -37,8 +37,17 @@ class Settings(BaseSettings):
     # Cost factor for password hashing; tests drop this to the minimum (4) for speed.
     bcrypt_rounds: int = Field(default=12, ge=4, le=16)
 
-    # Local LLM (Ollama)
-    llm_provider: Literal["ollama", "fake"] = "ollama"
+    # LLM: "anthropic" (Claude API), "ollama" (a local model), or "fake" (scripted replies
+    # for tests and E2E).
+    llm_provider: Literal["anthropic", "ollama", "fake"] = "anthropic"
+    # Claude. Without a key the app still starts; planning turns then say the key is missing.
+    anthropic_api_key: SecretStr | None = None
+    anthropic_model: str = "claude-sonnet-5-5"
+    # Room for adaptive thinking plus the reply (thinking tokens count against this cap).
+    anthropic_max_tokens: int = Field(default=16000, ge=256)
+    # Re-run requests that Claude's safety classifiers decline on a fallback model.
+    anthropic_refusal_fallback: bool = True
+    # Ollama
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:8b"
     # Reasoning ("thinking") mode for models that support it. Off by default: it adds
@@ -50,7 +59,8 @@ class Settings(BaseSettings):
     # transcript are in a question's prompt. When it overflows, llama.cpp drops the oldest
     # tokens (the system prompt) and the model rambles until the read times out.
     llm_context_tokens: int = Field(default=16384, ge=2048)
-    # Cap on tokens per reply, so a runaway generation ends instead of stalling the stream.
+    # Cap on tokens per Ollama reply, so a runaway generation ends instead of stalling the
+    # stream. (Claude uses ANTHROPIC_MAX_TOKENS.)
     llm_max_output_tokens: int = Field(default=2048, ge=128)
     # Flight search: "serpapi" (Google Flights results; needs SERPAPI_API_KEY) or "fake"
     # (made-up flights, no network). Google Flights pages take a few seconds to scrape.
@@ -78,6 +88,15 @@ class Settings(BaseSettings):
     # register) is per client IP.
     chat_rate_limit_per_minute: int = Field(default=20, ge=0)
     auth_rate_limit_per_minute: int = Field(default=10, ge=0)
+
+    @property
+    def llm_model(self) -> str:
+        """The model the selected `llm_provider` runs."""
+        if self.llm_provider == "anthropic":
+            return self.anthropic_model
+        if self.llm_provider == "ollama":
+            return self.ollama_model
+        return "fake"
 
     @model_validator(mode="after")
     def _check_production(self) -> Self:
