@@ -4,7 +4,6 @@ Times are ISO strings without offsets, i.e. wall-clock time in the item's timezo
 """
 
 from datetime import datetime
-from typing import Any
 from uuid import UUID, uuid4
 
 from features.itinerary.schemas import (
@@ -32,7 +31,7 @@ TOKYO_TZ = "Asia/Tokyo"
 LA_TZ = "America/Los_Angeles"
 
 
-def _common(title: str, start: str, end: str, status: ItemStatus) -> dict[str, Any]:
+def _common(title: str, start: str, end: str, status: ItemStatus) -> dict[str, object]:
     return {
         "id": uuid4(),
         "plan_id": PLAN_ID,

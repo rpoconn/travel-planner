@@ -3,6 +3,8 @@
 import json
 from datetime import date
 
+from pydantic import JsonValue
+
 from features.planning.extractor import PICK_SCHEMA, extraction_schema
 from features.planning.offline import OFFLINE_ANSWER, extract_reply, pick_reply, planning_reply
 from features.planning.prompts import question_messages
@@ -52,7 +54,10 @@ def test_a_question_request_gets_the_offline_answer() -> None:
 
 
 def test_any_other_request_gets_a_fixed_reply() -> None:
-    unknown_schema = {"type": "object", "properties": {"on_topic": {"type": "boolean"}}}
+    unknown_schema: dict[str, JsonValue] = {
+        "type": "object",
+        "properties": {"on_topic": {"type": "boolean"}},
+    }
     structured = FakeRequest([], [], unknown_schema, streamed=False)
     plain = FakeRequest([LLMMessage(role="system", content="You plan trips")], [], None, True)
 

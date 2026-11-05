@@ -6,10 +6,9 @@ free text, so both are validated alike. No model calls here.
 import logging
 from collections.abc import Mapping
 from datetime import date
-from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.planning.schemas import BudgetAnswer, DatesAnswer, DestinationAnswer, OriginAnswer
@@ -55,7 +54,7 @@ def _first_error(exc: ValidationError) -> str:
     return f"{location}: {message}" if location else message
 
 
-def parse_answer(slot: SlotName, value: Mapping[str, Any], today: date) -> BaseModel:
+def parse_answer(slot: SlotName, value: Mapping[str, JsonValue], today: date) -> BaseModel:
     """`value` as `slot`'s value model, or `AnswerError` saying what's wrong with it."""
     spec = SLOTS[slot]
     if spec.value_model is None:

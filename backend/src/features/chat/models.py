@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Any
 
+from pydantic import JsonValue
 from sqlalchemy import JSON, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,5 +22,5 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     # Structured content for planning messages (the form or choices a message showed, or
     # the answer it recorded), so the transcript re-renders them after a reload.
-    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    payload: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)

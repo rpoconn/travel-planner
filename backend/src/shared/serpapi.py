@@ -7,7 +7,6 @@ exception types and status codes.
 """
 
 import logging
-from typing import Any
 
 import httpx
 from tenacity import (
@@ -39,7 +38,7 @@ def is_transient(exc: BaseException) -> bool:
 
 def _api_error(response: httpx.Response) -> str | None:
     try:
-        body: Any = response.json()
+        body: object = response.json()
     except ValueError:
         return None
     error = body.get("error") if isinstance(body, dict) else None

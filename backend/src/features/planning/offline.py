@@ -12,7 +12,8 @@ Playwright suite), so free text works with no model.
 """
 
 from datetime import date, timedelta
-from typing import Any
+
+from pydantic import JsonValue
 
 from features.planning.slots import SLOTS
 from features.plans.schemas import SlotName
@@ -34,12 +35,12 @@ def _next_month(today: date) -> date:
     return (today.replace(day=1) + timedelta(days=32)).replace(day=1)
 
 
-def _dates(start: date, nights: int) -> dict[str, Any]:
+def _dates(start: date, nights: int) -> dict[str, JsonValue]:
     end = start + timedelta(days=nights)
     return {"dates": {"start": start.isoformat(), "end": end.isoformat()}}
 
 
-def _phrases(today: date) -> dict[SlotName, dict[str, dict[str, Any]]]:
+def _phrases(today: date) -> dict[SlotName, dict[str, dict[str, JsonValue]]]:
     """Exact (case-folded) phrases each slot understands, and the value each one means."""
     month = _next_month(today)
     return {
@@ -84,12 +85,18 @@ def _phrases(today: date) -> dict[SlotName, dict[str, dict[str, Any]]]:
 # ---------------------------------------------------------------------------
 
 
-def _slot_for_schema(schema: dict[str, Any]) -> SlotName | None:
+def _properties(schema: JsonValue) -> dict[str, JsonValue]:
+    """A JSON schema's `properties`, or {} when it has none."""
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    return properties if isinstance(properties, dict) else {}
+
+
+def _slot_for_schema(schema: dict[str, JsonValue]) -> SlotName | None:
     """The slot an extraction schema is for, by the fields of its `value`."""
-    properties = schema.get("properties", {})
+    properties = _properties(schema)
     if set(properties) != {"status", "value"}:
         return None
-    fields = set(properties["value"].get("properties", {}))
+    fields = set(_properties(properties["value"]))
     return next(
         (
             spec.name
@@ -104,7 +111,7 @@ def _latest_user_text(request: FakeRequest) -> str:
     return next((m.content for m in reversed(request.messages) if m.role == "user"), "")
 
 
-def extract_reply(slot: SlotName, content: str, today: date) -> dict[str, Any]:
+def extract_reply(slot: SlotName, content: str, today: date) -> dict[str, JsonValue]:
     phrase = content.strip().rstrip(".!").casefold()
     value = _phrases(today)[slot].get(phrase)
     if value is not None:
@@ -117,7 +124,7 @@ def extract_reply(slot: SlotName, content: str, today: date) -> dict[str, Any]:
 _ORDINALS = ("first", "second", "third", "fourth", "fifth")
 
 
-def pick_reply(content: str) -> dict[str, Any]:
+def pick_reply(content: str) -> dict[str, JsonValue]:
     phrase = content.strip().rstrip(".!").casefold().removeprefix("the ").removesuffix(" one")
     if phrase in _ORDINALS:
         return {"status": "answered", "candidate_ids": [str(_ORDINALS.index(phrase) + 1)]}
@@ -126,8 +133,8 @@ def pick_reply(content: str) -> dict[str, Any]:
     return {"status": "unrelated", "candidate_ids": []}
 
 
-def _is_pick_schema(schema: dict[str, Any]) -> bool:
-    return set(schema.get("properties", {})) == {"status", "candidate_ids"}
+def _is_pick_schema(schema: dict[str, JsonValue]) -> bool:
+    return set(_properties(schema)) == {"status", "candidate_ids"}
 
 
 def planning_reply(request: FakeRequest) -> LLMMessage:

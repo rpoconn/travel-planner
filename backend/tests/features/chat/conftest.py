@@ -3,21 +3,21 @@
 
 from collections.abc import AsyncIterator
 from datetime import date
-from typing import Any
-from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic import JsonValue
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from features.chat.tools import ToolContext
+from features.planning.schemas import TravelPlan
 from tests.conftest import RegisterUser
 
 # Changes are refused for dates before "today"; fixed so the dates below stay in the future.
 TODAY = date(2026, 10, 1)
 
-PLAN: dict[str, Any] = {
+PLAN: dict[str, JsonValue] = {
     "title": "Tokyo in May",
     "start_date": "2027-05-01",
     "end_date": "2027-05-08",
@@ -25,7 +25,7 @@ PLAN: dict[str, Any] = {
 }
 
 # Arguments of an `add_lodging` change (no `type`: the change's name implies it).
-HOTEL_ARGS: dict[str, Any] = {
+HOTEL_ARGS: dict[str, JsonValue] = {
     "title": "Hotel Okura",
     "start": "2027-05-02T15:00:00",
     "end": "2027-05-06T11:00:00",
@@ -45,11 +45,10 @@ async def headers(register_user: RegisterUser) -> dict[str, str]:
 
 
 @pytest.fixture
-async def plan(client: AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
+async def plan(client: AsyncClient, headers: dict[str, str]) -> TravelPlan:
     response = await client.post("/plans", json=PLAN, headers=headers)
     assert response.status_code == 201, response.text
-    created: dict[str, Any] = response.json()
-    return created
+    return TravelPlan.model_validate(response.json())
 
 
 @pytest.fixture
@@ -61,10 +60,5 @@ async def session(app: FastAPI, client: AsyncClient) -> AsyncIterator[AsyncSessi
 
 
 @pytest.fixture
-def ctx(session: AsyncSession, plan: dict[str, Any]) -> ToolContext:
-    return ToolContext(
-        session=session,
-        user_id=UUID(plan["user_id"]),
-        plan_id=UUID(plan["id"]),
-        today=TODAY,
-    )
+def ctx(session: AsyncSession, plan: TravelPlan) -> ToolContext:
+    return ToolContext(session=session, user_id=plan.user_id, plan_id=plan.id, today=TODAY)

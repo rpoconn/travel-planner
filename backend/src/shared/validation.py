@@ -1,7 +1,5 @@
 """Helpers for presenting Pydantic validation errors to people (and to the model)."""
 
-from typing import Any
-
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
@@ -10,7 +8,7 @@ def _sent_keys(error: ErrorDetails) -> str:
     # For a missing field the error's `input` is the enclosing object, so we can tell the
     # model what it sent instead ("cost.amount: Field required (sent keys: total)"); a
     # small model otherwise retries the same wrong key.
-    value: Any = error.get("input")
+    value: object = error.get("input")
     if error["type"] != "missing" or not isinstance(value, dict) or not value:
         return ""
     return f" (sent keys: {', '.join(str(key) for key in value)})"

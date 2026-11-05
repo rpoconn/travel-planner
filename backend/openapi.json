@@ -2206,7 +2206,9 @@
           "value": {
             "anyOf": [
               {
-                "additionalProperties": true,
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
                 "type": "object"
               },
               {
@@ -2262,7 +2264,9 @@
             "default": false
           },
           "prefill": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "type": "object",
             "title": "Prefill"
           }
@@ -2371,7 +2375,9 @@
             "title": "Name"
           },
           "arguments": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "type": "object",
             "title": "Arguments"
           },
@@ -3466,6 +3472,7 @@
         "title": "IssueCode",
         "description": "Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's\nwarnings use the same codes."
       },
+      "JsonValue": {},
       "LodgingItem": {
         "properties": {
           "id": {
@@ -5131,7 +5138,9 @@
             "$ref": "#/components/schemas/SlotName"
           },
           "value": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "type": "object",
             "title": "Value"
           }

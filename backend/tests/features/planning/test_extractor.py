@@ -3,6 +3,7 @@
 from datetime import date
 
 import pytest
+from pydantic import JsonValue
 
 from features.planning.extractor import MAX_ATTEMPTS, Extraction, extract, extraction_schema
 from features.planning.schemas import DateRange, DatesAnswer
@@ -11,9 +12,10 @@ from shared.domain import Travelers
 from shared.llm.fake import FakeLLM, json_reply
 from shared.llm.types import LLMError
 from tests.features.plans.builders import snapshot
+from tests.json_path import at, obj
 
 TODAY = date(2026, 10, 1)
-MAY = {"dates": {"start": "2027-05-01", "end": "2027-05-08"}}
+MAY: dict[str, JsonValue] = {"dates": {"start": "2027-05-01", "end": "2027-05-08"}}
 
 
 async def _extract(
@@ -81,7 +83,7 @@ async def test_malformed_output_is_asked_again() -> None:
 
 
 async def test_an_answer_that_breaks_the_slots_rules_is_an_error_not_a_retry() -> None:
-    backwards = {"dates": {"start": "2027-05-08", "end": "2027-05-01"}}
+    backwards: dict[str, JsonValue] = {"dates": {"start": "2027-05-08", "end": "2027-05-01"}}
     llm = FakeLLM([json_reply({"status": "answered", "value": backwards})])
 
     extraction = await _extract(llm)
@@ -115,9 +117,9 @@ def test_the_schema_wraps_the_slots_value_model() -> None:
     schema = extraction_schema(SlotName.DATES)
 
     assert schema["required"] == ["status"]
-    assert schema["properties"]["status"]["enum"] == ["answered", "question", "unrelated"]
-    dates = schema["properties"]["value"]["properties"]["dates"]
-    assert dates["properties"]["start"] == {"format": "date", "type": "string"}
+    assert at(schema, "properties", "status", "enum") == ["answered", "question", "unrelated"]
+    dates = obj(schema, "properties", "value", "properties", "dates")
+    assert at(dates, "properties", "start") == {"format": "date", "type": "string"}
 
 
 def test_a_pick_slot_has_no_extraction_schema() -> None:

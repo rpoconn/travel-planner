@@ -22,7 +22,8 @@ from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+
+from pydantic import JsonValue
 
 from features.itinerary.budget import party_size
 from features.itinerary.schemas import ActivityCategory, active
@@ -242,7 +243,7 @@ def _when(slot: Slot) -> str:
     return f"{start:%a} {start:%b} {start.day}, {start:%H:%M}-{end:%H:%M}"
 
 
-def _place(option: PlaceOption, destination: Place) -> dict[str, Any]:
+def _place(option: PlaceOption, destination: Place) -> dict[str, JsonValue]:
     place = {
         "name": option.name[:_MAX_TITLE],
         "address": option.address[:_MAX_ADDRESS] if option.address else None,
@@ -274,7 +275,7 @@ def _price_detail(cost: Money, party: int) -> str:
 
 def _add_activity(found: _Found, slot: Slot, destination: Place) -> CandidateChange:
     option = found.option
-    arguments: dict[str, Any] = {
+    arguments: dict[str, JsonValue] = {
         "title": option.name[:_MAX_TITLE],
         # Local wall-clock times in `timezone`, as every item takes them.
         "start": slot.start.strftime("%Y-%m-%dT%H:%M:%S"),

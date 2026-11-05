@@ -2,9 +2,9 @@
 pick runs through `chat.tools`."""
 
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
 
 # ---------------------------------------------------------------------------
 # Field types
@@ -53,5 +53,5 @@ class ProposedChange(BaseModel):
 
     call_id: str
     name: str  # the change, e.g. "add_flight"
-    arguments: dict[str, Any] = Field(default_factory=dict)
+    arguments: dict[str, JsonValue] = Field(default_factory=dict)
     summary: str  # imperative, e.g. 'Add flight “SFO → NRT” on 2027-05-01 11:00'

@@ -1,9 +1,9 @@
 from dataclasses import replace
 from datetime import date
-from typing import Any
 from uuid import UUID
 
 import pytest
+from pydantic import JsonValue
 
 from features.chat.schemas import ProposedChange
 from features.chat.tools import TOOLS, ToolContext, ToolOutcome, apply_change, check_change
@@ -18,11 +18,11 @@ from tests.features.chat.conftest import HOTEL_ARGS
 # ---------------------------------------------------------------------------
 
 
-def _proposed(name: str, arguments: dict[str, Any]) -> ProposedChange:
+def _proposed(name: str, arguments: dict[str, JsonValue]) -> ProposedChange:
     return ProposedChange(call_id="call_1", name=name, arguments=arguments, summary=name)
 
 
-async def _check(ctx: ToolContext, name: str, arguments: dict[str, Any]) -> ToolOutcome:
+async def _check(ctx: ToolContext, name: str, arguments: dict[str, JsonValue]) -> ToolOutcome:
     """Validate the change, write nothing."""
     return await check_change(ctx, _proposed(name, arguments))
 
@@ -39,7 +39,7 @@ def _change(outcome: ToolOutcome) -> ProposedChange:
     )
 
 
-async def _run(ctx: ToolContext, name: str, arguments: dict[str, Any]) -> ToolOutcome:
+async def _run(ctx: ToolContext, name: str, arguments: dict[str, JsonValue]) -> ToolOutcome:
     """Check the change and, if it validated, apply it from the normalised arguments, as a
     pick does."""
     checked = await _check(ctx, name, arguments)
@@ -55,16 +55,18 @@ async def _add_hotel(ctx: ToolContext) -> str:
     return next(str(item.id) for item in items if item.type == ItemType.LODGING)
 
 
-async def _update_plan(ctx: ToolContext, **fields: Any) -> None:
+async def _update_plan(ctx: ToolContext, **fields: JsonValue) -> None:
     patch = PlanUpdate.model_validate(fields)
     await plans_service.update_plan(ctx.session, ctx.user_id, ctx.plan_id, patch)
 
 
-async def _set_budget(ctx: ToolContext, amount: int, **details: Any) -> None:
+async def _set_budget(ctx: ToolContext, amount: int, **details: JsonValue) -> None:
     await _update_plan(ctx, budget={"amount": amount, "currency": "USD"}, **details)
 
 
-def _flight(from_iata: str, to_iata: str, day: str, direction: str = "outbound") -> dict[str, Any]:
+def _flight(
+    from_iata: str, to_iata: str, day: str, direction: str = "outbound"
+) -> dict[str, JsonValue]:
     return {
         "title": f"{from_iata} to {to_iata}",
         "carrier": "ANA",
@@ -125,10 +127,12 @@ async def test_checked_arguments_are_normalised(ctx: ToolContext) -> None:
     ],
 )
 async def test_summaries_name_the_change(
-    ctx: ToolContext, name: str, arguments: dict[str, Any] | None, summary: str
+    ctx: ToolContext, name: str, arguments: dict[str, JsonValue] | None, summary: str
 ) -> None:
     item_id = await _add_hotel(ctx)
-    call = {"item_id": item_id} if arguments is None else {"item_id": item_id, "changes": arguments}
+    call: dict[str, JsonValue] = (
+        {"item_id": item_id} if arguments is None else {"item_id": item_id, "changes": arguments}
+    )
 
     outcome = await _check(ctx, name, call)
 
@@ -211,7 +215,7 @@ async def test_remove_item(ctx: ToolContext) -> None:
 # Budget rules (a plan with a budget or spending limits)
 # ---------------------------------------------------------------------------
 
-DINNER_ARGS: dict[str, Any] = {
+DINNER_ARGS: dict[str, JsonValue] = {
     "title": "Dinner at Alchimiste",
     "start": "2027-05-03T19:00:00",
     "end": "2027-05-03T21:00:00",
@@ -239,7 +243,7 @@ async def test_a_zero_budget_is_no_budget(ctx: ToolContext) -> None:
 
     plan = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
     assert plan.budget is None
-    pricey = {**HOTEL_ARGS, "cost": {"amount": 900, "currency": "USD"}}
+    pricey: dict[str, JsonValue] = {**HOTEL_ARGS, "cost": {"amount": 900, "currency": "USD"}}
     assert (await _check(ctx, "add_lodging", HOTEL_ARGS)).ok
     assert (await _check(ctx, "add_lodging", pricey)).ok
 
@@ -335,7 +339,10 @@ async def test_staged_removals_free_up_budget(ctx: ToolContext) -> None:
 
 
 async def test_a_meal_over_the_per_person_limit_is_rejected(ctx: ToolContext) -> None:
-    limit = {"category": "food", "max_per_person": {"amount": 200, "currency": "USD"}}
+    limit: dict[str, JsonValue] = {
+        "category": "food",
+        "max_per_person": {"amount": 200, "currency": "USD"},
+    }
     await _update_plan(ctx, travelers={"adults": 2}, limits=[limit])
 
     within = await _check(ctx, "add_activity", {**DINNER_ARGS, "cost": {"amount": 380}})
@@ -359,7 +366,7 @@ async def test_a_meal_over_the_per_person_limit_is_rejected(ctx: ToolContext) ->
 # ---------------------------------------------------------------------------
 
 # PHL 15:00 (New York) → HND 07:00 the next morning (Tokyo).
-_PHL_HND: dict[str, Any] = {
+_PHL_HND: dict[str, JsonValue] = {
     "title": "PHL to HND",
     "carrier": "Japan Airlines",
     "start": "2027-05-01T15:00:00",
@@ -437,7 +444,7 @@ async def test_add_flight_rejects_a_zero_length_flight(ctx: ToolContext) -> None
 async def test_add_transfer_rejects_an_airport_code_that_names_another_airport(
     ctx: ToolContext,
 ) -> None:
-    transfer = {
+    transfer: dict[str, JsonValue] = {
         "title": "Car from Haneda",
         "start": "2027-05-01T09:00:00",
         "end": "2027-05-01T11:00:00",

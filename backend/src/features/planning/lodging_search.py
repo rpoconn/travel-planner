@@ -20,10 +20,9 @@ import math
 from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any
 from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from features.itinerary.schemas import ItineraryItem, LodgingKind, active
 from features.itinerary.zones import legs, zone_at
@@ -281,7 +280,7 @@ def _count(count: int, one: str) -> str:
     return f"{count} {one}{'' if count == 1 else 's'}"
 
 
-def _place(option: HotelOption, destination: Place) -> dict[str, Any]:
+def _place(option: HotelOption, destination: Place) -> dict[str, JsonValue]:
     place = {
         "name": option.name[:_MAX_TITLE],
         "address": option.address,
@@ -320,7 +319,7 @@ def _add_lodging(
     total: Money | None,
     nightly: Money | None,
 ) -> CandidateChange:
-    arguments: dict[str, Any] = {
+    arguments: dict[str, JsonValue] = {
         "title": option.name[:_MAX_TITLE],
         # Local wall-clock times in `timezone`, as every item takes them.
         "start": start.strftime("%Y-%m-%dT%H:%M:%S"),

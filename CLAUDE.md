@@ -1,6 +1,7 @@
 ## Build & Development Commands
 - Dependencies: Use `uv` (e.g., `uv add <package>`, `uv run python ...`)
 - Lint & Format: `uv run ruff check --fix .` && `uv run ruff format .`
+- Type Check: `uv run mypy src tests scripts migrations`
 - Test: `uv run pytest`
 
 ## Python & Architecture Style Guidelines
@@ -29,6 +30,7 @@
 5. **Type Checking and Formatting:**
     - All code should have type annotations, backend and frontend.
     - All projects should have linting, code formatting, and type checking enabled.
+    - The linters and type checkers must ban `Any` (Python: ruff `ANN401` plus mypy `disallow_any_explicit`; TypeScript: `@typescript-eslint/no-explicit-any` and the `no-unsafe-*` rules). Model JSON-shaped data with real types (`pydantic.JsonValue`, `unknown` plus narrowing) instead. Where an untyped third-party boundary truly needs `Any`, use a line-level ignore with a comment explaining why.
     - All backend APIs should produce an OpenAPI-compatible spec.
     - The UI should convert the OpenAPI spec into a type-safe service layer for all network calls.
 6. **Testing:**

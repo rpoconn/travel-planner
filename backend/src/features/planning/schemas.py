@@ -7,10 +7,10 @@ the dependency only runs one way: `planning` imports `plans`, never the reverse.
 
 import datetime as dt
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from features.itinerary.schemas import Gap
 from features.plans.schemas import Issue, PlanSnapshot, PlanStage, SlotName
@@ -106,7 +106,7 @@ class CandidateChange(BaseModel):
     through the same validation as any other change (`chat.tools.check_change`)."""
 
     name: str  # e.g. "add_flight"
-    arguments: dict[str, Any]
+    arguments: dict[str, JsonValue]
     summary: str  # imperative, e.g. 'Add flight "SFO → NRT" on 2027-05-01 11:00'
 
 
@@ -164,7 +164,7 @@ class AskInput(BaseModel):
     prompt: str
     fields: list[FieldSpec]
     optional: bool = False
-    prefill: dict[str, Any] = Field(default_factory=dict)
+    prefill: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class OfferChoice(BaseModel):
@@ -239,7 +239,7 @@ class SlotAnswer(BaseModel):
 
     type: Literal["answer"] = "answer"
     slot: SlotName
-    value: dict[str, Any]
+    value: dict[str, JsonValue]
 
 
 class SlotSkip(BaseModel):
@@ -274,7 +274,7 @@ class AnswerRecord(BaseModel):
 
     type: Literal["answer"] = "answer"
     slot: SlotName
-    value: dict[str, Any] | None = None  # the validated answer; None when skipped
+    value: dict[str, JsonValue] | None = None  # the validated answer; None when skipped
     skipped: bool = False
 
 

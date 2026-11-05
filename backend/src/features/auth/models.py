@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Any
 
+from pydantic import JsonValue
 from sqlalchemy import JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,5 +18,5 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(100))
     # A `shared.domain.Place`: where the user's trips start and end. Copied into each new
     # plan's origin.
-    home: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    home: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)

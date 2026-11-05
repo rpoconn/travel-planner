@@ -6,7 +6,6 @@ bumps the plan's `version`.
 """
 
 import logging
-from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -55,7 +54,7 @@ class InvalidItemError(Exception):
 
 
 def _to_schema(row: Item) -> ItineraryItem:
-    data: dict[str, Any] = {
+    data: dict[str, object] = {
         **row.details,
         **{name: getattr(row, name) for name in _COLUMN_FIELDS},
         "type": row.type,

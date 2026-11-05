@@ -1,21 +1,24 @@
-from typing import Any
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic import JsonValue, TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from features.itinerary.models import Item
+from features.itinerary.schemas import ItineraryItem
+from features.planning.schemas import TravelPlan
 from tests.conftest import RegisterUser
 
-PLAN: dict[str, Any] = {
+PLAN: dict[str, JsonValue] = {
     "title": "Tokyo in May",
     "start_date": "2027-05-01",
     "end_date": "2027-05-08",
 }
 
-FLIGHT: dict[str, Any] = {
+FLIGHT: dict[str, JsonValue] = {
     "type": "flight",
     "title": "SFO → NRT",
     "start": "2027-05-01T11:00:00",
@@ -30,7 +33,7 @@ FLIGHT: dict[str, Any] = {
     "cost": {"amount": "1240.50", "currency": "USD"},
 }
 
-HOTEL: dict[str, Any] = {
+HOTEL: dict[str, JsonValue] = {
     "type": "lodging",
     "title": "Hotel Okura",
     "start": "2027-05-02T15:00:00",
@@ -41,6 +44,10 @@ HOTEL: dict[str, Any] = {
 
 UNKNOWN_ID = "00000000-0000-0000-0000-000000000000"
 
+# Plans are read back as the API's model; added items stay as the JSON the API sent, so
+# tests can check its wire format (local-time offsets, money as strings).
+_ITEM = TypeAdapter[ItineraryItem](ItineraryItem)
+
 
 @pytest.fixture
 async def headers(register_user: RegisterUser) -> dict[str, str]:
@@ -48,27 +55,25 @@ async def headers(register_user: RegisterUser) -> dict[str, str]:
 
 
 @pytest.fixture
-async def plan(client: AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
+async def plan(client: AsyncClient, headers: dict[str, str]) -> TravelPlan:
     response = await client.post("/plans", json=PLAN, headers=headers)
     assert response.status_code == 201, response.text
-    created: dict[str, Any] = response.json()
-    return created
+    return TravelPlan.model_validate(response.json())
 
 
 async def _add(
-    client: AsyncClient, headers: dict[str, str], plan_id: str, body: dict[str, Any]
-) -> dict[str, Any]:
+    client: AsyncClient, headers: dict[str, str], plan_id: UUID, body: dict[str, JsonValue]
+) -> dict[str, JsonValue]:
     response = await client.post(f"/plans/{plan_id}/items", json=body, headers=headers)
     assert response.status_code == 201, response.text
-    item: dict[str, Any] = response.json()
+    item: dict[str, JsonValue] = response.json()
     return item
 
 
-async def _get_plan(client: AsyncClient, headers: dict[str, str], plan_id: str) -> dict[str, Any]:
+async def _get_plan(client: AsyncClient, headers: dict[str, str], plan_id: UUID) -> TravelPlan:
     response = await client.get(f"/plans/{plan_id}", headers=headers)
     assert response.status_code == 200, response.text
-    fetched: dict[str, Any] = response.json()
-    return fetched
+    return TravelPlan.model_validate(response.json())
 
 
 # ---------------------------------------------------------------------------
@@ -76,38 +81,38 @@ async def _get_plan(client: AsyncClient, headers: dict[str, str], plan_id: str) 
 # ---------------------------------------------------------------------------
 
 
-async def test_new_plan_has_no_items(plan: dict[str, Any]) -> None:
-    assert plan["items"] == []
+async def test_new_plan_has_no_items(plan: TravelPlan) -> None:
+    assert plan.items == []
 
 
 async def test_add_item_returns_it_in_local_time_and_bumps_version(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:
-    item = await _add(client, headers, plan["id"], FLIGHT)
+    item = await _add(client, headers, plan.id, FLIGHT)
 
     assert item["type"] == "flight"
-    assert item["plan_id"] == plan["id"]
+    assert item["plan_id"] == str(plan.id)
     assert item["created_by"] == "user"
     assert item["status"] == "proposed"
     assert item["start"] == "2027-05-01T11:00:00-07:00"
     assert item["end"] == "2027-05-02T14:30:00+09:00"
     assert item["cost"] == {"amount": "1240.50", "currency": "USD", "basis": "estimate"}
-    after = await _get_plan(client, headers, plan["id"])
-    assert after["version"] == plan["version"] + 1
-    assert [i["id"] for i in after["items"]] == [item["id"]]
+    after = await _get_plan(client, headers, plan.id)
+    assert after.version == plan.version + 1
+    assert [str(i.id) for i in after.items] == [item["id"]]
 
 
 async def test_items_are_listed_by_start_time(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:
-    hotel = await _add(client, headers, plan["id"], HOTEL)
-    flight = await _add(client, headers, plan["id"], FLIGHT)
+    hotel = await _add(client, headers, plan.id, HOTEL)
+    flight = await _add(client, headers, plan.id, FLIGHT)
 
-    listed = await client.get(f"/plans/{plan['id']}/items", headers=headers)
+    listed = await client.get(f"/plans/{plan.id}/items", headers=headers)
 
     assert listed.status_code == 200
     assert [i["id"] for i in listed.json()] == [flight["id"], hotel["id"]]
-    assert [i["id"] for i in (await _get_plan(client, headers, plan["id"]))["items"]] == [
+    assert [str(i.id) for i in (await _get_plan(client, headers, plan.id)).items] == [
         flight["id"],
         hotel["id"],
     ]
@@ -123,9 +128,9 @@ async def test_items_are_listed_by_start_time(
     ],
 )
 async def test_invalid_items_are_rejected(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any], body: dict[str, Any]
+    client: AsyncClient, headers: dict[str, str], plan: TravelPlan, body: dict[str, JsonValue]
 ) -> None:
-    response = await client.post(f"/plans/{plan['id']}/items", json=body, headers=headers)
+    response = await client.post(f"/plans/{plan.id}/items", json=body, headers=headers)
 
     assert response.status_code == 422
 
@@ -136,13 +141,13 @@ async def test_invalid_items_are_rejected(
 
 
 async def test_patch_merges_onto_the_item_and_bumps_version(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:
-    hotel = await _add(client, headers, plan["id"], HOTEL)
-    before = await _get_plan(client, headers, plan["id"])
+    hotel = await _add(client, headers, plan.id, HOTEL)
+    before = await _get_plan(client, headers, plan.id)
 
     response = await client.patch(
-        f"/plans/{plan['id']}/items/{hotel['id']}",
+        f"/plans/{plan.id}/items/{hotel['id']}",
         json={"type": "lodging", "start": "2027-05-03T15:00:00", "status": "confirmed"},
         headers=headers,
     )
@@ -153,7 +158,7 @@ async def test_patch_merges_onto_the_item_and_bumps_version(
     assert updated["status"] == "confirmed"
     assert updated["end"] == hotel["end"]
     assert updated["place"] == hotel["place"]
-    assert (await _get_plan(client, headers, plan["id"]))["version"] == before["version"] + 1
+    assert (await _get_plan(client, headers, plan.id)).version == before.version + 1
 
 
 @pytest.mark.parametrize(
@@ -167,43 +172,42 @@ async def test_patch_merges_onto_the_item_and_bumps_version(
 async def test_invalid_patches_are_rejected(
     client: AsyncClient,
     headers: dict[str, str],
-    plan: dict[str, Any],
-    patch: dict[str, Any],
+    plan: TravelPlan,
+    patch: dict[str, JsonValue],
     detail: str,
 ) -> None:
-    hotel = await _add(client, headers, plan["id"], HOTEL)
+    hotel = await _add(client, headers, plan.id, HOTEL)
 
     response = await client.patch(
-        f"/plans/{plan['id']}/items/{hotel['id']}", json=patch, headers=headers
+        f"/plans/{plan.id}/items/{hotel['id']}", json=patch, headers=headers
     )
 
     assert response.status_code == 422
     assert detail in response.json()["detail"]
-    unchanged = await _get_plan(client, headers, plan["id"])
-    assert unchanged["items"][0] == hotel
+    unchanged = await _get_plan(client, headers, plan.id)
+    assert unchanged.items[0] == _ITEM.validate_python(hotel)
 
 
-async def test_remove_item(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
-) -> None:
-    hotel = await _add(client, headers, plan["id"], HOTEL)
+async def test_remove_item(client: AsyncClient, headers: dict[str, str], plan: TravelPlan) -> None:
+    hotel = await _add(client, headers, plan.id, HOTEL)
 
-    deleted = await client.delete(f"/plans/{plan['id']}/items/{hotel['id']}", headers=headers)
-    again = await client.delete(f"/plans/{plan['id']}/items/{hotel['id']}", headers=headers)
+    deleted = await client.delete(f"/plans/{plan.id}/items/{hotel['id']}", headers=headers)
+    again = await client.delete(f"/plans/{plan.id}/items/{hotel['id']}", headers=headers)
 
     assert deleted.status_code == 204
     assert again.status_code == 404
-    after = await _get_plan(client, headers, plan["id"])
-    assert after["items"] == []
-    assert after["version"] == plan["version"] + 2  # add + remove
+    after = await _get_plan(client, headers, plan.id)
+    assert after.items == []
+    assert after.version == plan.version + 2  # add + remove
 
 
 async def test_items_cannot_be_reached_through_another_plan(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:
-    hotel = await _add(client, headers, plan["id"], HOTEL)
-    other_plan = (await client.post("/plans", json={}, headers=headers)).json()
-    url = f"/plans/{other_plan['id']}/items/{hotel['id']}"
+    hotel = await _add(client, headers, plan.id, HOTEL)
+    created = await client.post("/plans", json={}, headers=headers)
+    other_plan = TravelPlan.model_validate(created.json())
+    url = f"/plans/{other_plan.id}/items/{hotel['id']}"
 
     patched = await client.patch(url, json={"type": "lodging", "title": "x"}, headers=headers)
     deleted = await client.delete(url, headers=headers)
@@ -214,11 +218,11 @@ async def test_items_cannot_be_reached_through_another_plan(
 
 
 async def test_deleting_a_plan_deletes_its_items(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:
-    await _add(client, headers, plan["id"], HOTEL)
+    await _add(client, headers, plan.id, HOTEL)
 
-    await client.delete(f"/plans/{plan['id']}", headers=headers)
+    await client.delete(f"/plans/{plan.id}", headers=headers)
 
     sessionmaker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
     async with sessionmaker() as session:
@@ -232,16 +236,16 @@ async def test_deleting_a_plan_deletes_its_items(
 
 
 async def test_timeline_endpoint(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:
-    flight = await _add(client, headers, plan["id"], FLIGHT)
-    hotel = await _add(client, headers, plan["id"], HOTEL)
+    flight = await _add(client, headers, plan.id, FLIGHT)
+    hotel = await _add(client, headers, plan.id, HOTEL)
 
-    response = await client.get(f"/plans/{plan['id']}/timeline", headers=headers)
+    response = await client.get(f"/plans/{plan.id}/timeline", headers=headers)
 
     assert response.status_code == 200, response.text
     timeline = response.json()
-    assert timeline["version"] == plan["version"] + 2
+    assert timeline["version"] == plan.version + 2
     assert [day["date"] for day in timeline["days"]][:2] == ["2027-05-01", "2027-05-02"]
     assert len(timeline["days"]) == 8
     assert [e["item"]["id"] for e in timeline["days"][1]["entries"]] == [flight["id"]]
@@ -254,16 +258,16 @@ async def test_timeline_endpoint(
 
 
 async def test_timeline_checks_items_against_the_plan_budget(
-    client: AsyncClient, headers: dict[str, str], plan: dict[str, Any]
+    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:
     # The flight costs 1240.50; the hotel has no cost.
-    await _add(client, headers, plan["id"], FLIGHT)
-    await _add(client, headers, plan["id"], HOTEL)
+    await _add(client, headers, plan.id, FLIGHT)
+    await _add(client, headers, plan.id, HOTEL)
     budget = {"budget": {"amount": "1000", "currency": "USD"}}
-    patched = await client.patch(f"/plans/{plan['id']}", json=budget, headers=headers)
+    patched = await client.patch(f"/plans/{plan.id}", json=budget, headers=headers)
     assert patched.status_code == 200, patched.text
 
-    response = await client.get(f"/plans/{plan['id']}/timeline", headers=headers)
+    response = await client.get(f"/plans/{plan.id}/timeline", headers=headers)
 
     kinds = [w["kind"] for w in response.json()["warnings"]]
     assert kinds.count("missing_cost") == 1
@@ -275,8 +279,8 @@ async def test_timeline_checks_items_against_the_plan_budget(
 # ---------------------------------------------------------------------------
 
 
-async def test_itinerary_requires_auth(client: AsyncClient, plan: dict[str, Any]) -> None:
-    response = await client.get(f"/plans/{plan['id']}/items")
+async def test_itinerary_requires_auth(client: AsyncClient, plan: TravelPlan) -> None:
+    response = await client.get(f"/plans/{plan.id}/items")
 
     assert response.status_code == 401
 
@@ -284,12 +288,12 @@ async def test_itinerary_requires_auth(client: AsyncClient, plan: dict[str, Any]
 async def test_users_cannot_touch_each_others_itineraries(
     client: AsyncClient,
     headers: dict[str, str],
-    plan: dict[str, Any],
+    plan: TravelPlan,
     register_user: RegisterUser,
 ) -> None:
-    hotel = await _add(client, headers, plan["id"], HOTEL)
+    hotel = await _add(client, headers, plan.id, HOTEL)
     other = await register_user("bob@example.com")
-    base = f"/plans/{plan['id']}"
+    base = f"/plans/{plan.id}"
     item_url = f"{base}/items/{hotel['id']}"
 
     responses = [
@@ -302,4 +306,4 @@ async def test_users_cannot_touch_each_others_itineraries(
     ]
 
     assert [r.status_code for r in responses] == [404] * 6
-    assert (await _get_plan(client, headers, plan["id"]))["items"] == [hotel]
+    assert (await _get_plan(client, headers, plan.id)).items == [_ITEM.validate_python(hotel)]

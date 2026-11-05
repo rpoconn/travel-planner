@@ -7,18 +7,18 @@ narrow no-break spaces and en dashes, a split lunch-and-dinner day, a price rang
 of a level, hours that don't read, a place with no name and one with a rating out of range.
 """
 
-import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import time
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
+from pydantic import JsonValue
 
 from shared.places.serpapi import SERPAPI_URL, SerpApiPlaceProvider, parse_hours, parse_price
 from shared.places.types import OpeningHours, PlaceQuery, PlaceSearchError
+from tests.json_path import json_object
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -29,9 +29,8 @@ QUERY = PlaceQuery(what="museums", near="Lisbon, Portugal")
 NB, DASH = chr(0x202F), chr(0x2013)
 
 
-def _fixture(name: str) -> dict[str, Any]:
-    body: dict[str, Any] = json.loads((FIXTURES / name).read_text())
-    return body
+def _fixture(name: str) -> dict[str, JsonValue]:
+    return json_object((FIXTURES / name).read_text())
 
 
 def _provider(handler: Handler, *, max_attempts: int = 3) -> SerpApiPlaceProvider:
@@ -43,7 +42,7 @@ def _provider(handler: Handler, *, max_attempts: int = 3) -> SerpApiPlaceProvide
     )
 
 
-def _replying(body: dict[str, Any], status: int = 200) -> Handler:
+def _replying(body: Mapping[str, JsonValue], status: int = 200) -> Handler:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(status, json=body)
 
@@ -116,7 +115,7 @@ async def test_places_are_mapped_in_order() -> None:
 
 
 async def test_a_single_match_comes_back_as_one_place() -> None:
-    body = {"place_results": {"title": "Oceanário de Lisboa", "rating": 4.6}}
+    body: dict[str, JsonValue] = {"place_results": {"title": "Oceanário de Lisboa", "rating": 4.6}}
 
     (place,) = await _provider(_replying(body)).search(QUERY)
 

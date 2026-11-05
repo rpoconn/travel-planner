@@ -2,15 +2,16 @@
 
 import json
 import logging
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
 
 import httpx
 import ollama
 import pytest
+from pydantic import JsonValue
 
 from shared.llm.ollama_client import OllamaClient
 from shared.llm.types import LLMError, LLMMessage, ToolSpec
+from tests.json_path import at, json_object, text
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -30,8 +31,10 @@ def _client(handler: Handler, *, max_attempts: int = 3) -> OllamaClient:
     )
 
 
-def _chat_part(content: str = "", tool_calls: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    message: dict[str, Any] = {"role": "assistant", "content": content}
+def _chat_part(
+    content: str = "", tool_calls: list[JsonValue] | None = None
+) -> dict[str, JsonValue]:
+    message: dict[str, JsonValue] = {"role": "assistant", "content": content}
     if tool_calls:
         message["tool_calls"] = tool_calls
     return {"model": "test-model", "message": message, "done": True}
@@ -43,11 +46,13 @@ def _chat_part(content: str = "", tool_calls: list[dict[str, Any]] | None = None
 
 
 async def test_chat_sends_request_and_parses_tool_calls() -> None:
-    seen: list[dict[str, Any]] = []
+    seen: list[dict[str, JsonValue]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(request.content))
-        call = {"function": {"name": "add_lodging", "arguments": {"title": "Hotel Okura"}}}
+        seen.append(json_object(request.content))
+        call: JsonValue = {
+            "function": {"name": "add_lodging", "arguments": {"title": "Hotel Okura"}}
+        }
         return httpx.Response(200, json=_chat_part("On it.", [call]))
 
     reply = await _client(handler).chat(MESSAGES, tools=[TOOL], format={"type": "object"})
@@ -61,15 +66,15 @@ async def test_chat_sends_request_and_parses_tool_calls() -> None:
     assert body["think"] is False
     assert body["options"] == {"num_ctx": 16384, "num_predict": 2048}
     assert body["format"] == {"type": "object"}
-    assert body["tools"][0]["function"]["name"] == "add_lodging"
+    assert text(body, "tools", 0, "function", "name") == "add_lodging"
     assert body["messages"] == [{"role": "user", "content": "Plan a trip to Tokyo"}]
 
 
 async def test_chat_can_turn_thinking_on_for_one_call() -> None:
-    seen: list[dict[str, Any]] = []
+    seen: list[dict[str, JsonValue]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(request.content))
+        seen.append(json_object(request.content))
         return httpx.Response(200, json=_chat_part("{}"))
 
     client = _client(handler)
@@ -80,15 +85,15 @@ async def test_chat_can_turn_thinking_on_for_one_call() -> None:
 
 
 async def test_chat_sends_tool_results_back() -> None:
-    seen: list[dict[str, Any]] = []
+    seen: list[dict[str, JsonValue]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(request.content))
+        seen.append(json_object(request.content))
         return httpx.Response(200, json=_chat_part("Done"))
 
     await _client(handler).chat([LLMMessage(role="tool", tool_name="add_lodging", content="ok")])
 
-    assert seen[0]["messages"][0]["tool_name"] == "add_lodging"
+    assert at(seen[0], "messages", 0, "tool_name") == "add_lodging"
 
 
 async def test_chat_retries_transient_errors() -> None:
@@ -130,12 +135,12 @@ async def test_missing_model_is_not_retried_and_explains_how_to_fix() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _ndjson(*parts: dict[str, Any]) -> httpx.Response:
+def _ndjson(*parts: Mapping[str, JsonValue]) -> httpx.Response:
     return httpx.Response(200, text="\n".join(json.dumps(part) for part in parts))
 
 
 async def test_stream_yields_tokens_then_tool_calls() -> None:
-    call = {"function": {"name": "add_lodging", "arguments": {"title": "Okura"}}}
+    call: JsonValue = {"function": {"name": "add_lodging", "arguments": {"title": "Okura"}}}
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return _ndjson(_chat_part("Let me "), _chat_part("add that."), _chat_part("", [call]))
@@ -147,10 +152,10 @@ async def test_stream_yields_tokens_then_tool_calls() -> None:
 
 
 async def test_stream_sends_context_and_output_limits() -> None:
-    seen: list[dict[str, Any]] = []
+    seen: list[dict[str, JsonValue]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(request.content))
+        seen.append(json_object(request.content))
         return _ndjson(_chat_part("hi"))
 
     client = OllamaClient(

@@ -13,9 +13,8 @@ provider's own airport-local times, so nothing here (or anywhere) writes a fligh
 
 import logging
 from decimal import Decimal
-from typing import Any
 
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from features.itinerary.schemas import FlightItem, active
 from features.planning.flight_choice import (
@@ -156,7 +155,7 @@ def _summary(option: FlightOption, leg: str) -> str:
 def _add_flight(
     option: FlightOption, prefs: FlightPreferences, direction: str, cost: Money | None
 ) -> CandidateChange:
-    arguments: dict[str, Any] = {
+    arguments: dict[str, JsonValue] = {
         **flight_arguments(option, prefs.cabin, cost),
         "direction": direction,
         "title": f"Flight {option.departure.iata} to {option.arrival.iata}",

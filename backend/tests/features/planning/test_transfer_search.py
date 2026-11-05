@@ -33,6 +33,7 @@ from tests.features.itinerary.factories import (
     lodging,
 )
 from tests.features.plans.builders import outbound_flight, return_flight, snapshot
+from tests.json_path import at
 
 SHIBUYA = Place(name="Shibuya Crossing", city="Tokyo", lat=35.6595, lng=139.7005)
 HARAJUKU = Place(name="Meiji Shrine", city="Tokyo", lat=35.6764, lng=139.6993)
@@ -212,10 +213,10 @@ async def test_candidates_carry_the_add_transfer_change() -> None:
         "2027-05-02T14:30:00",
         "2027-05-02T15:05:00",
     )
-    assert change.arguments["from_place"]["iata"] == "NRT"
-    assert change.arguments["cost"]["basis"] == "estimate"
+    assert at(change.arguments, "from_place", "iata") == "NRT"
+    assert at(change.arguments, "cost", "basis") == "estimate"
     rental = rest[-1].changes[0].arguments
-    assert rental["pickup_location"]["iata"] == "NRT"
+    assert at(rental, "pickup_location", "iata") == "NRT"
 
 
 async def test_home_is_named_as_home() -> None:

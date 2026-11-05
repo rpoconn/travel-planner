@@ -11,6 +11,7 @@ from features.planning.flight_choice import (
 )
 from shared.domain import Money
 from shared.flights.types import FlightCabin
+from tests.json_path import at
 from tests.shared.flights.builders import flight_option
 
 # ---------------------------------------------------------------------------
@@ -67,7 +68,10 @@ def test_a_connection_is_one_flight_with_its_layovers() -> None:
 
     arguments = flight_arguments(option, FlightCabin.BUSINESS, None)
 
-    assert (arguments["from_place"]["iata"], arguments["to_place"]["iata"]) == ("PHL", "HND")
+    assert (at(arguments, "from_place", "iata"), at(arguments, "to_place", "iata")) == (
+        "PHL",
+        "HND",
+    )
     assert arguments["layovers"] == [{"name": "ORD Airport", "iata": "ORD"}]
     assert arguments["flight_number"] == "NH 100, NH 101"
     assert arguments["cabin"] == "business"
@@ -99,4 +103,4 @@ def test_flight_arguments_cost_uses_the_given_price() -> None:
 
     arguments = flight_arguments(option, FlightCabin.ECONOMY, Money(amount=Decimal(0)))
 
-    assert arguments["cost"]["amount"] == "0"
+    assert at(arguments, "cost", "amount") == "0"

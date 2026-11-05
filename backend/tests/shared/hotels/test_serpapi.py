@@ -5,20 +5,20 @@ The fixture follows SerpApi's documented Google Hotels response
 that has no price and one with no name.
 """
 
-import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
+from pydantic import JsonValue
 
 from shared.domain import Money
 from shared.hotels.serpapi import SERPAPI_URL, SerpApiHotelProvider, parse_time
 from shared.hotels.types import HotelQuery, HotelSearchError
+from tests.json_path import json_object
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -32,9 +32,8 @@ QUERY = HotelQuery(
 )
 
 
-def _fixture(name: str) -> dict[str, Any]:
-    body: dict[str, Any] = json.loads((FIXTURES / name).read_text())
-    return body
+def _fixture(name: str) -> dict[str, JsonValue]:
+    return json_object((FIXTURES / name).read_text())
 
 
 def _provider(handler: Handler, *, max_attempts: int = 3) -> SerpApiHotelProvider:
@@ -46,7 +45,7 @@ def _provider(handler: Handler, *, max_attempts: int = 3) -> SerpApiHotelProvide
     )
 
 
-def _replying(body: dict[str, Any], status: int = 200) -> Handler:
+def _replying(body: Mapping[str, JsonValue], status: int = 200) -> Handler:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(status, json=body)
 

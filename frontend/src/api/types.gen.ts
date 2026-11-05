@@ -257,7 +257,7 @@ export type AnswerRecord = {
      * Value
      */
     value: {
-        [key: string]: unknown;
+        [key: string]: JsonValue;
     } | null;
     /**
      * Skipped
@@ -293,7 +293,7 @@ export type AskInput = {
      * Prefill
      */
     prefill: {
-        [key: string]: unknown;
+        [key: string]: JsonValue;
     };
 };
 
@@ -351,7 +351,7 @@ export type CandidateChange = {
      * Arguments
      */
     arguments: {
-        [key: string]: unknown;
+        [key: string]: JsonValue;
     };
     /**
      * Summary
@@ -935,6 +935,8 @@ export const IssueCode = {
  * warnings use the same codes.
  */
 export type IssueCode = typeof IssueCode[keyof typeof IssueCode];
+
+export type JsonValue = unknown;
 
 /**
  * LodgingItem
@@ -1754,7 +1756,7 @@ export type SlotAnswer = {
      * Value
      */
     value: {
-        [key: string]: unknown;
+        [key: string]: JsonValue;
     };
 };
 

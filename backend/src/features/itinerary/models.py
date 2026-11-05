@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Any
 
+from pydantic import JsonValue
 from sqlalchemy import JSON, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,11 +28,11 @@ class Item(Base):
     timezone: Mapped[str] = mapped_column(String(64))
     end_timezone: Mapped[str | None] = mapped_column(String(64), default=None)
     status: Mapped[str] = mapped_column(String(20), default="proposed")
-    cost: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    cost: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
     booking_ref: Mapped[str | None] = mapped_column(String(200), default=None)
     source_url: Mapped[str | None] = mapped_column(String(2000), default=None)
     notes: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(String(20))
-    details: Mapped[dict[str, Any]] = mapped_column(JSON)
+    details: Mapped[dict[str, JsonValue]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)

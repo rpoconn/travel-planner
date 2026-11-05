@@ -1,8 +1,7 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from features.itinerary.schemas import (
     ActivityItemCreate,
@@ -15,7 +14,7 @@ from features.itinerary.schemas import (
 
 _CREATE = TypeAdapter[ItineraryItemCreate](ItineraryItemCreate)
 
-FLIGHT: dict[str, Any] = {
+FLIGHT: dict[str, JsonValue] = {
     "type": "flight",
     "title": "SFO → NRT",
     "start": "2027-05-01T11:00:00",

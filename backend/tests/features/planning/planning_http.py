@@ -2,26 +2,32 @@
 and read the streamed events back."""
 
 import json
-from typing import Any
+from collections.abc import Mapping
 from uuid import UUID
 
 from fastapi import FastAPI
 from httpx import AsyncClient
-from pydantic import TypeAdapter
+from pydantic import JsonValue, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from features.planning.events import PlanningDoneEvent, PlanningEvent, PlanningMessageEvent
+from features.planning.events import (
+    PlanningDoneEvent,
+    PlanningEvent,
+    PlanningMessage,
+    PlanningMessageEvent,
+)
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import PlanStage
 
 EVENTS: TypeAdapter[PlanningEvent] = TypeAdapter(PlanningEvent)
+MESSAGES: TypeAdapter[list[PlanningMessage]] = TypeAdapter(list[PlanningMessage])
 
-LISBON = {"name": "Lisbon", "city": "Lisbon", "country": "Portugal"}
-MAY = {"start": "2027-05-01", "end": "2027-05-08"}
+LISBON: dict[str, JsonValue] = {"name": "Lisbon", "city": "Lisbon", "country": "Portugal"}
+MAY: dict[str, JsonValue] = {"start": "2027-05-01", "end": "2027-05-08"}
 
 # A plan with every basic but the budget, as the form would leave it.
-BASICS: dict[str, Any] = {
+BASICS: dict[str, JsonValue] = {
     "destination": LISBON,
     "start_date": "2027-05-01",
     "end_date": "2027-05-08",
@@ -35,7 +41,7 @@ BASICS: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
-async def create_plan(client: AsyncClient, headers: dict[str, str], **fields: Any) -> str:
+async def create_plan(client: AsyncClient, headers: dict[str, str], **fields: JsonValue) -> str:
     response = await client.post("/plans", json=fields, headers=headers)
     assert response.status_code == 201, response.text
     plan_id: str = response.json()["id"]
@@ -54,7 +60,11 @@ def parse(body: str) -> list[PlanningEvent]:
 
 
 async def post(
-    client: AsyncClient, headers: dict[str, str], plan_id: str, path: str, body: Any = None
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan_id: str,
+    path: str,
+    body: Mapping[str, JsonValue] | None = None,
 ) -> list[PlanningEvent]:
     response = await client.post(f"/plans/{plan_id}/planning/{path}", json=body, headers=headers)
     assert response.status_code == 200, response.text
@@ -63,9 +73,13 @@ async def post(
 
 
 async def answer(
-    client: AsyncClient, headers: dict[str, str], plan_id: str, slot: str, value: dict[str, Any]
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan_id: str,
+    slot: str,
+    value: Mapping[str, JsonValue],
 ) -> list[PlanningEvent]:
-    body = {"type": "answer", "slot": slot, "value": value}
+    body: dict[str, JsonValue] = {"type": "answer", "slot": slot, "value": dict(value)}
     return await post(client, headers, plan_id, "inputs", body)
 
 
@@ -75,11 +89,12 @@ async def say(
     return await post(client, headers, plan_id, "chat", {"content": content})
 
 
-async def messages(client: AsyncClient, headers: dict[str, str], plan_id: str) -> list[Any]:
+async def messages(
+    client: AsyncClient, headers: dict[str, str], plan_id: str
+) -> list[PlanningMessage]:
     response = await client.get(f"/plans/{plan_id}/planning/messages", headers=headers)
     assert response.status_code == 200, response.text
-    messages: list[Any] = response.json()
-    return messages
+    return MESSAGES.validate_json(response.content)
 
 
 def stored(events: list[PlanningEvent]) -> list[tuple[str, str]]:

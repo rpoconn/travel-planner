@@ -1,11 +1,11 @@
-from typing import Any
-
 import pytest
 from httpx import AsyncClient
+from pydantic import JsonValue
 
+from features.planning.schemas import TravelPlan
 from tests.conftest import RegisterUser
 
-TOKYO: dict[str, Any] = {
+TOKYO: dict[str, JsonValue] = {
     "title": "Tokyo in May",
     "origin": {"name": "San Francisco International Airport", "iata": "SFO"},
     "destination": {"name": "Tokyo", "country": "Japan"},
@@ -21,11 +21,10 @@ async def headers(register_user: RegisterUser) -> dict[str, str]:
     return await register_user("ada@example.com")
 
 
-async def _create(client: AsyncClient, headers: dict[str, str], **body: Any) -> dict[str, Any]:
+async def _create(client: AsyncClient, headers: dict[str, str], **body: JsonValue) -> TravelPlan:
     response = await client.post("/plans", json=body, headers=headers)
     assert response.status_code == 201, response.text
-    created: dict[str, Any] = response.json()
-    return created
+    return TravelPlan.model_validate(response.json())
 
 
 # ---------------------------------------------------------------------------
@@ -36,18 +35,18 @@ async def _create(client: AsyncClient, headers: dict[str, str], **body: Any) -> 
 async def test_create_plan_with_defaults(client: AsyncClient, headers: dict[str, str]) -> None:
     plan = await _create(client, headers)
 
-    assert plan["title"] == "Untitled trip"
-    assert plan["status"] == "draft"
+    assert plan.title == "Untitled trip"
+    assert plan.status == "draft"
     # Unknown until the user says, so the assistant asks instead of assuming one adult.
-    assert plan["travelers"] is None
-    assert plan["version"] == 1
-    assert plan["origin"] is None
+    assert plan.travelers is None
+    assert plan.version == 1
+    assert plan.origin is None
 
 
 async def test_create_and_get_full_plan(client: AsyncClient, headers: dict[str, str]) -> None:
     created = await _create(client, headers, **TOKYO)
 
-    response = await client.get(f"/plans/{created['id']}", headers=headers)
+    response = await client.get(f"/plans/{created.id}", headers=headers)
 
     assert response.status_code == 200
     plan = response.json()
@@ -73,7 +72,7 @@ async def test_list_plans_most_recently_updated_first(
 ) -> None:
     first = await _create(client, headers, title="First")
     await _create(client, headers, title="Second")
-    await client.patch(f"/plans/{first['id']}", json={"notes": "touched"}, headers=headers)
+    await client.patch(f"/plans/{first.id}", json={"notes": "touched"}, headers=headers)
 
     response = await client.get("/plans", headers=headers)
 
@@ -98,15 +97,15 @@ async def test_patch_applies_only_given_fields_and_bumps_version(
     created = await _create(client, headers, **TOKYO)
 
     response = await client.patch(
-        f"/plans/{created['id']}", json={"title": "Tokyo & Kyoto"}, headers=headers
+        f"/plans/{created.id}", json={"title": "Tokyo & Kyoto"}, headers=headers
     )
 
     assert response.status_code == 200
-    plan = response.json()
-    assert plan["title"] == "Tokyo & Kyoto"
-    assert plan["destination"] == created["destination"]
-    assert plan["version"] == 2
-    assert plan["updated_at"] >= created["updated_at"]
+    plan = TravelPlan.model_validate(response.json())
+    assert plan.title == "Tokyo & Kyoto"
+    assert plan.destination == created.destination
+    assert plan.version == 2
+    assert plan.updated_at >= created.updated_at
 
 
 async def test_patch_can_clear_optional_fields(
@@ -115,7 +114,7 @@ async def test_patch_can_clear_optional_fields(
     created = await _create(client, headers, **TOKYO)
 
     response = await client.patch(
-        f"/plans/{created['id']}", json={"budget": None, "end_date": None}, headers=headers
+        f"/plans/{created.id}", json={"budget": None, "end_date": None}, headers=headers
     )
 
     assert response.status_code == 200
@@ -129,7 +128,7 @@ async def test_a_zero_budget_is_saved_as_no_budget(
     created = await _create(client, headers, **TOKYO)
 
     response = await client.patch(
-        f"/plans/{created['id']}",
+        f"/plans/{created.id}",
         json={"budget": {"amount": "0", "currency": "USD"}},
         headers=headers,
     )
@@ -141,9 +140,7 @@ async def test_a_zero_budget_is_saved_as_no_budget(
 async def test_patch_can_clear_travelers(client: AsyncClient, headers: dict[str, str]) -> None:
     created = await _create(client, headers, **TOKYO)
 
-    response = await client.patch(
-        f"/plans/{created['id']}", json={"travelers": None}, headers=headers
-    )
+    response = await client.patch(f"/plans/{created.id}", json={"travelers": None}, headers=headers)
 
     assert response.status_code == 200
     assert response.json()["travelers"] is None
@@ -154,12 +151,12 @@ async def test_patch_rejects_nulling_required_fields(
 ) -> None:
     created = await _create(client, headers)
 
-    response = await client.patch(f"/plans/{created['id']}", json={"title": None}, headers=headers)
+    response = await client.patch(f"/plans/{created.id}", json={"title": None}, headers=headers)
 
     assert response.status_code == 422
 
 
-FOOD_LIMIT: dict[str, Any] = {
+FOOD_LIMIT: dict[str, JsonValue] = {
     "category": "food",
     "max_per_person": {"amount": "200.00", "currency": "USD"},
 }
@@ -169,8 +166,8 @@ async def test_spending_limits_are_stored_replaced_and_cleared(
     client: AsyncClient, headers: dict[str, str]
 ) -> None:
     created = await _create(client, headers, **TOKYO)
-    assert created["limits"] == []
-    url = f"/plans/{created['id']}"
+    assert created.limits == []
+    url = f"/plans/{created.id}"
 
     set_limits = await client.patch(url, json={"limits": [FOOD_LIMIT]}, headers=headers)
     other_patch = await client.patch(url, json={"title": "Tokyo"}, headers=headers)
@@ -187,13 +184,11 @@ async def test_spending_limits_are_stored_replaced_and_cleared(
     ids=["null", "two-per-category"],
 )
 async def test_patch_rejects_bad_limits(
-    client: AsyncClient, headers: dict[str, str], limits: list[dict[str, Any]] | None
+    client: AsyncClient, headers: dict[str, str], limits: list[dict[str, JsonValue]] | None
 ) -> None:
     created = await _create(client, headers)
 
-    response = await client.patch(
-        f"/plans/{created['id']}", json={"limits": limits}, headers=headers
-    )
+    response = await client.patch(f"/plans/{created.id}", json={"limits": limits}, headers=headers)
 
     assert response.status_code == 422
 
@@ -204,7 +199,7 @@ async def test_patch_checks_dates_against_existing_plan(
     created = await _create(client, headers, **TOKYO)
 
     response = await client.patch(
-        f"/plans/{created['id']}", json={"end_date": "2027-04-01"}, headers=headers
+        f"/plans/{created.id}", json={"end_date": "2027-04-01"}, headers=headers
     )
 
     assert response.status_code == 422
@@ -214,8 +209,8 @@ async def test_patch_checks_dates_against_existing_plan(
 async def test_delete_plan(client: AsyncClient, headers: dict[str, str]) -> None:
     created = await _create(client, headers)
 
-    deleted = await client.delete(f"/plans/{created['id']}", headers=headers)
-    fetched = await client.get(f"/plans/{created['id']}", headers=headers)
+    deleted = await client.delete(f"/plans/{created.id}", headers=headers)
+    fetched = await client.get(f"/plans/{created.id}", headers=headers)
 
     assert deleted.status_code == 204
     assert fetched.status_code == 404
@@ -237,7 +232,7 @@ async def test_users_cannot_see_or_modify_each_others_plans(
 ) -> None:
     plan = await _create(client, headers, **TOKYO)
     other = await register_user("bob@example.com")
-    url = f"/plans/{plan['id']}"
+    url = f"/plans/{plan.id}"
 
     listed = await client.get("/plans", headers=other)
     fetched = await client.get(url, headers=other)
@@ -257,7 +252,7 @@ async def test_users_cannot_see_or_modify_each_others_plans(
 # Home and stages
 # ---------------------------------------------------------------------------
 
-HOME: dict[str, Any] = {"name": "12 Pine St", "city": "Philadelphia", "iata": "PHL"}
+HOME: dict[str, JsonValue] = {"name": "12 Pine St", "city": "Philadelphia", "iata": "PHL"}
 
 
 async def _set_home(client: AsyncClient, headers: dict[str, str]) -> None:
@@ -272,8 +267,9 @@ async def test_a_new_plan_starts_from_the_users_home(
 
     plan = await _create(client, headers)
 
-    assert plan["origin"]["city"] == "Philadelphia"
-    assert plan["origin"]["iata"] == "PHL"
+    assert plan.origin is not None
+    assert plan.origin.city == "Philadelphia"
+    assert plan.origin.iata == "PHL"
 
 
 async def test_an_explicit_origin_wins_over_home(
@@ -283,7 +279,8 @@ async def test_an_explicit_origin_wins_over_home(
 
     plan = await _create(client, headers, **TOKYO)
 
-    assert plan["origin"]["iata"] == "SFO"
+    assert plan.origin is not None
+    assert plan.origin.iata == "SFO"
 
 
 async def test_a_new_plan_is_at_the_basics_stage_with_its_checklist(
@@ -291,9 +288,9 @@ async def test_a_new_plan_is_at_the_basics_stage_with_its_checklist(
 ) -> None:
     plan = await _create(client, headers)
 
-    assert plan["stage"] == "basics"
-    assert plan["flights_skipped"] is False
-    assert [status["stage"] for status in plan["stages"]] == [
+    assert plan.stage == "basics"
+    assert plan.flights_skipped is False
+    assert [status.stage for status in plan.stages] == [
         "basics",
         "flights",
         "lodging",
@@ -301,8 +298,8 @@ async def test_a_new_plan_is_at_the_basics_stage_with_its_checklist(
         "ground",
         "review",
     ]
-    assert plan["stages"][0]["ready"] is False
-    assert plan["gaps"] == []
+    assert plan.stages[0].ready is False
+    assert plan.gaps == []
 
 
 async def test_next_moves_a_ready_plan_on_and_back_returns(
@@ -311,18 +308,18 @@ async def test_next_moves_a_ready_plan_on_and_back_returns(
     created = await _create(client, headers, **TOKYO)
 
     response = await client.post(
-        f"/plans/{created['id']}/stage", json={"action": "next"}, headers=headers
+        f"/plans/{created.id}/stage", json={"action": "next"}, headers=headers
     )
 
     assert response.status_code == 200, response.text
     moved = response.json()
     assert moved["stage"] == "flights"
-    assert moved["version"] == created["version"] + 1
+    assert moved["version"] == created.version + 1
     listed = (await client.get("/plans", headers=headers)).json()
     assert listed[0]["stage"] == "flights"
 
     response = await client.post(
-        f"/plans/{created['id']}/stage", json={"action": "back"}, headers=headers
+        f"/plans/{created.id}/stage", json={"action": "back"}, headers=headers
     )
     assert response.json()["stage"] == "basics"
 
@@ -333,7 +330,7 @@ async def test_next_is_refused_until_the_stage_is_ready(
     created = await _create(client, headers)
 
     response = await client.post(
-        f"/plans/{created['id']}/stage", json={"action": "next"}, headers=headers
+        f"/plans/{created.id}/stage", json={"action": "next"}, headers=headers
     )
 
     assert response.status_code == 409
@@ -342,7 +339,7 @@ async def test_next_is_refused_until_the_stage_is_ready(
 
 async def test_skip_flights_marks_the_plan(client: AsyncClient, headers: dict[str, str]) -> None:
     created = await _create(client, headers, **TOKYO)
-    url = f"/plans/{created['id']}/stage"
+    url = f"/plans/{created.id}/stage"
     await client.post(url, json={"action": "next"}, headers=headers)
 
     response = await client.post(url, json={"action": "skip_flights"}, headers=headers)
@@ -357,7 +354,7 @@ async def test_stage_change_validates_the_body(
     created = await _create(client, headers)
 
     response = await client.post(
-        f"/plans/{created['id']}/stage", json={"action": "go_to"}, headers=headers
+        f"/plans/{created.id}/stage", json={"action": "go_to"}, headers=headers
     )
 
     assert response.status_code == 422
@@ -370,7 +367,7 @@ async def test_stage_of_another_users_plan_is_404(
     other = await register_user("eve@example.com")
 
     response = await client.post(
-        f"/plans/{created['id']}/stage", json={"action": "next"}, headers=other
+        f"/plans/{created.id}/stage", json={"action": "next"}, headers=other
     )
 
     assert response.status_code == 404

@@ -2,7 +2,6 @@
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
-from typing import Any
 from uuid import uuid4
 
 from features.itinerary.schemas import ItineraryItem
@@ -26,9 +25,9 @@ from tests.features.itinerary.factories import (
 CREATED = datetime(2026, 10, 1, tzinfo=UTC)
 
 
-def details(**overrides: Any) -> PlanDetails:
+def details(**overrides: object) -> PlanDetails:
     """A plan whose basics are complete: May 1-4 2027 in Tokyo, from HOME, two adults."""
-    fields: dict[str, Any] = {
+    fields: dict[str, object] = {
         "id": PLAN_ID,
         "user_id": uuid4(),
         "title": "Tokyo",
@@ -50,7 +49,7 @@ def details(**overrides: Any) -> PlanDetails:
     return PlanDetails.model_validate({**fields, **overrides})
 
 
-def snapshot(items: Sequence[ItineraryItem] = (), **overrides: Any) -> PlanSnapshot:
+def snapshot(items: Sequence[ItineraryItem] = (), **overrides: object) -> PlanSnapshot:
     plan = details(**overrides)
     progress = plan_progress(plan, items)
     return PlanSnapshot.model_validate(

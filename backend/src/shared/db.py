@@ -3,10 +3,11 @@
 import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Depends, Request
 from sqlalchemy import DateTime, Dialect, event
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
 from sqlalchemy.types import TypeDecorator
 
 logger = logging.getLogger(__name__)
@@ -59,14 +60,18 @@ class UTCDateTime(TypeDecorator[datetime]):
 # ---------------------------------------------------------------------------
 
 
-def _enable_sqlite_foreign_keys(dbapi_connection: Any, _connection_record: Any) -> None:
+def _enable_sqlite_foreign_keys(
+    dbapi_connection: DBAPIConnection, _connection_record: ConnectionPoolEntry
+) -> None:
     # SQLite ignores FOREIGN KEY / ON DELETE CASCADE unless enabled per connection.
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
 
-def _use_sqlite_wal(dbapi_connection: Any, _connection_record: Any) -> None:
+def _use_sqlite_wal(
+    dbapi_connection: DBAPIConnection, _connection_record: ConnectionPoolEntry
+) -> None:
     # Write-ahead logging: readers no longer block a writer's commit (in the default
     # rollback journal, any open read transaction does). A planning turn holds its session
     # across a streamed reply or a search, so without it concurrent turns hit "database is

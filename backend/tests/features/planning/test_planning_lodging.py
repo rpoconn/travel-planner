@@ -4,14 +4,14 @@ every night is covered. The hotel search is a recording fake (canned hotels), th
 strict `FakeLLM`."""
 
 from decimal import Decimal
-from typing import Any
 
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic import JsonValue
 
 from features.itinerary.schemas import LodgingItem
-from features.planning.events import PlanningStatusEvent
-from features.planning.schemas import NightRange, OfferChoice
+from features.planning.events import PlanningEvent, PlanningStatusEvent
+from features.planning.schemas import NightRange, OfferChoice, PickRecord
 from features.plans.schemas import PlanStage, SlotName
 from shared.domain import Money
 from shared.hotels.fake import FakeHotelProvider
@@ -29,7 +29,7 @@ from tests.features.planning.planning_http import (
     stored,
 )
 
-MIDRANGE = {"hotel_class": "midrange", "kind": "hotel"}
+MIDRANGE: dict[str, JsonValue] = {"hotel_class": "midrange", "kind": "hotel"}
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ MIDRANGE = {"hotel_class": "midrange", "kind": "hotel"}
 
 
 async def _at_lodging(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str], **fields: Any
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], **fields: JsonValue
 ) -> str:
     """A Lisbon trip, May 1-8 for two, with no flights, at the lodging stage."""
     plan_id = await create_plan(client, headers, **{**BASICS, **fields})
@@ -46,7 +46,7 @@ async def _at_lodging(
     return plan_id
 
 
-def _choices(events: list[Any]) -> OfferChoice:
+def _choices(events: list[PlanningEvent]) -> OfferChoice:
     action = done(events).plan.assessment.next_action
     assert isinstance(action, OfferChoice), action
     return action
@@ -54,8 +54,12 @@ def _choices(events: list[Any]) -> OfferChoice:
 
 async def _pick(
     client: AsyncClient, headers: dict[str, str], plan_id: str, offer: OfferChoice, *ids: str
-) -> list[Any]:
-    body = {"type": "pick", "offer_id": str(offer.offer_id), "candidate_ids": list(ids)}
+) -> list[PlanningEvent]:
+    body: dict[str, JsonValue] = {
+        "type": "pick",
+        "offer_id": str(offer.offer_id),
+        "candidate_ids": list(ids),
+    }
     return await post(client, headers, plan_id, "inputs", body)
 
 
@@ -63,7 +67,7 @@ def _nights(check_in: str, check_out: str) -> NightRange:
     return NightRange.model_validate({"check_in": check_in, "check_out": check_out})
 
 
-def _stays(events: list[Any]) -> list[LodgingItem]:
+def _stays(events: list[PlanningEvent]) -> list[LodgingItem]:
     items = done(events).plan.items
     return sorted((i for i in items if isinstance(i, LodgingItem)), key=lambda s: s.start)
 
@@ -82,7 +86,7 @@ def _hotels(count: int) -> list[HotelOption]:
     ]
 
 
-async def _more(client: AsyncClient, headers: dict[str, str], plan_id: str) -> list[Any]:
+async def _more(client: AsyncClient, headers: dict[str, str], plan_id: str) -> list[PlanningEvent]:
     return await post(client, headers, plan_id, "continue", {"refresh": True})
 
 
@@ -193,12 +197,14 @@ async def test_the_transcript_keeps_the_choices_and_the_pick(
     await _pick(client, headers, plan_id, offer, "1")
 
     rows = await messages(client, headers, plan_id)
-    choices = next(row for row in rows if row["kind"] == "choices")
-    pick = next(row for row in rows if row["kind"] == "pick")
+    choices = next(row for row in rows if row.kind == "choices")
+    pick = next(row for row in rows if row.kind == "pick")
 
-    assert choices["payload"]["nights"] == {"check_in": "2027-05-01", "check_out": "2027-05-08"}
-    assert pick["payload"]["slot"] == "lodging_stay"
-    assert pick["payload"]["titles"] == ["Example Riverside Hotel"]
+    assert isinstance(choices.payload, OfferChoice)
+    assert choices.payload.nights == _nights("2027-05-01", "2027-05-08")
+    assert isinstance(pick.payload, PickRecord)
+    assert pick.payload.slot == "lodging_stay"
+    assert pick.payload.titles == ["Example Riverside Hotel"]
 
 
 # ---------------------------------------------------------------------------

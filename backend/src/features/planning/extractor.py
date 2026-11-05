@@ -12,9 +12,9 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 from functools import cache
-from typing import Any, Literal, cast
+from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError, create_model
+from pydantic import BaseModel, Field, JsonValue, ValidationError, create_model
 
 from features.planning.answers import AnswerError, parse_answer
 from features.planning.picks import PickError, picked_candidates
@@ -43,7 +43,7 @@ class _RawExtraction(BaseModel):
     slot afterwards, so a rule it breaks becomes a message for the user, not a retry."""
 
     status: ExtractionStatus
-    value: dict[str, Any] | None = None
+    value: dict[str, JsonValue] | None = None
 
 
 @dataclass(frozen=True)
@@ -74,11 +74,11 @@ class PickExtraction:
 # ---------------------------------------------------------------------------
 
 # The pick reader's schema is the same for every offer: the options are in the prompt.
-PICK_SCHEMA: dict[str, Any] = inline_schema(PickReply)
+PICK_SCHEMA: dict[str, JsonValue] = inline_schema(PickReply)
 
 
 @cache
-def extraction_schema(slot: SlotName) -> dict[str, Any]:
+def extraction_schema(slot: SlotName) -> dict[str, JsonValue]:
     """The JSON schema the model's reply must follow for `slot` (sent as Ollama's `format`)."""
     value_model = SLOTS[slot].value_model
     if value_model is None:
@@ -86,8 +86,8 @@ def extraction_schema(slot: SlotName) -> dict[str, Any]:
     model = create_model(
         f"{value_model.__name__}Extraction",
         status=(ExtractionStatus, Field(description=_STATUS_DESCRIPTION)),
-        # A union built at runtime, which mypy can't see as a type form.
-        value=(cast(Any, value_model | None), None),
+        # A union built at runtime: pydantic accepts it, but mypy only takes static type forms.
+        value=(value_model | None, None),  # type: ignore[arg-type]
     )
     return inline_schema(model)
 

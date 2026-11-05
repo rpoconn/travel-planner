@@ -4,21 +4,21 @@ The fixtures are real Google Flights responses (PHL -> Tokyo, May 2027), trimmed
 options and with their tokens replaced.
 """
 
-import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
+from pydantic import JsonValue
 
 from shared.domain import Money
 from shared.flights.serpapi import SERPAPI_URL, SerpApiFlightProvider
 from shared.flights.types import FlightQuery, FlightSearchError
+from tests.json_path import json_object, obj
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -32,9 +32,8 @@ ROUND_TRIP = FlightQuery(
 )
 
 
-def _fixture(name: str) -> dict[str, Any]:
-    body: dict[str, Any] = json.loads((FIXTURES / name).read_text())
-    return body
+def _fixture(name: str) -> dict[str, JsonValue]:
+    return json_object((FIXTURES / name).read_text())
 
 
 def _provider(handler: Handler, *, max_attempts: int = 3) -> SerpApiFlightProvider:
@@ -46,7 +45,7 @@ def _provider(handler: Handler, *, max_attempts: int = 3) -> SerpApiFlightProvid
     )
 
 
-def _replying(body: dict[str, Any], status: int = 200) -> Handler:
+def _replying(body: Mapping[str, JsonValue], status: int = 200) -> Handler:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(status, json=body)
 
@@ -147,7 +146,7 @@ async def test_an_option_through_an_unknown_airport_is_left_out(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     body = _fixture("outbound.json")
-    body["best_flights"][0]["flights"][0]["arrival_airport"]["id"] = "ZZZ"
+    obj(body, "best_flights", 0, "flights", 0, "arrival_airport")["id"] = "ZZZ"
 
     options = await _provider(_replying(body)).search(ROUND_TRIP)
 

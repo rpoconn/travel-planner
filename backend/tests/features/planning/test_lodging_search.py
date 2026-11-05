@@ -2,14 +2,16 @@
 stay's zone and times, and the candidates (with the change picking one makes). No
 database: the provider is a fake."""
 
+from collections.abc import Sequence
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from features.itinerary.schemas import ItineraryItem
 from features.planning.lodging_search import (
     check_in_at,
     check_out_at,
@@ -44,10 +46,14 @@ NIGHTS = NightRange(check_in=date(2027, 5, 2), check_out=date(2027, 5, 4))
 MIDRANGE = LodgingPreferences(hotel_class="midrange")
 
 
-def _plan(prefs: LodgingPreferences | None = MIDRANGE, **overrides: Any) -> PlanSnapshot:
+def _plan(
+    prefs: LodgingPreferences | None = MIDRANGE,
+    items: Sequence[ItineraryItem] = (),
+    **overrides: object,
+) -> PlanSnapshot:
     preferences = PlanPreferences(lodging=prefs)
-    fields: dict[str, Any] = {"destination": TOKYO, **overrides}
-    return snapshot(stage=PlanStage.LODGING, preferences=preferences, **fields)
+    fields: dict[str, object] = {"destination": TOKYO, **overrides}
+    return snapshot(items, stage=PlanStage.LODGING, preferences=preferences, **fields)
 
 
 def _ctx(hotels: FakeHotelProvider) -> SearchContext:
@@ -71,15 +77,17 @@ def _action(nights: NightRange | None = NIGHTS) -> RunSearch:
 
 
 def _hotel(
-    name: str, nightly: int, *, rating: float | None = 4.0, stars: int | None = 3, **fields: Any
+    name: str, nightly: int, *, rating: float | None = 4.0, stars: int | None = 3, **fields: object
 ) -> HotelOption:
-    return HotelOption(
-        name=name,
-        nightly_rate=Money(amount=Decimal(nightly)),
-        total_rate=Money(amount=Decimal(nightly * 2)),
-        rating=rating,
-        stars=stars,
-        **fields,
+    return HotelOption.model_validate(
+        {
+            "name": name,
+            "nightly_rate": Money(amount=Decimal(nightly)),
+            "total_rate": Money(amount=Decimal(nightly * 2)),
+            "rating": rating,
+            "stars": stars,
+            **fields,
+        }
     )
 
 

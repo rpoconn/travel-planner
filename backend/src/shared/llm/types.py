@@ -5,9 +5,9 @@ Features talk to the model only through these types, so the Ollama client and th
 """
 
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 # ---------------------------------------------------------------------------
 # Messages
@@ -18,7 +18,7 @@ LLMRole = Literal["system", "user", "assistant", "tool"]
 
 class LLMToolCall(BaseModel):
     name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
+    arguments: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class LLMMessage(BaseModel):
@@ -33,7 +33,7 @@ class ToolSpec(BaseModel):
 
     name: str
     description: str
-    parameters: dict[str, Any]
+    parameters: dict[str, JsonValue]
 
 
 class LLMChunk(BaseModel):
@@ -60,7 +60,7 @@ class LLMClient(Protocol):
         messages: Sequence[LLMMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
-        format: dict[str, Any] | None = None,
+        format: dict[str, JsonValue] | None = None,
         think: bool | None = None,
     ) -> LLMMessage:
         """One non-streaming completion. `format` constrains the output to a JSON schema;

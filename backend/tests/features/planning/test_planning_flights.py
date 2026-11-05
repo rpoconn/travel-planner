@@ -2,14 +2,15 @@
 the flights home for it, and picking one of those finishes the stage. The flight search is a
 recording fake (canned flights), the model a strict `FakeLLM`."""
 
-from typing import Any
+from collections.abc import Mapping
 from uuid import uuid4
 
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic import JsonValue
 
 from features.itinerary.schemas import FlightItem
-from features.planning.events import PlanningPlanEvent, PlanningStatusEvent
+from features.planning.events import PlanningEvent, PlanningPlanEvent, PlanningStatusEvent
 from features.planning.schemas import OfferChoice
 from features.plans.schemas import PlanStage
 from shared.flights.fake import FakeFlightProvider
@@ -26,7 +27,7 @@ from tests.features.planning.planning_http import (
     stored,
 )
 
-ECONOMY = {"cabin": "economy"}
+ECONOMY: dict[str, JsonValue] = {"cabin": "economy"}
 
 
 # ---------------------------------------------------------------------------
@@ -35,14 +36,14 @@ ECONOMY = {"cabin": "economy"}
 
 
 async def _at_flights(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str], **fields: Any
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], **fields: JsonValue
 ) -> str:
     plan_id = await create_plan(client, headers, **{**BASICS, **fields})
     await move_to(app, plan_id, PlanStage.FLIGHTS)
     return plan_id
 
 
-def _choices(events: list[Any]) -> OfferChoice:
+def _choices(events: list[PlanningEvent]) -> OfferChoice:
     action = done(events).plan.assessment.next_action
     assert isinstance(action, OfferChoice), action
     return action
@@ -50,19 +51,23 @@ def _choices(events: list[Any]) -> OfferChoice:
 
 async def _pick(
     client: AsyncClient, headers: dict[str, str], plan_id: str, offer: OfferChoice, *ids: str
-) -> list[Any]:
-    body = {"type": "pick", "offer_id": str(offer.offer_id), "candidate_ids": list(ids)}
+) -> list[PlanningEvent]:
+    body: dict[str, JsonValue] = {
+        "type": "pick",
+        "offer_id": str(offer.offer_id),
+        "candidate_ids": list(ids),
+    }
     return await post(client, headers, plan_id, "inputs", body)
 
 
 async def _pick_status(
-    client: AsyncClient, headers: dict[str, str], plan_id: str, body: dict[str, Any]
+    client: AsyncClient, headers: dict[str, str], plan_id: str, body: Mapping[str, JsonValue]
 ) -> tuple[int, str]:
     response = await client.post(f"/plans/{plan_id}/planning/inputs", json=body, headers=headers)
     return response.status_code, response.json()["detail"]
 
 
-def _flights(events: list[Any]) -> list[FlightItem]:
+def _flights(events: list[PlanningEvent]) -> list[FlightItem]:
     items = done(events).plan.items
     return sorted((i for i in items if isinstance(i, FlightItem)), key=lambda f: f.start)
 
@@ -150,9 +155,10 @@ async def test_the_transcript_keeps_the_choices_and_the_pick(
 
     *_, choices, pick, _home = await messages(client, headers, plan_id)
 
-    assert choices["payload"]["type"] == "offer_choice"
-    assert [c["id"] for c in choices["payload"]["candidates"]] == ["1", "2"]
-    assert pick["payload"] == {
+    assert isinstance(choices.payload, OfferChoice)
+    assert [c.id for c in choices.payload.candidates] == ["1", "2"]
+    assert pick.payload is not None
+    assert pick.payload.model_dump(mode="json") == {
         "type": "pick",
         "offer_id": str(offer.offer_id),
         "slot": "flight_outbound",
@@ -170,7 +176,7 @@ async def test_a_pick_from_an_offer_not_being_shown_is_a_conflict(
     app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_flights: FakeFlightProvider
 ) -> None:
     plan_id = await _at_flights(app, client, headers)
-    body = {"type": "pick", "offer_id": str(uuid4()), "candidate_ids": ["1"]}
+    body: dict[str, JsonValue] = {"type": "pick", "offer_id": str(uuid4()), "candidate_ids": ["1"]}
 
     # The preferences are being asked, so there's nothing to pick from yet.
     assert (await _pick_status(client, headers, plan_id, body))[0] == 409
@@ -187,7 +193,11 @@ async def test_a_pick_the_offer_does_not_allow_is_rejected(
     offer_id = str(offer.offer_id)
 
     for ids, detail in ((["9"], "There's no option 9 in this list"), (["1", "2"], "Pick 1 option")):
-        body = {"type": "pick", "offer_id": offer_id, "candidate_ids": ids}
+        body: dict[str, JsonValue] = {
+            "type": "pick",
+            "offer_id": offer_id,
+            "candidate_ids": list(ids),
+        }
         assert await _pick_status(client, headers, plan_id, body) == (422, detail)
 
 

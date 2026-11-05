@@ -4,7 +4,7 @@ database: the provider is a fake."""
 
 from datetime import date, time
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,7 @@ from shared.places.fake import FakePlaceProvider
 from shared.places.types import OpeningHours, PlaceOption, PlaceSearchError
 from tests.features.itinerary.factories import lodging
 from tests.features.plans.builders import snapshot
+from tests.json_path import at
 
 TODAY = date(2026, 10, 15)
 TOKYO = Place(name="Tokyo", city="Tokyo", country="Japan", lat=35.68, lng=139.69)
@@ -45,12 +46,13 @@ ACTION = RunSearch(
 
 
 def _plan(
-    interests: list[ActivityCategory] | None = None, dietary: str = "", **overrides: Any
+    interests: list[ActivityCategory] | None = None, dietary: str = "", **overrides: object
 ) -> PlanSnapshot:
     prefs = ActivityPreferences(interests=interests or ["museum", "food"], dietary=dietary)
-    fields: dict[str, Any] = {"destination": TOKYO, **overrides}
+    fields: dict[str, object] = {"destination": TOKYO, **overrides}
     preferences = PlanPreferences(activities=prefs)
-    return snapshot(stage=PlanStage.ACTIVITIES, preferences=preferences, **fields)
+    # No items, passed positionally so mypy doesn't match the `object` overrides to `items`.
+    return snapshot((), stage=PlanStage.ACTIVITIES, preferences=preferences, **fields)
 
 
 def _ctx(places: FakePlaceProvider) -> SearchContext:
@@ -64,8 +66,8 @@ def _ctx(places: FakePlaceProvider) -> SearchContext:
     )
 
 
-def _place(name: str, rating: float | None = 4.5, **fields: Any) -> PlaceOption:
-    return PlaceOption(name=name, rating=rating, **fields)
+def _place(name: str, rating: float | None = 4.5, **fields: object) -> PlaceOption:
+    return PlaceOption.model_validate({"name": name, "rating": rating, **fields})
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +186,7 @@ async def test_candidates_carry_their_window_and_the_add_activity_change() -> No
     assert change.arguments["timezone"] == "Asia/Tokyo"
     assert change.arguments["category"] == "museum"
     assert change.arguments["cost"] == {"amount": "30", "currency": "USD", "basis": "estimate"}
-    assert change.arguments["place"]["city"] == "Tokyo"
+    assert at(change.arguments, "place", "city") == "Tokyo"
     assert change.arguments["source_url"] == first.source_url
 
 

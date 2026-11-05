@@ -1,7 +1,6 @@
 """Plan CRUD. Every function is scoped to the owning user: other users' plans are "not found"."""
 
 import logging
-from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -30,7 +29,7 @@ class InvalidPlanError(Exception):
     pass
 
 
-def _column_value(value: Any) -> Any:
+def _column_value(value: object) -> object:
     # Value objects (and lists of them) go into JSON columns; dates/strings/ints map to
     # native columns as-is.
     if isinstance(value, list):

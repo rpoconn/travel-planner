@@ -2,11 +2,10 @@
 move on to flights (the flights stage itself is in `test_planning_flights`). The model is a
 strict `FakeLLM`: a test that reaches it unscripted fails."""
 
-from typing import Any
-
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic import JsonValue
 
 from features.planning.events import (
     PlanningDoneEvent,
@@ -17,6 +16,7 @@ from features.planning.events import (
     PlanningTokenEvent,
 )
 from features.planning.extractor import extraction_schema
+from features.planning.schemas import AskInput
 from features.plans.schemas import PlanStage, SlotName
 from shared.flights.fake import FakeFlightProvider
 from shared.flights.types import FlightSearchError
@@ -71,8 +71,9 @@ async def test_the_transcript_keeps_each_messages_payload(
 
     reply, asked = await messages(client, headers, plan_id)
 
-    assert (reply["role"], reply["kind"]) == ("user", "input")
-    assert reply["payload"] == {
+    assert (reply.role, reply.kind) == ("user", "input")
+    assert reply.payload is not None
+    assert reply.payload.model_dump(mode="json") == {
         "type": "answer",
         "slot": "destination",
         "value": {
@@ -80,10 +81,10 @@ async def test_the_transcript_keeps_each_messages_payload(
         },
         "skipped": False,
     }
-    assert (asked["role"], asked["kind"]) == ("assistant", "expected_input")
-    assert asked["payload"]["type"] == "ask_input"
-    assert asked["payload"]["slot"] == "dates"
-    assert asked["payload"]["fields"][0]["kind"] == "date_range"
+    assert (asked.role, asked.kind) == ("assistant", "expected_input")
+    assert isinstance(asked.payload, AskInput)
+    assert asked.payload.slot == "dates"
+    assert asked.payload.fields[0].kind == "date_range"
 
 
 async def test_finishing_basics_moves_on_to_flights(
@@ -116,7 +117,7 @@ async def test_finishing_basics_moves_on_to_flights(
     assert plan.preferences.declined == ["budget"]
     assert asking(events) == "flight_preferences"
     # The transcript is in the order the messages were stored.
-    kinds = [m["kind"] for m in await messages(client, headers, plan_id)]
+    kinds = [m.kind for m in await messages(client, headers, plan_id)]
     assert kinds[-3:] == ["input", "stage", "expected_input"]
 
 
@@ -164,7 +165,7 @@ async def test_an_answer_that_does_not_fit_is_rejected(
     client: AsyncClient,
     headers: dict[str, str],
     plan_id: str,
-    body: dict[str, Any],
+    body: dict[str, JsonValue],
     detail: str,
 ) -> None:
     response = await client.post(f"/plans/{plan_id}/planning/inputs", json=body, headers=headers)
@@ -256,7 +257,7 @@ async def test_an_extracted_answer_that_does_not_fit_is_explained(
     client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
     plan_id = await create_plan(client, headers, destination=LISBON)
-    backwards = {"dates": {"start": "2027-05-08", "end": "2027-05-01"}}
+    backwards: dict[str, JsonValue] = {"dates": {"start": "2027-05-08", "end": "2027-05-01"}}
     fake_llm.queue(json_reply({"status": "answered", "value": backwards}))
 
     events = await say(client, headers, plan_id, "the 8th to the 1st")
@@ -303,7 +304,7 @@ async def test_a_model_failure_is_stored_as_an_error(
     assert isinstance(error, PlanningErrorEvent)
     assert error.detail == "Could not reach Ollama"
     assert error.message is not None and error.message.kind == "error"
-    kinds = [(m["role"], m["kind"]) for m in await messages(client, headers, plan_id)]
+    kinds = [(m.role, m.kind) for m in await messages(client, headers, plan_id)]
     assert kinds == [("user", "message"), ("system", "error")]
 
 

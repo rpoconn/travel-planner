@@ -4,13 +4,13 @@ asks for a way across each gap, one at a time, until the trip reaches review. Th
 search is a recording fake (canned places), the model a strict `FakeLLM`."""
 
 from decimal import Decimal
-from typing import Any
 
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic import JsonValue
 
 from features.itinerary.schemas import ActivityItem, TransferItem
-from features.planning.events import PlanningStatusEvent
+from features.planning.events import PlanningEvent, PlanningStatusEvent
 from features.planning.schemas import OfferChoice
 from features.plans.schemas import PlanStage, SlotName
 from shared.flights.fake import FakeFlightProvider
@@ -30,7 +30,7 @@ from tests.features.planning.planning_http import (
     stored,
 )
 
-MUSEUMS_AND_FOOD = {"interests": ["museum", "food"]}
+MUSEUMS_AND_FOOD: dict[str, JsonValue] = {"interests": ["museum", "food"]}
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,11 @@ MUSEUMS_AND_FOOD = {"interests": ["museum", "food"]}
 
 
 async def _at(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str], stage: PlanStage, **fields: Any
+    app: FastAPI,
+    client: AsyncClient,
+    headers: dict[str, str],
+    stage: PlanStage,
+    **fields: JsonValue,
 ) -> str:
     """A Lisbon trip, May 1-8 2027 for two, from Philadelphia, at `stage`."""
     plan_id = await create_plan(client, headers, **{**BASICS, **fields})
@@ -47,7 +51,7 @@ async def _at(
     return plan_id
 
 
-def _choices(events: list[Any]) -> OfferChoice:
+def _choices(events: list[PlanningEvent]) -> OfferChoice:
     action = done(events).plan.assessment.next_action
     assert isinstance(action, OfferChoice), action
     return action
@@ -55,17 +59,21 @@ def _choices(events: list[Any]) -> OfferChoice:
 
 async def _pick(
     client: AsyncClient, headers: dict[str, str], plan_id: str, offer: OfferChoice, *ids: str
-) -> list[Any]:
-    body = {"type": "pick", "offer_id": str(offer.offer_id), "candidate_ids": list(ids)}
+) -> list[PlanningEvent]:
+    body: dict[str, JsonValue] = {
+        "type": "pick",
+        "offer_id": str(offer.offer_id),
+        "candidate_ids": list(ids),
+    }
     return await post(client, headers, plan_id, "inputs", body)
 
 
-def _activities(events: list[Any]) -> list[ActivityItem]:
+def _activities(events: list[PlanningEvent]) -> list[ActivityItem]:
     items = done(events).plan.items
     return sorted((i for i in items if isinstance(i, ActivityItem)), key=lambda a: a.start)
 
 
-def _transfers(events: list[Any]) -> list[TransferItem]:
+def _transfers(events: list[PlanningEvent]) -> list[TransferItem]:
     items = done(events).plan.items
     return sorted((i for i in items if isinstance(i, TransferItem)), key=lambda t: t.start)
 
@@ -139,7 +147,9 @@ async def test_picking_several_adds_them_all_and_moves_on(
 async def test_a_pick_over_the_category_limit_changes_nothing(
     app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_places: FakePlaceProvider
 ) -> None:
-    limits = [{"category": "food", "max_per_person": {"amount": 20, "currency": "USD"}}]
+    limits: list[JsonValue] = [
+        {"category": "food", "max_per_person": {"amount": 20, "currency": "USD"}}
+    ]
     plan_id = await _at(app, client, headers, PlanStage.ACTIVITIES, limits=limits)
     offer = _choices(
         await answer(client, headers, plan_id, "activity_preferences", MUSEUMS_AND_FOOD)
@@ -254,10 +264,11 @@ async def test_the_transcript_keeps_the_gap_with_its_choices(
     await _pick(client, headers, plan_id, offer, "1")
 
     rows = await messages(client, headers, plan_id)
-    choices = [row for row in rows if row["kind"] == "choices"]
+    *_, last = [row.payload for row in rows if row.kind == "choices"]
 
-    assert choices[-1]["payload"]["slot"] == "transfer"
-    assert choices[-1]["payload"]["gap"]["to_place"]["name"] == "Example Art Museum"
+    assert isinstance(last, OfferChoice)
+    assert last.slot == "transfer"
+    assert last.gap is not None and last.gap.to_place.name == "Example Art Museum"
 
 
 async def test_a_whole_trip_ends_at_review_with_nothing_to_fix(

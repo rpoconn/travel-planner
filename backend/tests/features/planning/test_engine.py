@@ -3,12 +3,12 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any
 from uuid import uuid4
 
 import pytest
+from pydantic import JsonValue
 
-from features.itinerary.schemas import ItineraryItem, TimelineWarning
+from features.itinerary.schemas import Gap, ItineraryItem, TimelineWarning
 from features.planning.engine import (
     evaluate,
     next_action,
@@ -44,10 +44,10 @@ from tests.features.plans.builders import (
 # Builders
 # ---------------------------------------------------------------------------
 
-FLIGHT_PREFS: dict[str, Any] = {"flights": {}}
-LODGING_PREFS: dict[str, Any] = {"lodging": {"hotel_class": "midrange"}}
-ACTIVITY_PREFS: dict[str, Any] = {"activities": {"interests": ["food"]}}
-ALL_PREFS: dict[str, Any] = {**FLIGHT_PREFS, **LODGING_PREFS, **ACTIVITY_PREFS}
+FLIGHT_PREFS: dict[str, JsonValue] = {"flights": {}}
+LODGING_PREFS: dict[str, JsonValue] = {"lodging": {"hotel_class": "midrange"}}
+ACTIVITY_PREFS: dict[str, JsonValue] = {"activities": {"interests": ["food"]}}
+ALL_PREFS: dict[str, JsonValue] = {**FLIGHT_PREFS, **LODGING_PREFS, **ACTIVITY_PREFS}
 
 MAY_1_TO_4 = NightRange(check_in=date(2027, 5, 1), check_out=date(2027, 5, 4))
 
@@ -59,7 +59,7 @@ def _offer(
     version: int = 1,
     status: OfferStatus = "open",
     nights: NightRange | None = None,
-    gap: Any = None,
+    gap: Gap | None = None,
 ) -> Offer:
     candidate = Candidate(
         id="c1",
@@ -109,11 +109,11 @@ class Case:
     name: str
     expected: tuple[str, ...]
     items: Sequence[ItineraryItem] = ()
-    plan: dict[str, Any] = field(default_factory=dict)
+    plan: dict[str, JsonValue] = field(default_factory=dict)
     offer: OfferFor = lambda _plan: None
 
 
-def _in(stage: PlanStage, **plan: Any) -> dict[str, Any]:
+def _in(stage: PlanStage, **plan: JsonValue) -> dict[str, JsonValue]:
     return {"stage": stage, **plan}
 
 

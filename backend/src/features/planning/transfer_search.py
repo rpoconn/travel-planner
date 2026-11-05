@@ -24,9 +24,11 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
+
+from pydantic import JsonValue
 
 from features.itinerary.budget import party_size
 from features.itinerary.gaps import describe_place
@@ -253,14 +255,14 @@ def _clock(moment: datetime) -> str:
     return f"{moment:%b} {moment.day}, {moment:%H:%M}"
 
 
-def _place(place: Place) -> dict[str, Any]:
+def _place(place: Place) -> dict[str, JsonValue]:
     return place.model_dump(mode="json", exclude_none=True)
 
 
 def _add_transfer(
     mode: TransferMode, gap: Gap, ride: Ride, cost: Money, title: str
 ) -> CandidateChange:
-    arguments: dict[str, Any] = {
+    arguments: dict[str, JsonValue] = {
         "title": title,
         "mode": mode,
         "from_place": _place(gap.from_place),

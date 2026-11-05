@@ -1,11 +1,12 @@
 """`LLMClient` backed by a local Ollama server, with retries on transient failures."""
 
 import logging
-from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import Any
+from collections.abc import AsyncIterator, Sequence
+from typing import TypedDict
 
 import httpx
 import ollama
+from pydantic import JsonValue
 from tenacity import (
     AsyncRetrying,
     before_sleep_log,
@@ -49,8 +50,18 @@ def _describe(exc: BaseException, model: str, host: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _to_wire(message: LLMMessage) -> dict[str, Any]:
-    wire: dict[str, Any] = {"role": message.role, "content": message.content}
+class _ChatRequest(TypedDict):
+    """The keyword arguments shared by every `AsyncClient.chat` call."""
+
+    model: str
+    messages: list[dict[str, JsonValue]]
+    tools: list[dict[str, JsonValue]] | None
+    think: bool
+    options: dict[str, int]
+
+
+def _to_wire(message: LLMMessage) -> dict[str, JsonValue]:
+    wire: dict[str, JsonValue] = {"role": message.role, "content": message.content}
     if message.tool_calls:
         wire["tool_calls"] = [
             {"function": {"name": call.name, "arguments": call.arguments}}
@@ -61,7 +72,7 @@ def _to_wire(message: LLMMessage) -> dict[str, Any]:
     return wire
 
 
-def _tool_to_wire(tool: ToolSpec) -> dict[str, Any]:
+def _tool_to_wire(tool: ToolSpec) -> dict[str, JsonValue]:
     return {
         "type": "function",
         "function": {
@@ -132,7 +143,7 @@ class OllamaClient:
         messages: Sequence[LLMMessage],
         tools: Sequence[ToolSpec] | None,
         think: bool | None = None,
-    ) -> Mapping[str, Any]:
+    ) -> _ChatRequest:
         return {
             "model": self._model,
             "messages": [_to_wire(message) for message in messages],
@@ -146,7 +157,7 @@ class OllamaClient:
         messages: Sequence[LLMMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
-        format: dict[str, Any] | None = None,
+        format: dict[str, JsonValue] | None = None,
         think: bool | None = None,
     ) -> LLMMessage:
         try:

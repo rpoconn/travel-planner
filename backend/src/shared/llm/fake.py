@@ -7,11 +7,10 @@ recorded in `requests` so tests can assert on prompts, tools and formats.
 
 import re
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 from pydantic_core import to_json
 
 from shared.llm.types import LLMChunk, LLMError, LLMMessage, LLMToolCall, ToolSpec
@@ -25,7 +24,7 @@ from shared.llm.types import LLMChunk, LLMError, LLMMessage, LLMToolCall, ToolSp
 class FakeRequest:
     messages: list[LLMMessage]
     tools: list[ToolSpec]
-    format: dict[str, Any] | None
+    format: dict[str, JsonValue] | None
     streamed: bool
     think: bool | None = None  # the per-call override `chat` was given
 
@@ -38,19 +37,19 @@ def text(content: str) -> LLMMessage:
     return LLMMessage(role="assistant", content=content)
 
 
-def tool_calls(*calls: tuple[str, dict[str, Any]], content: str = "") -> LLMMessage:
+def tool_calls(*calls: tuple[str, Mapping[str, JsonValue]], content: str = "") -> LLMMessage:
     return LLMMessage(
         role="assistant",
         content=content,
-        tool_calls=[LLMToolCall(name=name, arguments=arguments) for name, arguments in calls],
+        tool_calls=[LLMToolCall(name=name, arguments=dict(arguments)) for name, arguments in calls],
     )
 
 
-def json_reply(value: BaseModel | dict[str, Any] | str) -> LLMMessage:
+def json_reply(value: BaseModel | Mapping[str, JsonValue] | str) -> LLMMessage:
     """A structured-output reply; pass a raw string to simulate malformed JSON."""
     if isinstance(value, BaseModel):
         return text(value.model_dump_json())
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return text(to_json(value).decode())
     return text(value)
 
@@ -95,7 +94,7 @@ class FakeLLM:
         messages: Sequence[LLMMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
-        format: dict[str, Any] | None = None,
+        format: dict[str, JsonValue] | None = None,
         think: bool | None = None,
     ) -> LLMMessage:
         request = FakeRequest(list(messages), list(tools or []), format, False, think)

@@ -13,7 +13,7 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from typing import TypedDict
 
 import httpx
 import pytest
@@ -180,7 +180,17 @@ async def llm() -> AsyncIterator[OllamaClient]:
     await client.aclose()
 
 
-def _plan_missing(slot: SlotName) -> dict[str, Any]:
+class _MissingFields(TypedDict, total=False):
+    """Plan fields cleared to None, as `snapshot` overrides."""
+
+    start_date: None
+    end_date: None
+    travelers: None
+    destination: None
+    origin: None
+
+
+def _plan_missing(slot: SlotName) -> _MissingFields:
     """Plan fields that leave `slot` unanswered, so the prompt asks for it."""
     match slot:
         case SlotName.DATES:

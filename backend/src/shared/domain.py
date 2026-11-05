@@ -6,7 +6,7 @@ These are embedded values (stored as JSON columns), not request/response schemas
 import re
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 from pydantic_core import from_json
@@ -29,7 +29,7 @@ class Place(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _from_name(cls, data: Any) -> Any:
+    def _from_name(cls, data: object) -> object:
         # Small models often send a place as a bare string ("Tokyo"), or as the object
         # JSON-encoded into a string. Accept both. A "before" validator leaves the JSON
         # schema unchanged, so tool schemas and the OpenAPI spec still ask for an object.
@@ -62,7 +62,7 @@ _CURRENCY_CODE = re.compile(r"\b([A-Z]{3})\b")
 _CURRENCY_SYMBOLS = {"€": "EUR", "£": "GBP", "¥": "JPY", "$": "USD"}
 
 
-def _money_from_string(raw: str) -> Any:
+def _money_from_string(raw: str) -> str | dict[str, str]:
     """Read "$1,380", "1,380.50 USD" or "EUR 900" as {amount, currency}.
 
     Returns the input unchanged when it holds no number, so the normal error is reported.
@@ -70,7 +70,7 @@ def _money_from_string(raw: str) -> Any:
     number = _NON_NUMERIC.sub("", raw)
     if not number.strip("-."):
         return raw
-    money: dict[str, Any] = {"amount": number}
+    money: dict[str, str] = {"amount": number}
     code = _CURRENCY_CODE.search(raw)
     symbol = next((symbol for symbol in _CURRENCY_SYMBOLS if symbol in raw), None)
     if code is not None:
@@ -92,7 +92,7 @@ class Money(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _from_loose_input(cls, data: Any) -> Any:
+    def _from_loose_input(cls, data: object) -> object:
         # Small models send money in many shapes: a bare number (`"cost": 742`), a string
         # with separators or a symbol ("$1,380"), or an object keyed `total`/`price` instead
         # of `amount`. Accept them all; the JSON schema still asks for {amount, currency}.

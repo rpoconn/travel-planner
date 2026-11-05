@@ -24,10 +24,9 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.chat import service as chat_service
@@ -173,7 +172,7 @@ async def _store(
     return PlanningMessageEvent(message=PlanningMessage.model_validate(row))
 
 
-async def _last_payload(ctx: TurnContext) -> dict[str, Any] | None:
+async def _last_payload(ctx: TurnContext) -> dict[str, JsonValue] | None:
     rows = await chat_service.recent_messages(ctx.session, ctx.plan_id, limit=1)
     return rows[0].payload if rows else None
 

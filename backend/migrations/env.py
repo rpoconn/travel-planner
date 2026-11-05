@@ -9,7 +9,7 @@ Two ways in:
 
 import asyncio
 from logging.config import fileConfig
-from typing import Any, Literal
+from typing import Literal
 
 from alembic import context
 from alembic.autogenerate.api import AutogenContext
@@ -46,7 +46,7 @@ if config.attributes.get("connection") is None and config.config_file_name is no
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 
-def _render_item(type_: str, obj: Any, _autogen_context: AutogenContext) -> str | Literal[False]:
+def _render_item(type_: str, obj: object, _autogen_context: AutogenContext) -> str | Literal[False]:
     # UTCDateTime is a TypeDecorator over DateTime that only changes Python-side conversion;
     # migrations don't need to import it.
     if type_ == "type" and isinstance(obj, UTCDateTime):
@@ -54,14 +54,23 @@ def _render_item(type_: str, obj: Any, _autogen_context: AutogenContext) -> str 
     return False
 
 
-def _configure(**kwargs: Any) -> None:
+def _configure(
+    *,
+    connection: Connection | None = None,
+    url: str | None = None,
+    literal_binds: bool = False,
+) -> None:
+    # Online runs pass a connection; offline (`--sql`) runs pass a URL and literal binds.
+    # The defaults are Alembic's own, so leaving one out behaves as before.
     context.configure(
+        connection=connection,
+        url=url,
+        literal_binds=literal_binds,
         target_metadata=target_metadata,
         # SQLite can't ALTER most things in place; batch mode rebuilds the table instead.
         render_as_batch=True,
         render_item=_render_item,
         compare_type=True,
-        **kwargs,
     )
 
 

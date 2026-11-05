@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Any
 
+from pydantic import JsonValue
 from sqlalchemy import JSON, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,12 +22,12 @@ class PlanningOffer(Base):
     stage: Mapped[str] = mapped_column(String(20))
     plan_version: Mapped[int]
     # `Candidate` list, in the order shown.
-    candidates: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    candidates: Mapped[list[dict[str, JsonValue]]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(20), default="open")
     # Hash of the search that produced the candidates, so a repeat search can reuse them.
     query_hash: Mapped[str] = mapped_column(String(64), index=True)
     # What the offer is for, when the slot repeats: a transfer's gap, a stay's nights.
-    gap: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
-    nights: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    gap: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
+    nights: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, default=None)

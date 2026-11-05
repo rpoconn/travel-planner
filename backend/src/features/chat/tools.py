@@ -17,10 +17,9 @@ import logging
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, JsonValue, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.chat.schemas import ProposedChange
@@ -37,6 +36,8 @@ from features.itinerary.schemas import (
     ItemFields,
     ItemType,
     ItineraryItem,
+    ItineraryItemCreate,
+    ItineraryItemPatch,
     LodgingItemCreate,
     LodgingItemPatch,
     SpendingLimit,
@@ -102,9 +103,10 @@ class Prepared:
 
     name: str  # the change, e.g. "add_flight"
     # The arguments after validation (nulls dropped, defaults left out).
-    arguments: dict[str, Any]
+    arguments: dict[str, JsonValue]
     summary: str  # imperative, e.g. 'Add flight “SFO → NRT” on 2027-05-01 11:00'
-    payload: Any  # whatever `apply` needs: the validated create model, patch, item id...
+    # What `apply` needs: the validated item for an add, the item (and patch) otherwise.
+    payload: "ItineraryItemCreate | _ItemChange"
 
 
 @dataclass(frozen=True)
@@ -119,11 +121,11 @@ class ToolError(Exception):
     """An expected failure; the message is shown to the user."""
 
 
-PrepareHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[Prepared]]
+PrepareHandler = Callable[[ToolContext, dict[str, JsonValue]], Awaitable[Prepared]]
 ApplyHandler = Callable[[ToolContext, Prepared], Awaitable[ToolOutcome]]
 
 
-def _drop_nulls(arguments: dict[str, Any]) -> dict[str, Any]:
+def _drop_nulls(arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
     # A null means "not provided", so it can't clear an optional field.
     return {key: value for key, value in arguments.items() if value is not None}
 
@@ -141,7 +143,7 @@ def _reject_past(day: date | None, field: str, today: date) -> None:
 
 class UpdateItemArgs(BaseModel):
     item_id: UUID
-    changes: dict[str, Any] = Field(
+    changes: dict[str, JsonValue] = Field(
         description="Only the fields to change, with the item type's field names"
     )
 
@@ -160,7 +162,7 @@ def _field_list(names: Iterable[str]) -> str:
 
 
 def _projected_costs(
-    ctx: ToolContext, items: Sequence[ItineraryItem], name: str, arguments: dict[str, Any]
+    ctx: ToolContext, items: Sequence[ItineraryItem], name: str, arguments: dict[str, JsonValue]
 ) -> dict[str, Cost | None]:
     """Each active item's cost, by id, after the staged changes. The change being prepared
     (`name`, `arguments`) is skipped if it's already staged."""
@@ -173,13 +175,13 @@ def _projected_costs(
             cost = args.get("cost")
             costs[f"staged-{index}"] = Cost.model_validate(cost) if cost is not None else None
         elif change.name == "update_item":
-            changes = args["changes"]
-            if changes.get("status") == "cancelled":
-                costs.pop(args["item_id"], None)
-            elif "cost" in changes:
-                costs[args["item_id"]] = Cost.model_validate(changes["cost"])
+            update = UpdateItemArgs.model_validate(args)
+            if update.changes.get("status") == "cancelled":
+                costs.pop(str(update.item_id), None)
+            elif "cost" in update.changes:
+                costs[str(update.item_id)] = Cost.model_validate(update.changes["cost"])
         elif change.name == "remove_item":
-            costs.pop(args["item_id"], None)
+            costs.pop(str(RemoveItemArgs.model_validate(args).item_id), None)
     return costs
 
 
@@ -188,7 +190,7 @@ async def _check_budget(
     plan: Plan,
     item: ItemFields,
     name: str,
-    arguments: dict[str, Any],
+    arguments: dict[str, JsonValue],
     item_id: UUID | None = None,
 ) -> None:
     """Raise a ToolError if `item` (new, or item `item_id` as it would be after an update)
@@ -217,7 +219,7 @@ async def _check_budget(
 # ---------------------------------------------------------------------------
 
 
-def _staged_items(ctx: ToolContext, name: str, arguments: dict[str, Any]) -> list[ItemFields]:
+def _staged_items(ctx: ToolContext, name: str, arguments: dict[str, JsonValue]) -> list[ItemFields]:
     """Items the staged changes add, so a hotel staged right after its flight is checked
     against that flight. The change being prepared is skipped if it's already staged.
     Staged updates and removals aren't projected: the timeline flags what slips through."""
@@ -242,7 +244,7 @@ async def _check_zone(
     ctx: ToolContext,
     item: ItemFields,
     name: str,
-    arguments: dict[str, Any],
+    arguments: dict[str, JsonValue],
     item_id: UUID | None = None,
 ) -> None:
     """Raise a ToolError if `item` (new, or item `item_id` as it would be after an update)
@@ -261,7 +263,7 @@ async def _check_route(
     ctx: ToolContext,
     flight: FlightFields,
     name: str,
-    arguments: dict[str, Any],
+    arguments: dict[str, JsonValue],
     item_id: UUID | None = None,
 ) -> None:
     """Raise a ToolError if `flight` (new, or flight `item_id` as it would be after an
@@ -306,7 +308,7 @@ def _check_overnight(item: ItemFields) -> None:
 def _prepare_add(item_type: ItemType) -> PrepareHandler:
     model = _CREATE_MODELS[item_type]
 
-    async def prepare(ctx: ToolContext, arguments: dict[str, Any]) -> Prepared:
+    async def prepare(ctx: ToolContext, arguments: dict[str, JsonValue]) -> Prepared:
         # `type` is implied by the change's name; set it here.
         data = model.model_validate({**_drop_nulls(arguments), "type": item_type})
         _check_overnight(data)
@@ -330,8 +332,11 @@ def _prepare_add(item_type: ItemType) -> PrepareHandler:
 
 
 async def _apply_add(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
+    data = prepared.payload
+    if isinstance(data, _ItemChange):
+        raise TypeError(f"{prepared.name} was prepared without the item to add")
     item = await itinerary_service.add_item(
-        ctx.session, ctx.user_id, ctx.plan_id, prepared.payload, created_by="assistant"
+        ctx.session, ctx.user_id, ctx.plan_id, data, created_by="assistant"
     )
     return ToolOutcome(ok=True, summary=f"Added {item.type} “{item.title}”")
 
@@ -350,10 +355,16 @@ class _ItemChange:
     item_id: UUID
     title: str
     type: ItemType
-    patch: Any = None  # the item type's *ItemPatch (update only)
+    patch: ItineraryItemPatch | None = None  # update only
 
 
-async def _prepare_update(ctx: ToolContext, arguments: dict[str, Any]) -> Prepared:
+def _item_change(prepared: Prepared) -> _ItemChange:
+    if not isinstance(prepared.payload, _ItemChange):
+        raise TypeError(f"{prepared.name} was prepared without its item")
+    return prepared.payload
+
+
+async def _prepare_update(ctx: ToolContext, arguments: dict[str, JsonValue]) -> Prepared:
     args = UpdateItemArgs.model_validate(arguments)
     current = await itinerary_service.get_item(ctx.session, ctx.user_id, ctx.plan_id, args.item_id)
     changes = _drop_nulls(args.changes)
@@ -394,7 +405,9 @@ async def _prepare_update(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
 
 
 async def _apply_update(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
-    change: _ItemChange = prepared.payload
+    change = _item_change(prepared)
+    if change.patch is None:
+        raise TypeError("update_item was prepared without its patch")
     try:
         item = await itinerary_service.update_item(
             ctx.session, ctx.user_id, ctx.plan_id, change.item_id, change.patch
@@ -404,7 +417,7 @@ async def _apply_update(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
     return ToolOutcome(ok=True, summary=f"Updated “{item.title}”")
 
 
-async def _prepare_remove(ctx: ToolContext, arguments: dict[str, Any]) -> Prepared:
+async def _prepare_remove(ctx: ToolContext, arguments: dict[str, JsonValue]) -> Prepared:
     args = RemoveItemArgs.model_validate(arguments)
     item = await itinerary_service.get_item(ctx.session, ctx.user_id, ctx.plan_id, args.item_id)
     return Prepared(
@@ -416,7 +429,7 @@ async def _prepare_remove(ctx: ToolContext, arguments: dict[str, Any]) -> Prepar
 
 
 async def _apply_remove(ctx: ToolContext, prepared: Prepared) -> ToolOutcome:
-    change: _ItemChange = prepared.payload
+    change = _item_change(prepared)
     await itinerary_service.remove_item(ctx.session, ctx.user_id, ctx.plan_id, change.item_id)
     return ToolOutcome(ok=True, summary=f"Removed “{change.title}”")
 

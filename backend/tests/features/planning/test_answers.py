@@ -2,10 +2,9 @@
 
 from datetime import date
 from decimal import Decimal
-from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 from features.planning.answers import AnswerError, describe_answer, parse_answer
 from features.planning.schemas import (
@@ -59,7 +58,7 @@ TODAY = date(2026, 10, 1)
     ],
 )
 def test_a_valid_value_parses_into_the_slots_model(
-    slot: SlotName, value: dict[str, Any], expected: BaseModel
+    slot: SlotName, value: dict[str, JsonValue], expected: BaseModel
 ) -> None:
     assert parse_answer(slot, value, TODAY) == expected
 
@@ -88,7 +87,7 @@ def test_a_valid_value_parses_into_the_slots_model(
     ],
 )
 def test_an_invalid_value_says_what_is_wrong(
-    slot: SlotName, value: dict[str, Any], message: str
+    slot: SlotName, value: dict[str, JsonValue], message: str
 ) -> None:
     with pytest.raises(AnswerError) as caught:
         parse_answer(slot, value, TODAY)

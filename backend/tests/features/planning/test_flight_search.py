@@ -1,13 +1,15 @@
 """Flight searches for the flights stage: the query a plan makes, ranking by preferences, and
 the candidates (with the changes picking them makes). No database: the provider is a fake."""
 
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from features.itinerary.schemas import ItineraryItem
 from features.planning.flight_search import (
     flight_query,
     misses,
@@ -38,6 +40,7 @@ from shared.flights.types import (
 from shared.hotels.fake import FakeHotelProvider
 from shared.places.fake import FakePlaceProvider
 from tests.features.plans.builders import outbound_flight, snapshot
+from tests.json_path import at, text
 
 TODAY = date(2026, 10, 15)
 
@@ -53,9 +56,13 @@ RETURN = RunSearch(
 )
 
 
-def _plan(prefs: FlightPreferences | None = None, **overrides: Any) -> PlanSnapshot:
+def _plan(
+    prefs: FlightPreferences | None = None,
+    items: Sequence[ItineraryItem] = (),
+    **overrides: object,
+) -> PlanSnapshot:
     preferences = PlanPreferences(flights=prefs or FlightPreferences())
-    return snapshot(stage=PlanStage.FLIGHTS, preferences=preferences, **overrides)
+    return snapshot(items, stage=PlanStage.FLIGHTS, preferences=preferences, **overrides)
 
 
 def _ctx(flights: FakeFlightProvider) -> SearchContext:
@@ -194,7 +201,7 @@ async def test_flights_out_carry_an_add_flight_and_the_token_for_the_flights_hom
     assert change.name == "add_flight"
     assert change.arguments["direction"] == "outbound"
     assert change.arguments["cost"] == {"amount": "1800", "currency": "USD", "basis": "exact"}
-    assert change.arguments["start"].startswith("2027-05-01T09:00")
+    assert text(change.arguments, "start").startswith("2027-05-01T09:00")
 
 
 async def test_flights_out_that_miss_a_preference_say_so() -> None:
@@ -222,7 +229,7 @@ async def test_flights_home_move_the_round_trip_fare_onto_the_flight_out() -> No
     }
     assert add.name == "add_flight"
     assert add.arguments["direction"] == "return"
-    assert add.arguments["cost"]["amount"] == "0"
+    assert at(add.arguments, "cost", "amount") == "0"
 
 
 async def test_without_a_token_the_flights_home_are_searched_one_way() -> None:
