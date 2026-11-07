@@ -266,6 +266,26 @@ export type AnswerRecord = {
 };
 
 /**
+ * AppliedChange
+ *
+ * One command that was written, as the transcript shows it.
+ */
+export type AppliedChange = {
+    /**
+     * Name
+     */
+    name: 'remove_item' | 'update_item' | 'set_basics' | 'change_stage';
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Item Id
+     */
+    item_id: string | null;
+};
+
+/**
  * AskInput
  *
  * Show the slot's form. `prefill` holds values the plan already has.
@@ -357,6 +377,28 @@ export type CandidateChange = {
      * Summary
      */
     summary: string;
+};
+
+/**
+ * ChangesRecord
+ *
+ * What a message's commands did (message kind "changes"). Commands are written all or
+ * nothing, so `rejected` is empty when anything was applied, unless the plan changed
+ * between the check and the write.
+ */
+export type ChangesRecord = {
+    /**
+     * Type
+     */
+    type: 'changes';
+    /**
+     * Applied
+     */
+    applied: Array<AppliedChange>;
+    /**
+     * Rejected
+     */
+    rejected: Array<RejectedChange>;
 };
 
 /**
@@ -1216,7 +1258,8 @@ export const MessageKind = {
     PICK: 'pick',
     EXPECTED_INPUT: 'expected_input',
     CHOICES: 'choices',
-    STAGE: 'stage'
+    STAGE: 'stage',
+    CHANGES: 'changes'
 } as const;
 
 /**
@@ -1626,7 +1669,9 @@ export type PlanningMessage = {
         type: 'pick';
     } & PickRecord) | ({
         type: 'stage';
-    } & StageRecord) | null;
+    } & StageRecord) | ({
+        type: 'changes';
+    } & ChangesRecord) | null;
     /**
      * Created At
      */
@@ -1720,6 +1765,22 @@ export type RegisterRequest = {
      * Display Name
      */
     display_name?: string;
+};
+
+/**
+ * RejectedChange
+ *
+ * One command the rules turned down, and the rule it broke.
+ */
+export type RejectedChange = {
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Reason
+     */
+    reason: string;
 };
 
 /**

@@ -12,9 +12,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from features.itinerary.schemas import Gap
+from features.itinerary.schemas import Gap, ItemNotes, ItemStatus, ItemTitle
 from features.plans.schemas import Issue, PlanSnapshot, PlanStage, SlotName
-from shared.domain import Money, Place
+from shared.domain import Money, Place, Travelers
 
 # ---------------------------------------------------------------------------
 # Form fields
@@ -273,6 +273,94 @@ PlanningInput = Annotated[SlotAnswer | SlotSkip | ChoicePick, Field(discriminato
 
 
 # ---------------------------------------------------------------------------
+# Commands: plan edits read from the user's own words ("remove the Friday dinner"). The
+# model only fills these in; `planning.commands` checks them against the plan's rules and
+# writes them. The union is closed: anything it can't say is not an edit.
+# ---------------------------------------------------------------------------
+
+MAX_COMMANDS = 5
+
+CommandName = Literal["remove_item", "update_item", "set_basics", "change_stage"]
+
+# An item's number in the itinerary list the model is shown (`commands.numbered_items`),
+# so it never has to spell an id; the server maps it back.
+ItemRef = Annotated[int, Field(ge=1, description="The item's number in the itinerary list")]
+
+
+class _Command(BaseModel):
+    # Unknown fields are a malformed command, not something to drop silently.
+    model_config = ConfigDict(extra="forbid")
+
+
+class ItemEdits(_Command):
+    """The fields a command may change on an item. Costs, places and airports come from
+    searches, so they aren't here."""
+
+    title: ItemTitle | None = None
+    start: datetime | None = Field(
+        default=None, description="Local wall-clock start in the item's timezone"
+    )
+    end: datetime | None = Field(
+        default=None, description="Local wall-clock end in the item's (end) timezone"
+    )
+    notes: ItemNotes | None = None
+    status: ItemStatus | None = None
+
+
+class RemoveItem(_Command):
+    """Take an item off the trip. It is cancelled, not deleted, so it can come back."""
+
+    type: Literal["remove_item"] = "remove_item"
+    item: ItemRef
+
+
+class UpdateItem(_Command):
+    type: Literal["update_item"] = "update_item"
+    item: ItemRef
+    changes: ItemEdits
+
+
+# The basics `SetBasics` can change, each with the input slot whose rules it follows.
+BASICS_FIELDS: dict[str, SlotName] = {
+    "dates": SlotName.DATES,
+    "travelers": SlotName.TRAVELERS,
+    "destination": SlotName.DESTINATION,
+    "origin": SlotName.ORIGIN,
+    "budget": SlotName.BUDGET,
+}
+
+
+class SetBasics(_Command):
+    """Change one of the trip's basics, with the same rules as its form."""
+
+    type: Literal["set_basics"] = "set_basics"
+    dates: DateRange | None = None
+    travelers: Travelers | None = None
+    destination: Place | None = None
+    origin: Place | None = None
+    budget: Money | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> Self:
+        given = [name for name in BASICS_FIELDS if getattr(self, name) is not None]
+        if len(given) != 1:
+            raise ValueError(f"Set exactly one of {', '.join(BASICS_FIELDS)}")
+        return self
+
+
+class ChangeStage(_Command):
+    """Move the plan back, or skip flights. Moving on is the engine's job, never a
+    command's."""
+
+    type: Literal["change_stage"] = "change_stage"
+    action: Literal["back", "go_to", "skip_flights"]
+    stage: PlanStage | None = Field(default=None, description="go_to only: the earlier stage")
+
+
+Command = Annotated[RemoveItem | UpdateItem | SetBasics | ChangeStage, Field(discriminator="type")]
+
+
+# ---------------------------------------------------------------------------
 # Transcript payloads: the structured content a planning message carries, so the
 # transcript re-renders forms, choices and answers after a reload
 # ---------------------------------------------------------------------------
@@ -309,10 +397,40 @@ class StageRecord(BaseModel):
     to_stage: PlanStage
 
 
+class AppliedChange(BaseModel):
+    """One command that was written, as the transcript shows it."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    name: CommandName
+    summary: str  # past tense, e.g. 'Removed “Dinner at Ramiro”'
+    item_id: UUID | None = None  # the item an item command changed
+
+
+class RejectedChange(BaseModel):
+    """One command the rules turned down, and the rule it broke."""
+
+    summary: str  # what was asked, e.g. 'Remove “Dinner at Ramiro”'
+    reason: str  # for people, e.g. "end must be at or after start"
+
+
+class ChangesRecord(BaseModel):
+    """What a message's commands did (message kind "changes"). Commands are written all or
+    nothing, so `rejected` is empty when anything was applied, unless the plan changed
+    between the check and the write."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    type: Literal["changes"] = "changes"
+    applied: list[AppliedChange] = Field(default_factory=list)
+    rejected: list[RejectedChange] = Field(default_factory=list)
+
+
 # kind "expected_input" → AskInput, "choices" → OfferChoice, "input" → AnswerRecord,
-# "pick" → PickRecord, "stage" → StageRecord. Other kinds carry no payload.
+# "pick" → PickRecord, "stage" → StageRecord, "changes" → ChangesRecord. Other kinds
+# carry no payload.
 MessagePayload = Annotated[
-    AskInput | OfferChoice | AnswerRecord | PickRecord | StageRecord,
+    AskInput | OfferChoice | AnswerRecord | PickRecord | StageRecord | ChangesRecord,
     Field(discriminator="type"),
 ]
 

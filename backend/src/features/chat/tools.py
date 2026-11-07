@@ -219,10 +219,24 @@ async def _check_budget(
 # ---------------------------------------------------------------------------
 
 
+def _staged_removals(ctx: ToolContext) -> set[str]:
+    """Ids of the items the staged changes remove or cancel, so they no longer count."""
+    removed: set[str] = set()
+    for change in ctx.staged:
+        if change.name == "remove_item":
+            removed.add(str(RemoveItemArgs.model_validate(change.arguments).item_id))
+        elif change.name == "update_item":
+            update = UpdateItemArgs.model_validate(change.arguments)
+            if update.changes.get("status") == "cancelled":
+                removed.add(str(update.item_id))
+    return removed
+
+
 def _staged_items(ctx: ToolContext, name: str, arguments: dict[str, JsonValue]) -> list[ItemFields]:
     """Items the staged changes add, so a hotel staged right after its flight is checked
     against that flight. The change being prepared is skipped if it's already staged.
-    Staged updates and removals aren't projected: the timeline flags what slips through."""
+    Staged removals are left out by the callers (`_staged_removals`); other staged updates
+    aren't projected: the timeline flags what slips through."""
     items: list[ItemFields] = []
     for change in ctx.staged:
         if change.name == name and change.arguments == arguments:
@@ -252,7 +266,8 @@ async def _check_zone(
     if isinstance(item, FlightFields):
         return
     items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
-    others = [other for other in items if other.id != item_id]
+    removed = _staged_removals(ctx)
+    others = [other for other in items if other.id != item_id and str(other.id) not in removed]
     result = zone_rules.zone_error(item, [*others, *_staged_items(ctx, name, arguments)])
     if result is not None:
         problem, _expected = result
@@ -268,9 +283,9 @@ async def _check_route(
 ) -> None:
     """Raise a ToolError if `flight` (new, or flight `item_id` as it would be after an
     update) overlaps another flight or breaks the route (see features.itinerary.routes).
-    Flights the staged changes remove don't count, so a swap goes through."""
+    Flights the staged changes remove or cancel don't count, so a swap goes through."""
     items = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
-    removed = {str(c.arguments.get("item_id")) for c in ctx.staged if c.name == "remove_item"}
+    removed = _staged_removals(ctx)
     others = [other for other in items if other.id != item_id and str(other.id) not in removed]
     problem = route_rules.route_problem(flight, [*others, *_staged_items(ctx, name, arguments)])
     if problem is not None:

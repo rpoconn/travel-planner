@@ -1,13 +1,11 @@
 """Offers in the database, and the assessment every plan response carries."""
 
-from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import pytest
-from fastapi import FastAPI
 from httpx import AsyncClient
 from pydantic import JsonValue
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.planning import offers, service
 from features.planning.schemas import Candidate, CandidateChange, OfferChoice, TravelPlan
@@ -38,14 +36,6 @@ CANDIDATES = [
 @pytest.fixture
 async def headers(register_user: RegisterUser) -> dict[str, str]:
     return await register_user("ada@example.com")
-
-
-@pytest.fixture
-async def session(app: FastAPI, client: AsyncClient) -> AsyncIterator[AsyncSession]:
-    # Depends on `client` so the app lifespan (which migrates the database) is running.
-    maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
-    async with maker() as db:
-        yield db
 
 
 @pytest.fixture

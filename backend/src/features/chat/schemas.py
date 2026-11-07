@@ -33,6 +33,8 @@ class MessageKind(StrEnum):
     CHOICES = "choices"
     # Moving on to another stage.
     STAGE = "stage"
+    # Edits the user asked for in their own words, as written (or why none were).
+    CHANGES = "changes"
 
 
 MAX_MESSAGE_CHARS = 4000

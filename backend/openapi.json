@@ -2233,6 +2233,44 @@
         "title": "AnswerRecord",
         "description": "A user's answer to an input slot (message kind \"input\")."
       },
+      "AppliedChange": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "remove_item",
+              "update_item",
+              "set_basics",
+              "change_stage"
+            ],
+            "title": "Name"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "summary",
+          "item_id"
+        ],
+        "title": "AppliedChange",
+        "description": "One command that was written, as the transcript shows it."
+      },
       "AskInput": {
         "properties": {
           "type": {
@@ -2394,6 +2432,38 @@
         ],
         "title": "CandidateChange",
         "description": "The plan change picking a candidate makes: a write tool's name and arguments, run\nthrough the same validation as any other change (`chat.tools.check_change`)."
+      },
+      "ChangesRecord": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "changes",
+            "title": "Type",
+            "default": "changes"
+          },
+          "applied": {
+            "items": {
+              "$ref": "#/components/schemas/AppliedChange"
+            },
+            "type": "array",
+            "title": "Applied"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedChange"
+            },
+            "type": "array",
+            "title": "Rejected"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "applied",
+          "rejected"
+        ],
+        "title": "ChangesRecord",
+        "description": "What a message's commands did (message kind \"changes\"). Commands are written all or\nnothing, so `rejected` is empty when anything was applied, unless the plan changed\nbetween the check and the write."
       },
       "ChoicePick": {
         "properties": {
@@ -4093,7 +4163,8 @@
           "pick",
           "expected_input",
           "choices",
-          "stage"
+          "stage",
+          "changes"
         ],
         "title": "MessageKind",
         "description": "What a transcript message is, so the UI knows how to show it."
@@ -4916,6 +4987,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/StageRecord"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChangesRecord"
                   }
                 ],
                 "discriminator": {
@@ -4923,6 +4997,7 @@
                   "mapping": {
                     "answer": "#/components/schemas/AnswerRecord",
                     "ask_input": "#/components/schemas/AskInput",
+                    "changes": "#/components/schemas/ChangesRecord",
                     "offer_choice": "#/components/schemas/OfferChoice",
                     "pick": "#/components/schemas/PickRecord",
                     "stage": "#/components/schemas/StageRecord"
@@ -5078,6 +5153,25 @@
           "password"
         ],
         "title": "RegisterRequest"
+      },
+      "RejectedChange": {
+        "properties": {
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary",
+          "reason"
+        ],
+        "title": "RejectedChange",
+        "description": "One command the rules turned down, and the rule it broke."
       },
       "ReturnToStage": {
         "properties": {

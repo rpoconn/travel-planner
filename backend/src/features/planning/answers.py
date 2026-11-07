@@ -110,11 +110,23 @@ def _activity_preferences(answer: ActivityPreferences) -> str:
     return f"{interests}; {answer.dietary}" if answer.dietary else interests
 
 
+def describe_value(answer: BaseModel) -> str:
+    """The answer's value alone, e.g. "Lisbon, Portugal" or "3,000 USD"."""
+    match answer:
+        case DestinationAnswer():
+            return _place(answer.destination)
+        case OriginAnswer():
+            return _place(answer.origin)
+        case BudgetAnswer():
+            return _money(answer.budget)
+    return describe_answer(answer)
+
+
 def describe_answer(answer: BaseModel) -> str:
     """The answer as one line of the transcript, e.g. "May 1, 2027 to May 8, 2027"."""
     match answer:
         case DestinationAnswer():
-            return _place(answer.destination)
+            return describe_value(answer)
         case DatesAnswer():
             return f"{_day(answer.dates.start)} to {_day(answer.dates.end)}"
         case Travelers():
@@ -123,9 +135,9 @@ def describe_answer(answer: BaseModel) -> str:
                 people.append(_count(answer.children, "child", "children"))
             return ", ".join(people)
         case OriginAnswer():
-            return f"From {_place(answer.origin)}"
+            return f"From {describe_value(answer)}"
         case BudgetAnswer():
-            return f"A budget of {_money(answer.budget)}"
+            return f"A budget of {describe_value(answer)}"
         case FlightPreferencesAnswer():
             return _flight_preferences(answer)
         case LodgingPreferences():

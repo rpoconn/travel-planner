@@ -1,14 +1,12 @@
 """Fixtures for the plan-change tests: a user with a plan, and a DB session and
 `ToolContext` for calling `chat.tools` directly."""
 
-from collections.abc import AsyncIterator
 from datetime import date
 
 import pytest
-from fastapi import FastAPI
 from httpx import AsyncClient
 from pydantic import JsonValue
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.chat.tools import ToolContext
 from features.planning.schemas import TravelPlan
@@ -49,14 +47,6 @@ async def plan(client: AsyncClient, headers: dict[str, str]) -> TravelPlan:
     response = await client.post("/plans", json=PLAN, headers=headers)
     assert response.status_code == 201, response.text
     return TravelPlan.model_validate(response.json())
-
-
-@pytest.fixture
-async def session(app: FastAPI, client: AsyncClient) -> AsyncIterator[AsyncSession]:
-    # Depends on `client` so the app lifespan (which creates the tables) is running.
-    maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
-    async with maker() as db:
-        yield db
 
 
 @pytest.fixture

@@ -548,6 +548,19 @@ async def test_a_staged_removal_frees_the_flight_slot(ctx: ToolContext) -> None:
     assert outcome.ok, outcome.summary
 
 
+async def test_a_staged_cancellation_frees_the_flight_slot(ctx: ToolContext) -> None:
+    await _run(ctx, "add_flight", _flight("PHL", "HND", "2027-05-01"))
+    (old,) = await itinerary_service.list_items(ctx.session, ctx.user_id, ctx.plan_id)
+    cancel: dict[str, JsonValue] = {"item_id": str(old.id), "changes": {"status": "cancelled"}}
+    cancellation = _change(await _check(ctx, "update_item", cancel))
+
+    outcome = await _check(
+        replace(ctx, staged=[cancellation]), "add_flight", _flight("PHL", "HND", "2027-05-01")
+    )
+
+    assert outcome.ok, outcome.summary
+
+
 async def test_moving_a_flight_so_it_breaks_the_route_is_rejected(ctx: ToolContext) -> None:
     await _run(ctx, "add_flight", _flight("PHL", "HND", "2027-05-01"))
     await _run(ctx, "add_flight", _flight("HND", "PHL", "2027-05-08", direction="return"))

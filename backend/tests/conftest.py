@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from main import create_app
 from shared.config import Settings
@@ -53,3 +54,12 @@ def register_user(client: AsyncClient) -> RegisterUser:
         return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
     return _register
+
+
+@pytest.fixture
+async def session(app: FastAPI, client: AsyncClient) -> AsyncIterator[AsyncSession]:
+    """A database session for calling services directly. Depends on `client` so the app
+    lifespan (which migrates the database) is running."""
+    maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
+    async with maker() as db:
+        yield db

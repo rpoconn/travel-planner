@@ -295,7 +295,7 @@ Carried over from the planning flow, plus a few for writes:
 
 ## 10. Phases
 
-Progress: phase 0 done; phases 1-4 not started.
+Progress: phases 0 and 1 done; phases 2-4 not started.
 
 Each phase lands green (`ruff`, `mypy`, `pytest`, frontend `lint` / `typecheck` / `test`),
 with a check-in after each.
@@ -316,6 +316,27 @@ stages legitimately through a shared `reach` helper.
 - Docs: Userflow.md section 6.
 
 **Phase 1: the command layer, no model yet**
+**Done** (2026-11-07). How it landed, where it differs from the sketch above:
+
+- The command models (`Command`, `ItemEdits`, `ItemRef`, `MAX_COMMANDS`) live in
+  `planning/schemas.py` with `ChangesRecord`, per the CLAUDE.md rule that Pydantic schemas
+  go in `schemas.py`; `planning/commands.py` holds the logic (`numbered_items`,
+  `check_and_apply`, `describe_changes`). `check_and_apply` returns the `ChangesRecord`
+  itself rather than a separate `CommandOutcome`, since they had the same shape.
+- `remove_item` cancels (open decision 1 below), so it becomes an `update_item` with
+  `status: cancelled`. `chat.tools` now treats a staged cancellation like a staged
+  removal in the route and zone checks, so "remove X, then move Y" checks Y without X.
+- Two guardrails beyond section 9: a second command on the same item is rejected
+  ("Change each item in one command"; a staged update isn't projected onto the item), and
+  every command is checked even after one fails, so the repair pass sees every broken rule.
+- `set_basics` summaries show the old value: "Dates: May 1, 2027 to May 8, 2027 → May 3,
+  2027 to May 10, 2027" (open decision 2). `answers.describe_value` gives the bare value.
+- `MessageKind.CHANGES` and `ChangesRecord` are in the spec and the regenerated SDK; the
+  UI doesn't render them yet (phase 3).
+- **For phase 2:** a `change_stage` back to a stage whose checklist is empty leaves the
+  engine at `AdvanceStage`, which `_drive` acts on at once, so "go back to flights" on a
+  finished flights stage would bounce straight forward again. The command turn has to
+  stop the drive at that `AdvanceStage` (show the stage, offer Continue) instead.
 
 - `planning/commands.py`: the command models, `ItemRef` resolution, `check_and_apply`,
   `CommandOutcome`, summaries. Phase-1 vocabulary: `remove_item`, `update_item`,
@@ -371,11 +392,11 @@ Made in this plan (change them before phase 1 if you disagree):
 
 Open, with a recommendation:
 
-1. **Remove = delete or cancel?** Recommend `remove_item` cancels (status `cancelled`) for
+1. **Remove = delete or cancel?** *Decided in phase 1: cancel.* Recommend `remove_item` cancels (status `cancelled`) for
    items that came from a pick or the user, and hard-deletes nothing from the model. Cancelled
    items are already ignored by the checklists, gaps, budget and scheduler (`active()`), and
    the timeline can keep showing them struck through. Cheap undo, no new tables.
-2. **Should `set_basics` through a command re-trigger confirmation for big changes** (new
+2. *Decided in phase 1: no confirmation, old → new summary.* **Should `set_basics` through a command re-trigger confirmation for big changes** (new
    dates retire every offer and may orphan flights)? Recommend no confirmation but a clear
    summary line ("Dates: May 1–8 → May 3–10. Flights and stays outside the new dates are
    flagged in Issues."); the engine's walk-back handles the rest.
