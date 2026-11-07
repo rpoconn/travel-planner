@@ -11,6 +11,11 @@ the ways offered:
 | home and a stay, or stays in two cities | train, bus, car rental, taxi                  |
 | anything else (around town)             | walk first when close, taxi, rideshare, metro |
 
+Cars come on top of that (`ways`). A car in hand leads every list: the traveller's own car,
+or a rental picked up earlier, until a flight leaves it behind; then no second rental is
+offered, and driving it costs fuel and parking rather than another rental. Leaving home on a
+trip without flights, the traveller's own car leads; with flights it is never offered.
+
 How long each takes comes from the distance when both ends have coordinates, else from a
 typical time for that kind of gap. Prices are estimates in the plan's currency: taxis and
 cars per vehicle, trains, buses and shuttles per person.
@@ -32,7 +37,15 @@ from pydantic import JsonValue
 
 from features.itinerary.budget import party_size
 from features.itinerary.gaps import describe_place
-from features.itinerary.schemas import FlightItem, Gap, ItineraryItem, LodgingItem, TransferMode
+from features.itinerary.schemas import (
+    FlightItem,
+    Gap,
+    ItineraryItem,
+    LodgingItem,
+    TransferItem,
+    TransferMode,
+    active,
+)
 from features.planning.schemas import Candidate, CandidateChange, RunSearch
 from features.planning.search_types import SearchContext, SearchFailedError
 from features.plans.schemas import PlanSnapshot, active_budget
@@ -72,7 +85,8 @@ SPEEDS: dict[TransferMode, tuple[float, int]] = {
     "train": (70, 20),
     "bus": (40, 15),
     "shuttle": (25, 20),
-    "car_rental": (50, 30),
+    "car_rental": (50, 30),  # includes picking the car up
+    "own_car": (50, 10),  # any car already in hand: parking, no pickup
     "ferry": (20, 20),
 }
 
@@ -97,10 +111,28 @@ _TICKETS: dict[TransferMode, dict[GapKind, int]] = {
     "shuttle": {"home_airport": 25, "airport": 18, "between_cities": 40, "around_town": 10},
 }
 _CAR_RENTAL_PER_DAY = 60
+# Driving a car already in hand (own or rented earlier): minutes when the distance isn't
+# known, and fuel plus parking per vehicle (a typical amount, or a base plus per km).
+_DRIVE_MINUTES: dict[GapKind, int] = {
+    "home_airport": 40,
+    "airport": 35,
+    "between_cities": 150,
+    "around_town": 15,
+}
+_DRIVE_FARE: dict[GapKind, int] = {
+    "home_airport": 15,
+    "airport": 10,
+    "between_cities": 40,
+    "around_town": 8,
+}
+_DRIVE_BASE, _DRIVE_PER_KM = 2, Decimal("0.25")
+# Transfers that leave the traveller with a car.
+_CAR_MODES: frozenset[TransferMode] = frozenset({"own_car", "car_rental"})
 
 _LABELS: dict[TransferMode, str] = {
     "car_rental": "Rental car",
     "car_service": "Car service",
+    "own_car": "Your car",
     "taxi": "Taxi",
     "rideshare": "Rideshare",
     "train": "Train",
@@ -174,16 +206,53 @@ def modes(kind: GapKind, km: float | None) -> list[TransferMode]:
     return offered
 
 
+def flying(plan: PlanSnapshot) -> bool:
+    return any(isinstance(item, FlightItem) for item in active(plan.items))
+
+
+def car_in_hand(plan: PlanSnapshot, gap: Gap) -> TransferMode | None:
+    """The car the traveller has as the gap starts (`own_car` or `car_rental`): the latest
+    car ride before it, unless a flight came after it and the car stayed behind. Leaving
+    home there is none yet."""
+    if gap.leave_after is None:
+        return None
+    car: TransferMode | None = None
+    earlier = [item for item in active(plan.items) if item.end <= gap.leave_after]
+    for item in sorted(earlier, key=lambda item: item.end):
+        if isinstance(item, FlightItem):
+            car = None
+        elif isinstance(item, TransferItem) and item.mode in _CAR_MODES:
+            car = item.mode
+    return car
+
+
+def ways(plan: PlanSnapshot, gap: Gap, kind: GapKind, km: float | None) -> list[TransferMode]:
+    """`modes` with the cars put in (see the module docstring)."""
+    offered = modes(kind, km)
+    car = car_in_hand(plan, gap)
+    if car is not None:
+        # One car at a time: the car in hand leads and no other rental is offered.
+        return [car, *(mode for mode in offered if mode != "car_rental")]
+    if gap.after_item_id is None and not flying(plan):
+        return ["own_car", *offered]
+    return offered
+
+
 # ---------------------------------------------------------------------------
 # Time and price
 # ---------------------------------------------------------------------------
 
 
-def duration(mode: TransferMode, kind: GapKind, km: float | None) -> timedelta:
-    """How long the ride takes, rounded up to five minutes."""
+def duration(
+    mode: TransferMode, kind: GapKind, km: float | None, *, driving: bool = False
+) -> timedelta:
+    """How long the ride takes, rounded up to five minutes. `driving`: in a car the
+    traveller already has, so a rental car needs no pickup (the own car always is)."""
+    driving = driving or mode == "own_car"
     if km is None:
-        return timedelta(minutes=TYPICAL_MINUTES[kind][mode])
-    speed, overhead = SPEEDS[mode]
+        typical = _DRIVE_MINUTES[kind] if driving else TYPICAL_MINUTES[kind][mode]
+        return timedelta(minutes=typical)
+    speed, overhead = SPEEDS["own_car" if driving else mode]
     minutes = km / speed * 60 + overhead
     return timedelta(minutes=max(5, math.ceil(minutes / 5) * 5))
 
@@ -200,14 +269,23 @@ def price(
     km: float | None,
     plan: PlanSnapshot,
     start: datetime,
+    *,
+    driving: bool = False,
 ) -> Money:
-    """An estimate for the whole party, in the plan's currency."""
+    """An estimate for the whole party, in the plan's currency. `driving` as for
+    `duration`: a car in hand costs fuel and parking, not another rental."""
     budget = active_budget(plan.budget)
     currency = budget.currency if budget is not None else "USD"
     people = party_size(plan.travelers)
     amount: Decimal
     if mode == "walk":
         amount = Decimal(0)
+    elif driving or mode == "own_car":
+        amount = (
+            Decimal(_DRIVE_FARE[kind])
+            if km is None
+            else (_DRIVE_BASE + _DRIVE_PER_KM * Decimal(str(round(km, 1)))).quantize(Decimal(1))
+        )
     elif mode == "car_rental":
         # For the rest of the trip: the car stays with them.
         amount = Decimal(_CAR_RENTAL_PER_DAY * _trip_days_left(plan, start))
@@ -251,6 +329,15 @@ def fit(plan: PlanSnapshot, gap: Gap, length: timedelta) -> Ride:
 # ---------------------------------------------------------------------------
 
 
+# What a rental car ride does with the car.
+RentalStep = Literal["pick_up", "keep", "return"]
+_RENTAL_NOTES: dict[RentalStep, str] = {
+    "pick_up": "Picked up here, kept for the rest of the trip",
+    "keep": "The rental car you already have",
+    "return": "The rental car you already have, returned here",
+}
+
+
 def _clock(moment: datetime) -> str:
     return f"{moment:%b} {moment.day}, {moment:%H:%M}"
 
@@ -260,7 +347,12 @@ def _place(place: Place) -> dict[str, JsonValue]:
 
 
 def _add_transfer(
-    mode: TransferMode, gap: Gap, ride: Ride, cost: Money, title: str
+    mode: TransferMode,
+    gap: Gap,
+    ride: Ride,
+    cost: Money,
+    title: str,
+    rental: RentalStep | None,
 ) -> CandidateChange:
     arguments: dict[str, JsonValue] = {
         "title": title,
@@ -273,8 +365,10 @@ def _add_transfer(
         "timezone": gap.timezone,
         "cost": {**cost.model_dump(mode="json"), "basis": "estimate"},
     }
-    if mode == "car_rental":
+    if rental == "pick_up":
         arguments["pickup_location"] = _place(gap.from_place)
+    elif rental == "return":
+        arguments["dropoff_location"] = _place(gap.to_place)
     summary = f"Add transfer “{title}” on {_clock(ride.start.astimezone(_zone(gap)))}"
     return CandidateChange(name="add_transfer", arguments=arguments, summary=summary)
 
@@ -283,12 +377,29 @@ def _zone(gap: Gap) -> ZoneInfo:
     return ZoneInfo(gap.timezone)
 
 
+def _rental(mode: TransferMode, driving: bool, plan: PlanSnapshot, gap: Gap) -> RentalStep | None:
+    """What a rental car ride does with the car: picks it up, or returns it for a flight."""
+    if mode != "car_rental":
+        return None
+    if not driving:
+        return "pick_up"
+    return "return" if isinstance(_item(plan, gap.before_item_id), FlightItem) else "keep"
+
+
 def _candidate(
-    number: int, mode: TransferMode, kind: GapKind, km: float | None, gap: Gap, plan: PlanSnapshot
+    number: int,
+    mode: TransferMode,
+    kind: GapKind,
+    km: float | None,
+    gap: Gap,
+    plan: PlanSnapshot,
+    car: TransferMode | None,
 ) -> Candidate:
-    length = duration(mode, kind, km)
+    driving = mode == car
+    length = duration(mode, kind, km, driving=driving)
     ride = fit(plan, gap, length)
-    cost = price(mode, kind, km, plan, ride.start)
+    cost = price(mode, kind, km, plan, ride.start, driving=driving)
+    rental = _rental(mode, driving, plan, gap)
     destination = describe_place(gap.to_place, gap.before_item_id)
     title = f"{_LABELS[mode]} to {destination}"[:_MAX_TITLE]
     zone = _zone(gap)
@@ -300,6 +411,8 @@ def _candidate(
     ]
     if km is not None:
         details.append(f"{km:.1f} km")
+    if rental is not None:
+        details.append(_RENTAL_NOTES[rental])
     origin = describe_place(gap.from_place, gap.after_item_id)
     return Candidate(
         id=str(number),
@@ -308,7 +421,7 @@ def _candidate(
         details=details,
         warnings=[ride.warning] if ride.warning else [],
         price=None,  # an estimate, shown in the details
-        changes=[_add_transfer(mode, gap, ride, cost, title)],
+        changes=[_add_transfer(mode, gap, ride, cost, title, rental)],
     )
 
 
@@ -324,7 +437,8 @@ async def transfers(ctx: SearchContext, plan: PlanSnapshot, action: RunSearch) -
         raise SearchFailedError("There's no gap to find a way across.")
     kind = gap_kind(plan, gap)
     km = distance_km(gap.from_place, gap.to_place)
+    car = car_in_hand(plan, gap)
     return [
-        _candidate(number, mode, kind, km, gap, plan)
-        for number, mode in enumerate(modes(kind, km), start=1)
+        _candidate(number, mode, kind, km, gap, plan, car)
+        for number, mode in enumerate(ways(plan, gap, kind, km), start=1)
     ]

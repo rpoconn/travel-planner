@@ -23,8 +23,8 @@ from tests.features.planning.planning_http import (
     create_plan,
     done,
     messages,
-    move_to,
     post,
+    reach,
     say,
     stored,
 )
@@ -42,7 +42,7 @@ async def _at_lodging(
 ) -> str:
     """A Lisbon trip, May 1-8 for two, with no flights, at the lodging stage."""
     plan_id = await create_plan(client, headers, **{**BASICS, **fields})
-    await move_to(app, plan_id, PlanStage.LODGING)
+    await reach(app, client, headers, plan_id, PlanStage.LODGING)
     return plan_id
 
 

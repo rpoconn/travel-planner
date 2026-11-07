@@ -208,6 +208,17 @@ class AdvanceStage(BaseModel):
     to: PlanStage
 
 
+class ReturnToStage(BaseModel):
+    """A stage before the current one has a blocking issue again (an item was removed or
+    changed since it was finished), so the plan goes back to fix it. The turn pipeline acts
+    on this at once; a client only sees it after an edit outside a turn, and then offers to
+    go back."""
+
+    type: Literal["return_to_stage"] = "return_to_stage"
+    to: PlanStage
+    reason: str  # the first issue, for people: "a place to stay the night of May 2"
+
+
 class Complete(BaseModel):
     """At review: nothing left to ask. Remaining issues are in the assessment."""
 
@@ -215,7 +226,7 @@ class Complete(BaseModel):
 
 
 NextAction = Annotated[
-    AskInput | OfferChoice | RunSearch | AdvanceStage | Complete,
+    AskInput | OfferChoice | RunSearch | AdvanceStage | ReturnToStage | Complete,
     Field(discriminator="type"),
 ]
 

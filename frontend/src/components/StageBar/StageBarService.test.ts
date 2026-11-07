@@ -31,6 +31,22 @@ describe('continueButton', () => {
         expect(continueButton(plan)).toEqual({ label: 'Continue to Flights', kind: 'advance' })
     })
 
+    it('goes back to an earlier stage that an edit broke', () => {
+        const plan = travelPlan({
+            stage: 'ground',
+            assessment: planAssessment({
+                stage: 'ground',
+                next_action: {
+                    type: 'return_to_stage',
+                    to: 'lodging',
+                    reason: 'a place to stay the night of May 2',
+                },
+            }),
+        })
+
+        expect(continueButton(plan)).toEqual({ label: 'Back to Lodging', kind: 'return' })
+    })
+
     it('has nothing to add while a form is pending or the trip is done', () => {
         const asking = travelPlan({ assessment: planAssessment({ next_action: ASK_DESTINATION }) })
 

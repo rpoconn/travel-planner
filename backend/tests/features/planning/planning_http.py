@@ -116,10 +116,64 @@ def asking(events: list[PlanningEvent]) -> str | None:
     return action.slot if action.type == "ask_input" else None
 
 
-async def move_to(app: FastAPI, plan_id: str, stage: PlanStage) -> None:
+async def add_item(
+    client: AsyncClient, headers: dict[str, str], plan_id: str, **item: JsonValue
+) -> str:
+    """Add an item through the items API (as the item sheet does); returns its id."""
+    response = await client.post(f"/plans/{plan_id}/items", json=item, headers=headers)
+    assert response.status_code == 201, response.text
+    item_id: str = response.json()["id"]
+    return item_id
+
+
+LISBON_TZ = "Europe/Lisbon"
+FLAT: dict[str, JsonValue] = {"name": "Friend's flat", "city": "Lisbon"}
+
+
+async def move_to(
+    app: FastAPI, plan_id: str, stage: PlanStage, *, flights_skipped: bool = False
+) -> None:
     """Put the plan at `stage` directly, past the readiness checks."""
     maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
     async with maker() as db:
         row = await db.get(Plan, UUID(plan_id))
         assert row is not None
-        await plans_service.set_stage(db, row.user_id, row.id, stage, flights_skipped=False)
+        await plans_service.set_stage(db, row.user_id, row.id, stage, flights_skipped)
+
+
+async def reach(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], plan_id: str, stage: PlanStage
+) -> None:
+    """Put a `BASICS` plan at `stage` the way a trip without flights gets there: flights
+    skipped past the flights stage, every night (May 1-8) at a friend's flat past lodging,
+    and a dinner there past activities. The engine goes back to any earlier stage whose
+    checklist isn't empty, so a plan can't just be set to a later stage."""
+    stages = list(PlanStage)
+    index = stages.index(stage)
+    if index > stages.index(PlanStage.LODGING):
+        await add_item(
+            client,
+            headers,
+            plan_id,
+            type="lodging",
+            title="Friend's flat",
+            start="2027-05-01T15:00",
+            end="2027-05-08T11:00",
+            timezone=LISBON_TZ,
+            place=FLAT,
+        )
+    if index > stages.index(PlanStage.ACTIVITIES):
+        await add_item(
+            client,
+            headers,
+            plan_id,
+            type="activity",
+            title="Dinner in",
+            start="2027-05-02T19:30",
+            end="2027-05-02T21:00",
+            timezone=LISBON_TZ,
+            place=FLAT,
+            category="food",
+        )
+    skipped = index > stages.index(PlanStage.FLIGHTS)
+    await move_to(app, plan_id, stage, flights_skipped=skipped)

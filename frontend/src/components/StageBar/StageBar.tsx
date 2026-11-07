@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, PartyPopper, Search, SkipForward } from 'lucide-react'
+import { ArrowLeft, ArrowRight, PartyPopper, Search, SkipForward, Undo2 } from 'lucide-react'
 
 import type { TravelPlan } from '@/api/types.gen'
 import { Badge } from '@/components/ui/badge'
@@ -11,7 +11,8 @@ import { continueButton, tripComplete } from './StageBarService'
 
 // The current stage in the planning flow: what it's for, Back, Skip flights, and the button
 // that drives the planner on when its next step isn't a form ("Find flights out", "Continue
-// to Lodging"). There is no Next: the planner moves on by itself once a stage is done.
+// to Lodging", "Back to Lodging" after an edit broke an earlier stage). There is no Next:
+// the planner moves on by itself once a stage is done.
 
 // ----- types -----
 
@@ -78,6 +79,8 @@ export function StageBar({ plan, disabled = false, onContinue }: StageBarProps) 
                         <Button size="sm" disabled={busy} onClick={onContinue}>
                             {next.kind === 'search' ? (
                                 <Search aria-hidden />
+                            ) : next.kind === 'return' ? (
+                                <Undo2 aria-hidden />
                             ) : (
                                 <ArrowRight aria-hidden />
                             )}

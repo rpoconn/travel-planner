@@ -61,6 +61,7 @@ ActivityCategory = Literal[
 TransferMode = Literal[
     "car_rental",
     "car_service",
+    "own_car",  # the traveller's own car, driven from home (trips without flights)
     "taxi",
     "rideshare",
     "train",
@@ -269,7 +270,7 @@ class TransferFields(ItemFields):
     from_place: Place
     to_place: Place
     provider: ShortText | None = None  # "Hertz", "JR East"
-    pickup_location: Place | None = None  # car rental only
+    pickup_location: Place | None = None  # car rental only: where the car is picked up
     dropoff_location: Place | None = None
 
 

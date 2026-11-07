@@ -51,8 +51,8 @@ One planning turn: the user answers the pending form, picks from the pending cho
 free text, or presses Continue → the answer or pick is stored and written to the plan (a pick
 is validated by the same rules as any other change, and picking **is** the approval) → the
 turn **drives** the engine, `{snapshot → evaluate → act}`, until it needs the user again:
-it advances a finished stage, runs the next search, and stops at the next form, the next
-choices, or the end of the trip. Each stored message streams as an event, and every plan
+it advances a finished stage (or goes back to an earlier one that a change broke), runs
+the next search, and stops at the next form, the next choices, or the end of the trip. Each stored message streams as an event, and every plan
 change emits `plan_updated` (the UI writes it into its query cache, so the timeline redraws
 while the turn is still running). See [Userflow.md](Userflow.md) for every decision along
 the way.
@@ -206,8 +206,9 @@ value model, or the model.
   so they have none).
 - The engine (`features/planning/engine.py`, pure) reads only the plan: each stage has an
   ordered list of slots (`planning/slots.py`), and the first unfilled one wins. A finished
-  stage advances by itself; Back and the stepper's earlier steps stay available, later ones
-  are locked. `GET /plans/{id}` carries the verdict as `assessment` (stage, issues, next
+  stage advances by itself, and a stage whose checklist breaks again after a later change
+  (a stay deleted at review) is returned to by itself; Back and the stepper's earlier steps
+  stay available, later ones are locked. `GET /plans/{id}` carries the verdict as `assessment` (stage, issues, next
   action).
 - Choices come from searches (`planning/searches.py`), kept as an **offer** (`planning_offers`)
   so a reload never searches again. Each candidate carries its ready-made changes; picking
@@ -237,7 +238,10 @@ value model, or the model.
   one search per interest, run together. The places are ranked and scheduled into the trip's
   free time by rules (`features/planning/scheduler.py`). `PLACES_PROVIDER=fake` makes up
   museums and restaurants; tests and E2E always use it. Transfers between places need no
-  search: their ways, times and price estimates come from rules alone.
+  search: their ways, times and price estimates come from rules alone
+  (`features/planning/transfer_search.py`). That includes cars: your own car (only on trips
+  without flights), and a rental car that, once picked up, is offered first for every later
+  ride until a flight leaves it behind.
 
 ## Swapping the model
 

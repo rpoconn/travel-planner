@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.engine.result import Result
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.plans.models import Plan
@@ -43,7 +44,7 @@ def _column_value(value: object) -> object:
 
 
 async def list_plans(session: AsyncSession, user_id: UUID) -> list[Plan]:
-    result = await session.execute(
+    result: Result[Plan] = await session.execute(
         select(Plan).where(Plan.user_id == user_id).order_by(Plan.updated_at.desc())
     )
     return list(result.scalars())

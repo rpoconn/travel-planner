@@ -17,7 +17,9 @@ them. Every decision reads itinerary state and typed slot values, never text.
 
 A pick slot shows the open offer when it is for that slot, stage, plan version and
 gap/nights; otherwise it asks for a search. Later stages first re-ask any basics they
-depend on (a stage can't search for flights without dates).
+depend on (a stage can't search for flights without dates), and go back to any earlier
+stage whose checklist has an issue again (a stay removed at review leaves a night
+uncovered), since a stage can only be left once its checklist is empty.
 """
 
 from collections.abc import Sequence
@@ -34,6 +36,7 @@ from features.planning.schemas import (
     Offer,
     OfferChoice,
     PlanAssessment,
+    ReturnToStage,
     RunSearch,
 )
 from features.planning.slots import FIX_SLOT, SLOT_ORDER, SLOTS, STAGE_SLOTS, SlotSpec
@@ -225,6 +228,19 @@ def _fixable(plan: PlanSnapshot, stage: PlanStage) -> list[Issue]:
     return sorted(issues, key=lambda issue: SLOT_ORDER[FIX_SLOT[issue.code]])
 
 
+def _broken_earlier(plan: PlanSnapshot) -> ReturnToStage | None:
+    """Go back to the first stage after basics, before the current one, whose checklist has
+    a fixable issue again. Basics are re-asked in place instead (`next_action` rule 2), and
+    `next` only leaves a stage with an empty checklist, so such an issue can only come
+    from a later change to the plan (a stay removed, a flight's dates moved)."""
+    current = STAGES.index(plan.stage)
+    for stage in STAGES[1:current]:
+        issues = _fixable(plan, stage)
+        if issues:
+            return ReturnToStage(to=stage, reason=issues[0].message)
+    return None
+
+
 def _unanswered(plan: PlanSnapshot, stage: PlanStage) -> SlotName | None:
     """The stage's first input slot that fixes no issue (preferences, the budget) and that
     the plan holds no answer for, leaving out declined ones."""
@@ -241,24 +257,28 @@ def _unanswered(plan: PlanSnapshot, stage: PlanStage) -> SlotName | None:
 def next_action(plan: PlanSnapshot, offer: Offer | None) -> NextAction:
     """What the plan needs next in its current stage:
 
-    1. At review, nothing: `Complete`.
-    2. A missing basic, in any stage (every later stage searches with the basics).
-    3. In basics with none missing: the optional budget, unless answered or declined.
-    4. A later stage with an empty checklist advances, even without its preferences
+    1. A missing basic, in any stage (every later stage searches with the basics).
+    2. In basics with none missing: the optional budget, unless answered or declined.
+    3. An earlier stage whose checklist has an issue again: go back to it.
+    4. At review, nothing: `Complete`.
+    5. A later stage with an empty checklist advances, even without its preferences
        (items added by hand count, and skipped flights empty the flights checklist).
-    5. The stage's preferences, before it searches.
-    6. The stage's first issue: pick from its offer, or search for one.
+    6. The stage's preferences, before it searches.
+    7. The stage's first issue: pick from its offer, or search for one.
     """
     stage = plan.stage
-    if stage == PlanStage.REVIEW:
-        return Complete()
-    following = STAGES[STAGES.index(stage) + 1]
     basics = _fixable(plan, PlanStage.BASICS)
     if basics:
         return _fix(plan, offer, basics)
     if stage == PlanStage.BASICS:
         optional = _unanswered(plan, stage)
-        return _ask(optional, plan) if optional is not None else AdvanceStage(to=following)
+        return _ask(optional, plan) if optional is not None else AdvanceStage(to=STAGES[1])
+    broken = _broken_earlier(plan)
+    if broken is not None:
+        return broken
+    if stage == PlanStage.REVIEW:
+        return Complete()
+    following = STAGES[STAGES.index(stage) + 1]
     issues = _fixable(plan, stage)
     if not issues:
         return AdvanceStage(to=following)

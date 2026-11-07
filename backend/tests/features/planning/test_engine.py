@@ -27,11 +27,12 @@ from features.planning.schemas import (
     Offer,
     OfferChoice,
     OfferStatus,
+    ReturnToStage,
     RunSearch,
 )
-from features.plans.schemas import PlanSnapshot, PlanStage, SlotName
+from features.plans.schemas import STAGES, PlanSnapshot, PlanStage, SlotName
 from shared.domain import IssueCode
-from tests.features.itinerary.factories import PLAN_ID, activity, lodging
+from tests.features.itinerary.factories import OKURA, PLAN_ID, activity, lodging
 from tests.features.plans.builders import (
     CREATED,
     complete_trip,
@@ -93,6 +94,8 @@ def _summary(action: NextAction) -> tuple[str, ...]:
             return ("search", action.slot)
         case AdvanceStage():
             return ("advance", action.to)
+        case ReturnToStage():
+            return ("return", action.to)
         case Complete():
             return ("complete",)
 
@@ -114,11 +117,25 @@ class Case:
 
 
 def _in(stage: PlanStage, **plan: JsonValue) -> dict[str, JsonValue]:
-    return {"stage": stage, **plan}
+    """A plan at `stage`. Past flights it is a trip without flying unless said otherwise,
+    since the engine goes back to any earlier stage whose checklist isn't empty."""
+    past_flights = STAGES.index(stage) > STAGES.index(PlanStage.FLIGHTS)
+    return {"stage": stage, "flights_skipped": past_flights, **plan}
 
 
 def _stay(start: str, end: str) -> ItineraryItem:
     return lodging(start, end)
+
+
+# A stay for the whole trip, with a visit at the hotel: flights skipped, every night covered
+# and an activity planned, so the ground stage is the only one with work left.
+GROUND_ITEMS: list[ItineraryItem] = [
+    lodging("2027-05-01T15:00", "2027-05-04T11:00"),
+    activity("2027-05-02T18:00", "2027-05-02T19:00", place=OKURA, title="Hotel dinner"),
+]
+GROUND: dict[str, JsonValue] = _in(PlanStage.GROUND)
+# Every night covered: what the activities stage starts from.
+STAY: ItineraryItem = GROUND_ITEMS[0]
 
 
 CASES: list[Case] = [
@@ -245,52 +262,88 @@ CASES: list[Case] = [
     Case(
         "activities ask preferences first",
         ("ask", SlotName.ACTIVITY_PREFERENCES),
+        items=[STAY],
         plan=_in(PlanStage.ACTIVITIES),
     ),
     Case(
         "activities with preferences search",
         ("search", SlotName.ACTIVITIES),
+        items=[STAY],
         plan=_in(PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS),
     ),
     Case(
         "an activity advances",
         ("advance", PlanStage.GROUND),
-        items=[activity("2027-05-02T10:00", "2027-05-02T11:00")],
+        items=[STAY, activity("2027-05-02T10:00", "2027-05-02T11:00")],
         plan=_in(PlanStage.ACTIVITIES),
     ),
     # ----- ground -----
     Case(
         "a gap searches for a transfer",
         ("search", SlotName.TRANSFER),
-        items=[_stay("2027-05-01T15:00", "2027-05-04T11:00")],
-        plan=_in(PlanStage.GROUND),
+        items=GROUND_ITEMS,
+        plan=GROUND,
     ),
     Case(
         "an offer for the first gap is shown",
         ("offer", SlotName.TRANSFER),
-        items=[_stay("2027-05-01T15:00", "2027-05-04T11:00")],
-        plan=_in(PlanStage.GROUND),
+        items=GROUND_ITEMS,
+        plan=GROUND,
         offer=lambda plan: _offer(SlotName.TRANSFER, PlanStage.GROUND, gap=plan.gaps[0]),
     ),
     Case(
         "an offer for a later gap searches for the first",
         ("search", SlotName.TRANSFER),
-        items=[_stay("2027-05-01T15:00", "2027-05-04T11:00")],
-        plan=_in(PlanStage.GROUND),
+        items=GROUND_ITEMS,
+        plan=GROUND,
         offer=lambda plan: _offer(SlotName.TRANSFER, PlanStage.GROUND, gap=plan.gaps[1]),
+    ),
+    # ----- an earlier stage broken by a later change -----
+    Case(
+        "ground with no flights goes back to flights",
+        ("return", PlanStage.FLIGHTS),
+        items=GROUND_ITEMS,
+        plan=_in(PlanStage.GROUND, flights_skipped=False),
+    ),
+    Case(
+        "ground with a night uncovered goes back to lodging",
+        ("return", PlanStage.LODGING),
+        items=[_stay("2027-05-01T15:00", "2027-05-03T11:00"), GROUND_ITEMS[1]],
+        plan=GROUND,
+    ),
+    Case(
+        "ground with no activity goes back to activities",
+        ("return", PlanStage.ACTIVITIES),
+        items=GROUND_ITEMS[:1],
+        plan=GROUND,
+    ),
+    Case(
+        "the earliest broken stage comes first",
+        ("return", PlanStage.LODGING),
+        plan=GROUND,
+    ),
+    Case(
+        "a missing basic is re-asked before going back",
+        ("ask", SlotName.DATES),
+        plan=_in(PlanStage.GROUND, end_date=None),
     ),
     Case(
         "no gaps advance to review",
         ("advance", PlanStage.REVIEW),
         items=complete_trip(),
-        plan=_in(PlanStage.GROUND),
+        plan=_in(PlanStage.GROUND, flights_skipped=False),
     ),
     # ----- review -----
-    Case("review is complete", ("complete",), plan=_in(PlanStage.REVIEW)),
     Case(
-        "review is complete even with gaps",
+        "review is complete",
         ("complete",),
-        items=[_stay("2027-05-01T15:00", "2027-05-04T11:00")],
+        items=complete_trip(),
+        plan=_in(PlanStage.REVIEW, flights_skipped=False),
+    ),
+    Case(
+        "review with a gap goes back to ground",
+        ("return", PlanStage.GROUND),
+        items=GROUND_ITEMS,
         plan=_in(PlanStage.REVIEW, preferences=ALL_PREFS),
     ),
 ]
@@ -334,7 +387,7 @@ def test_the_budget_is_optional() -> None:
 
 
 def test_an_offer_choice_lists_the_offer() -> None:
-    plan = snapshot(stage=PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS)
+    plan = snapshot([STAY], **_in(PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS))
     offer = _offer(SlotName.ACTIVITIES, PlanStage.ACTIVITIES)
 
     action = next_action(plan, offer)
@@ -349,7 +402,7 @@ def test_an_offer_choice_lists_the_offer() -> None:
 def test_a_lodging_search_covers_the_first_run_of_uncovered_nights() -> None:
     # Night of May 2 covered: May 1 and May 3 are separate stays.
     stay = lodging("2027-05-02T15:00", "2027-05-03T11:00")
-    plan = snapshot([stay], stage=PlanStage.LODGING, preferences=LODGING_PREFS)
+    plan = snapshot([stay], **_in(PlanStage.LODGING, preferences=LODGING_PREFS))
 
     action = next_action(plan, None)
 
@@ -359,8 +412,7 @@ def test_a_lodging_search_covers_the_first_run_of_uncovered_nights() -> None:
 
 
 def test_a_transfer_search_names_both_ends() -> None:
-    stay = lodging("2027-05-01T15:00", "2027-05-04T11:00")
-    plan = snapshot([stay], stage=PlanStage.GROUND)
+    plan = snapshot(GROUND_ITEMS, **GROUND)
 
     action = next_action(plan, None)
 
@@ -369,9 +421,19 @@ def test_a_transfer_search_names_both_ends() -> None:
     assert action.label == "Find a way from Home (San Francisco) to Hotel Okura"
 
 
+def test_returning_to_a_stage_names_its_first_issue() -> None:
+    # Only the night of May 3 is uncovered once the stay is cut short.
+    plan = snapshot([_stay("2027-05-01T15:00", "2027-05-03T11:00"), GROUND_ITEMS[1]], **GROUND)
+
+    action = next_action(plan, None)
+
+    expected = ReturnToStage(to=PlanStage.LODGING, reason="a place to stay the night of May 3")
+    assert action == expected
+
+
 def test_searched_choices_can_be_refreshed_but_transfers_cannot() -> None:
-    activities = snapshot(stage=PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS)
-    ground = snapshot([lodging("2027-05-01T15:00", "2027-05-04T11:00")], stage=PlanStage.GROUND)
+    activities = snapshot([STAY], **_in(PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS))
+    ground = snapshot(GROUND_ITEMS, **GROUND)
 
     picked = next_action(activities, _offer(SlotName.ACTIVITIES, PlanStage.ACTIVITIES))
     transfer = next_action(ground, _offer(SlotName.TRANSFER, PlanStage.GROUND, gap=ground.gaps[0]))
@@ -382,7 +444,7 @@ def test_searched_choices_can_be_refreshed_but_transfers_cannot() -> None:
 
 
 def test_refresh_search_is_the_search_behind_the_choices() -> None:
-    plan = snapshot(stage=PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS)
+    plan = snapshot([STAY], **_in(PlanStage.ACTIVITIES, preferences=ACTIVITY_PREFS))
 
     action = refresh_search(plan)
 
@@ -391,8 +453,8 @@ def test_refresh_search_is_the_search_behind_the_choices() -> None:
 
 
 def test_refresh_search_is_none_without_searched_choices() -> None:
-    asking = snapshot(stage=PlanStage.ACTIVITIES)  # no preferences yet: a form
-    ground = snapshot([lodging("2027-05-01T15:00", "2027-05-04T11:00")], stage=PlanStage.GROUND)
+    asking = snapshot([STAY], **_in(PlanStage.ACTIVITIES))  # no preferences yet: a form
+    ground = snapshot(GROUND_ITEMS, **GROUND)
 
     assert refresh_search(asking) is None
     assert refresh_search(ground) is None

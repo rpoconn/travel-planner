@@ -231,6 +231,37 @@ test('plans a whole trip, home to home, with forms and picks', async ({ page }) 
     await expect(page.getByRole('button', { name: /things? to check/ })).toHaveCount(0)
 })
 
+test('drives the own car on a trip without flights', async ({ page }) => {
+    await answerBasics(page)
+    await page.getByRole('button', { name: 'Skip flights' }).click()
+    await expect(question(page, 'What kind of place do you want to stay in?')).toBeVisible()
+    await sendChatMessage(page, 'a midrange hotel')
+    await page
+        .getByRole('region', { name: 'Pick a place to stay.' })
+        .getByRole('button', { name: /^Pick / })
+        .first()
+        .click()
+    await expect(question(page, 'What do you like to do?')).toBeVisible()
+    await sendChatMessage(page, 'museums and food')
+    const todo = page.getByRole('region', { name: "Pick the things you'd like to do." })
+    await todo.getByRole('button', { name: 'Add Example Art Museum' }).click()
+    await todo.getByRole('button', { name: 'Add 1 pick' }).click()
+
+    // Leaving home with no flights, the own car comes first.
+    const ways = page.getByRole('region', { name: 'How do you want to get there?' })
+    await expect(ways).toContainText('From Home to')
+    const ownCar = ways.getByRole('button', { name: /^Pick Your car to / })
+    const before = await ways.textContent()
+    await ownCar.first().click()
+
+    // The car is on the trip now, so the next gap leads with it too, and offers no rental.
+    await expect.poll(async () => ways.textContent()).not.toBe(before)
+    await expect(ways.getByRole('button', { name: /^Pick / }).first()).toHaveAccessibleName(
+        /^Pick Your car to /,
+    )
+    await expect(ways).not.toContainText('Rental car')
+})
+
 test('goes back a stage and continues where it left off', async ({ page }) => {
     await answerBasics(page)
     await bookFlightsAndStay(page)

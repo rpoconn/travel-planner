@@ -60,7 +60,7 @@ sequenceDiagram
         T->>T: write the answer or pick to the plan
         loop drive: snapshot → evaluate → act
             T->>E: next action?
-            alt AdvanceStage
+            alt AdvanceStage / ReturnToStage
                 T->>T: set the stage, store a divider
             else RunSearch
                 T->>S: search (flights / hotels / places / transfer rules)
@@ -123,7 +123,8 @@ Notes:
 ## 3. What each stage asks
 
 The first rule that fires wins. A later stage first re-asks any basics it depends on (no
-flight search without dates).
+flight search without dates), then goes back to any earlier stage whose checklist has an
+issue again (section 6).
 
 | Stage | Asks, in order |
 |---|---|
@@ -131,7 +132,7 @@ flight search without dates).
 | Flights | flight preferences → pick a flight out → pick a flight home (priced as the round trip); or **Skip flights** |
 | Lodging | lodging preferences → for each run of nights without a stay: pick a place to stay |
 | Activities | interests (1–5) → pick activities (at least one); the scheduler puts them in free time |
-| Transfers | for each gap between two places: pick a way to get there (taxi, train, shuttle…) |
+| Transfers | for each gap between two places: pick a way to get there (taxi, train, shuttle…). Leaving home on a trip without flights, **Your car** comes first; once the trip has a car (your own, or a rental picked up after landing), it comes first for every later gap until a flight leaves it behind, priced as fuel and parking, and no second rental is offered |
 | Review | nothing: the trip is complete; blocking issues from earlier stages are listed |
 
 Preferences (cabin, stops, hotel class, interests…) are stored on the plan, not as items.
@@ -172,6 +173,13 @@ Each candidate carries the plan changes picking it makes (`add_flight`, `add_lod
   flights." divider marks it in the transcript.
 - **Back** and the stepper's earlier steps go back a stage; later steps are locked. Going
   back keeps what was planned, and the engine picks up where it left off.
+- A stage can only be left once its checklist is empty, so an issue in an earlier stage can
+  only come from a later change: a stay deleted from the item sheet at the ground stage
+  leaves nights uncovered. The engine then **goes back by itself** to the earliest such
+  stage, with a "Back to lodging: the trip still needs a place to stay the night of May 2."
+  divider, and asks that stage's question. Basics are the exception: a missing basic is
+  re-asked in place, whatever the stage. When the change happened outside a turn (the item
+  sheet), the stage bar shows **Back to Lodging** and the next turn does it.
 - **Skip flights** marks the flights stage skipped and moves on to lodging.
 - The issues flyout at the end of the stepper lists blocking issues and timeline warnings,
   each with **Go to** the stage that fixes it.

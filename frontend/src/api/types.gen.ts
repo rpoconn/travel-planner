@@ -1400,6 +1400,8 @@ export type PlanAssessment = {
     } & RunSearch) | ({
         type: 'advance_stage';
     } & AdvanceStage) | ({
+        type: 'return_to_stage';
+    } & ReturnToStage) | ({
         type: 'complete';
     } & Complete);
     /**
@@ -1718,6 +1720,26 @@ export type RegisterRequest = {
      * Display Name
      */
     display_name?: string;
+};
+
+/**
+ * ReturnToStage
+ *
+ * A stage before the current one has a blocking issue again (an item was removed or
+ * changed since it was finished), so the plan goes back to fix it. The turn pipeline acts
+ * on this at once; a client only sees it after an edit outside a turn, and then offers to
+ * go back.
+ */
+export type ReturnToStage = {
+    /**
+     * Type
+     */
+    type?: 'return_to_stage';
+    to: PlanStage;
+    /**
+     * Reason
+     */
+    reason: string;
 };
 
 /**
@@ -2084,7 +2106,7 @@ export type TransferItem = {
     /**
      * Mode
      */
-    mode: 'car_rental' | 'car_service' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
+    mode: 'car_rental' | 'car_service' | 'own_car' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
     from_place: Place;
     to_place: Place;
     /**
@@ -2158,7 +2180,7 @@ export type TransferItemCreate = {
     /**
      * Mode
      */
-    mode: 'car_rental' | 'car_service' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
+    mode: 'car_rental' | 'car_service' | 'own_car' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro';
     from_place: Place;
     to_place: Place;
     /**
@@ -2217,7 +2239,7 @@ export type TransferItemPatch = {
     /**
      * Mode
      */
-    mode?: 'car_rental' | 'car_service' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro' | null;
+    mode?: 'car_rental' | 'car_service' | 'own_car' | 'taxi' | 'rideshare' | 'train' | 'bus' | 'ferry' | 'shuttle' | 'walk' | 'metro' | null;
     from_place?: Place | null;
     to_place?: Place | null;
     /**

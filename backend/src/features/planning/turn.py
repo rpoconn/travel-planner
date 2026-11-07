@@ -14,8 +14,9 @@ A turn starts from one trigger:
   With `refresh` ("More options"), the pending choices' search runs again first, leaving
   out everything it has already offered; the new offer replaces the old one.
 
-Then `_drive` loops `{snapshot → assessment → act}`: it advances finished stages, runs
-searches, and stops at the next form, the next choices, or the end of the trip. Every
+Then `_drive` loops `{snapshot → assessment → act}`: it advances finished stages, goes back
+to an earlier stage whose checklist has an issue again, runs searches, and stops at the
+next form, the next choices, or the end of the trip. Every
 stored message is streamed as a `PlanningMessageEvent`; the turn ends with `done` carrying
 the plan and its assessment (or `error`).
 """
@@ -62,6 +63,7 @@ from features.planning.schemas import (
     Complete,
     OfferChoice,
     PickRecord,
+    ReturnToStage,
     RunSearch,
     StageRecord,
     TravelPlan,
@@ -334,14 +336,22 @@ async def _free_text(
 # ---------------------------------------------------------------------------
 
 
-async def _advance(
-    ctx: TurnContext, plan: TravelPlan, stage: PlanStage, flights_skipped: bool
+async def _move(
+    ctx: TurnContext, plan: TravelPlan, stage: PlanStage, flights_skipped: bool, text: str
 ) -> AsyncIterator[PlanningEvent]:
+    """Put the plan at `stage` (already checked by `apply_stage_change`) with a divider."""
     await plans_service.set_stage(ctx.session, ctx.user_id, ctx.plan_id, stage, flights_skipped)
-    text = f"{STAGE_LABELS[plan.stage].capitalize()} done. Next up: {STAGE_LABELS[stage]}."
     record = StageRecord(from_stage=plan.stage, to_stage=stage)
     yield await _store(ctx, "system", text, kind=MessageKind.STAGE, payload=record)
     yield PlanningPlanEvent(plan=await _snapshot(ctx))
+
+
+def _advance_text(plan: TravelPlan, stage: PlanStage) -> str:
+    return f"{STAGE_LABELS[plan.stage].capitalize()} done. Next up: {STAGE_LABELS[stage]}."
+
+
+def _return_text(action: ReturnToStage) -> str:
+    return f"Back to {STAGE_LABELS[action.to]}: the trip still needs {action.reason}."
 
 
 def _search_context(ctx: TurnContext, exclude: frozenset[str] = frozenset()) -> SearchContext:
@@ -423,7 +433,19 @@ async def _drive(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
                     # rather than loop.
                     logger.exception("Plan %s could not advance from %s", plan.id, plan.stage)
                     return
-                async for event in _advance(ctx, plan, stage, skipped):
+                async for event in _move(ctx, plan, stage, skipped, _advance_text(plan, stage)):
+                    yield event
+            case ReturnToStage():
+                # An earlier stage's checklist has an issue again (a stay was removed, a
+                # flight moved): go back the way the stepper does, and say why.
+                change = StageChange(action="go_to", stage=action.to)
+                try:
+                    stage, skipped = apply_stage_change(plan, change)
+                except StageError:
+                    # The engine only returns to an earlier stage, so this is a bug too.
+                    logger.exception("Plan %s could not return to %s", plan.id, action.to)
+                    return
+                async for event in _move(ctx, plan, stage, skipped, _return_text(action)):
                     yield event
             case AskInput() | OfferChoice():
                 # Shown once: a retry or a reload must not repeat the same question.

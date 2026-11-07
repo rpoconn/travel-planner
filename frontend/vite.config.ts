@@ -19,6 +19,12 @@ export default defineConfig({
             '@': fileURLToPath(new URL('./src', import.meta.url)),
         },
     },
+    // The backend's CORS_ORIGINS allows only this origin. Without strictPort, Vite moves to
+    // 5174+ when 5173 is busy, and every API call then fails its preflight with a 400.
+    server: {
+        port: 5173,
+        strictPort: true,
+    },
     test: {
         globals: true,
         environment: 'jsdom',

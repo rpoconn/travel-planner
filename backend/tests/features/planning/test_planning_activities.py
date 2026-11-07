@@ -24,8 +24,8 @@ from tests.features.planning.planning_http import (
     create_plan,
     done,
     messages,
-    move_to,
     post,
+    reach,
     say,
     stored,
 )
@@ -45,9 +45,10 @@ async def _at(
     stage: PlanStage,
     **fields: JsonValue,
 ) -> str:
-    """A Lisbon trip, May 1-8 2027 for two, from Philadelphia, at `stage`."""
+    """A Lisbon trip, May 1-8 2027 for two, from Philadelphia, at `stage` (past flights:
+    without flying, every night at a friend's flat)."""
     plan_id = await create_plan(client, headers, **{**BASICS, **fields})
-    await move_to(app, plan_id, stage)
+    await reach(app, client, headers, plan_id, stage)
     return plan_id
 
 
@@ -230,24 +231,29 @@ async def test_ground_asks_for_each_gap_in_turn_then_completes(
         await answer(client, headers, plan_id, "activity_preferences", MUSEUMS_AND_FOOD)
     )
     events = await _pick(client, headers, plan_id, offer, "1")
-    # Home → the museum → home: two gaps.
-    first = _choices(events)
-    assert first.prompt == "How do you want to get there?"
-    assert first.gap is not None and first.gap.to_place.name == "Example Art Museum"
-
-    events = await _pick(client, headers, plan_id, first, "1")
-
-    second = _choices(events)
-    assert second.offer_id != first.offer_id
-    assert second.gap is not None and second.gap.from_place.name == "Example Art Museum"
-
-    events = await _pick(client, headers, plan_id, second, "1")
+    # The museum lands on the first morning, before check-in, so the trip is home → the
+    # museum → the flat → home: three gaps, asked in trip order, each with its own offer.
+    legs: list[tuple[str, str]] = []
+    offers: set[str] = set()
+    for _ in range(3):
+        choice = _choices(events)
+        assert choice.prompt == "How do you want to get there?"
+        assert choice.gap is not None
+        assert str(choice.offer_id) not in offers
+        offers.add(str(choice.offer_id))
+        legs.append((choice.gap.from_place.name, choice.gap.to_place.name))
+        events = await _pick(client, headers, plan_id, choice, "1")
+    assert legs == [
+        ("Philadelphia", "Example Art Museum"),
+        ("Example Art Museum", "Friend's flat"),
+        ("Friend's flat", "Philadelphia"),
+    ]
 
     assert stored(events)[-1] == ("stage", "Ground transport done. Next up: review.")
     plan = done(events).plan
     assert plan.stage == "review"
     assert plan.assessment.next_action.type == "complete"
-    out, back = _transfers(events)
+    out, back, _ = _transfers(events)
     museum = _activities(events)[0]
     # The ride out arrives as the museum opens its doors; the ride back leaves as it ends.
     assert out.end == museum.start
