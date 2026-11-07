@@ -295,10 +295,15 @@ Carried over from the planning flow, plus a few for writes:
 
 ## 10. Phases
 
+Progress: phase 0 done; phases 1-4 not started.
+
 Each phase lands green (`ruff`, `mypy`, `pytest`, frontend `lint` / `typecheck` / `test`),
 with a check-in after each.
 
 **Phase 0: the engine walks back to a broken stage** (independent; useful on its own)
+**Done** (commit b998156, 2026-11-07). The stage bar shows a "Back to <stage>" button for
+the new action instead of a plain "Continue", and the planning test fixtures reach later
+stages legitimately through a shared `reach` helper.
 
 - `planning/schemas.py`: `ReturnToStage` in `NextAction`.
 - `planning/engine.py`: the earlier-stage rule in `next_action`; `evaluate` unchanged.
