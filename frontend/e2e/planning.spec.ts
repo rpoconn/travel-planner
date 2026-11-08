@@ -231,6 +231,26 @@ test('plans a whole trip, home to home, with forms and picks', async ({ page }) 
     await expect(page.getByRole('button', { name: /things? to check/ })).toHaveCount(0)
 })
 
+test('removes the hotel by typing, and goes back to lodging to find another', async ({ page }) => {
+    await answerBasics(page)
+    await bookFlightsAndStay(page)
+    await expect(question(page, 'What do you like to do?')).toBeVisible()
+    await sendChatMessage(page, 'museums and food')
+    const todo = page.getByRole('region', { name: "Pick the things you'd like to do." })
+    await todo.getByRole('button', { name: 'Add Example Art Museum' }).click()
+    await todo.getByRole('button', { name: 'Add 1 pick' }).click()
+    await expect(page.getByRole('region', { name: 'How do you want to get there?' })).toBeVisible()
+
+    // An edit while the transfer choices are pending: the words are the approval.
+    await sendChatMessage(page, 'remove the hotel')
+
+    await expect(page.getByRole('region', { name: 'Trip updated' })).toContainText('Removed “')
+    // Every night is uncovered again, so the planner walks back to lodging and, with the
+    // preferences already answered, searches for another place at once.
+    await expect(page.getByRole('separator', { name: /^Back to lodging: / })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Pick a place to stay.' })).toBeVisible()
+})
+
 test('drives the own car on a trip without flights', async ({ page }) => {
     await answerBasics(page)
     await page.getByRole('button', { name: 'Skip flights' }).click()

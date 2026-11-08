@@ -184,6 +184,7 @@ export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
                                     role={message.role}
                                     kind={message.kind}
                                     content={message.content}
+                                    payload={message.payload}
                                 />
                             ))}
                             {turn?.pendingText && (

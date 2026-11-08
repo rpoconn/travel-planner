@@ -58,11 +58,13 @@ describe('visibleMessages with choices', () => {
 describe('composerPlaceholder', () => {
     it('repeats the pending question', () => {
         expect(composerPlaceholder(ASK_DATES)).toBe(
-            'When are you going? Type it here, or use the form.',
+            'When are you going? Answer here or in the form, or ask for a change.',
         )
         expect(composerPlaceholder(OFFER_FLIGHTS_OUT)).toBe(
-            'Pick one above, or say which ("the second one").',
+            'Pick one above, say which ("the second one"), or ask for a change.',
         )
-        expect(composerPlaceholder({ type: 'complete' })).toBe('Ask anything about your trip…')
+        expect(composerPlaceholder({ type: 'complete' })).toBe(
+            'Ask about your trip, or ask for a change…',
+        )
     })
 })

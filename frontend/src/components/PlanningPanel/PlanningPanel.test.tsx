@@ -82,7 +82,32 @@ describe('PlanningPanel', () => {
         expect(screen.getAllByText('When are you going?')).toHaveLength(1)
         expect(screen.getByRole('textbox', { name: 'Message' })).toHaveAttribute(
             'placeholder',
-            'When are you going? Type it here, or use the form.',
+            'When are you going? Answer here or in the form, or ask for a change.',
+        )
+    })
+
+    it('shows what a typed edit changed as a list card', async () => {
+        mockTranscript([
+            planningMessage({ id: 'm5', role: 'user', content: 'remove the hotel' }),
+            planningMessage({
+                id: 'm6',
+                kind: 'changes',
+                content: 'Removed “Riverside Hotel”.',
+                payload: {
+                    type: 'changes',
+                    applied: [
+                        { name: 'remove_item', summary: 'Removed “Riverside Hotel”', item_id: 'a' },
+                    ],
+                    rejected: [],
+                    clarification: null,
+                },
+            }),
+        ])
+
+        renderPanel(planAsking(ASK_DATES))
+
+        expect(await screen.findByRole('region', { name: 'Trip updated' })).toHaveTextContent(
+            'Removed “Riverside Hotel”',
         )
     })
 
@@ -152,7 +177,7 @@ describe('PlanningPanel', () => {
         expect(screen.getAllByText('Pick your flight out.')).toHaveLength(1)
         expect(screen.getByRole('textbox', { name: 'Message' })).toHaveAttribute(
             'placeholder',
-            'Pick one above, or say which ("the second one").',
+            'Pick one above, say which ("the second one"), or ask for a change.',
         )
         await user.click(within(choices).getByRole('button', { name: 'Pick Example Air EX 102' }))
 

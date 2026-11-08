@@ -47,9 +47,14 @@ export function visibleMessages(
 
 // ----- composer -----
 
-/** The composer's hint: the pending question or choices, since typing an answer works too. */
+/**
+ * The composer's hint: the pending question or choices, since typing an answer works too,
+ * and that typed edits ("remove the hotel") work in every state.
+ */
 export function composerPlaceholder(action: NextAction): string {
-    if (action.type === 'ask_input') return `${action.prompt} Type it here, or use the form.`
-    if (action.type === 'offer_choice') return 'Pick one above, or say which ("the second one").'
-    return 'Ask anything about your trip…'
+    if (action.type === 'ask_input')
+        return `${action.prompt} Answer here or in the form, or ask for a change.`
+    if (action.type === 'offer_choice')
+        return 'Pick one above, say which ("the second one"), or ask for a change.'
+    return 'Ask about your trip, or ask for a change…'
 }

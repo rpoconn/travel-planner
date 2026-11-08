@@ -60,6 +60,44 @@ describe('MessageBubble', () => {
         ).toBeInTheDocument()
     })
 
+    it('renders what a typed edit changed as a list card', () => {
+        render(
+            <MessageBubble
+                role="assistant"
+                kind="changes"
+                content="Removed “Riverside Hotel”."
+                payload={{
+                    type: 'changes',
+                    applied: [
+                        { name: 'remove_item', summary: 'Removed “Riverside Hotel”', item_id: 'a' },
+                    ],
+                    rejected: [],
+                    clarification: null,
+                }}
+            />,
+        )
+
+        expect(screen.getByRole('region', { name: 'Trip updated' })).toHaveTextContent(
+            'Removed “Riverside Hotel”',
+        )
+    })
+
+    it('renders a question asking which item was meant as a plain reply', () => {
+        render(
+            <MessageBubble
+                role="assistant"
+                kind="changes"
+                content="Which one: the flat or the dinner?"
+                payload={{ type: 'changes', applied: [], rejected: [], clarification: 'x' }}
+            />,
+        )
+
+        expect(screen.queryByRole('region')).not.toBeInTheDocument()
+        expect(
+            screen.getByText('Which one: the flat or the dinner?').closest('[data-role]'),
+        ).toHaveAttribute('data-role', 'assistant')
+    })
+
     it('renders stored errors as a notice', () => {
         const { container } = render(
             <MessageBubble role="system" kind="error" content="The model is unavailable." />,

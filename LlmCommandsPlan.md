@@ -295,7 +295,7 @@ Carried over from the planning flow, plus a few for writes:
 
 ## 10. Phases
 
-Progress: phases 0, 1 and 2 done; phases 3 and 4 not started.
+Progress: phases 0, 1, 2 and 3 done; phase 4 not started.
 
 Each phase lands green (`ruff`, `mypy`, `pytest`, frontend `lint` / `typecheck` / `test`),
 with a check-in after each.
@@ -397,6 +397,24 @@ stages legitimately through a shared `reach` helper.
   `test_commands_eval.py` (`live_llm`) with ten or so edit phrasings per command.
 
 **Phase 3: UI**
+**Done** (2026-11-08). How it landed, where it differs from the sketch above:
+
+- No SDK regen was needed: phase 2 already regenerated it, and `npm run gen` left it
+  unchanged.
+- The card is `components/ChangesCard/` from the start, with `ChangesCardService`
+  (`listsChanges`, `changesTitle`). `MessageBubble` takes the message's `payload` and
+  shows the card for a `changes` message that lists changes. One that only asks which
+  item was meant (`clarification`, nothing applied or rejected) reads as a plain reply.
+- The card is titled "Trip updated", or "Nothing changed" when the rules turned
+  everything down. Each line has a check mark, or a cross and the reason under it.
+- Composer hints: "<question> Answer here or in the form, or ask for a change.", "Pick
+  one above, say which (…), or ask for a change.", and "Ask about your trip, or ask for a
+  change…".
+- E2E: the trip goes through to ground transport, and "remove the hotel" is typed while
+  the transfer choices are pending. The test expects the "Trip updated" card, the "Back
+  to lodging: …" divider and the "Pick a place to stay." list. The lodging preferences
+  are already answered, so the search runs again at once.
+- Styled like the rest of the UI (shadcn and Tailwind), not Mantine.
 
 - SDK regen; `MessageBubble` `changes` card (own folder if it grows: `ChangesCard/`);
   `composerPlaceholder`; `PlanningPanelService` tests.

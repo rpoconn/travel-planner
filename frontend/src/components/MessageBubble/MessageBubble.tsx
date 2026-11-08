@@ -1,13 +1,15 @@
 import { CircleAlert, Compass, Flag } from 'lucide-react'
 
 import type { PlanningMessage } from '@/api/types.gen'
+import { ChangesCard } from '@/components/ChangesCard/ChangesCard'
+import { listsChanges } from '@/components/ChangesCard/ChangesCardService'
 import { TypingDots } from '@/components/TypingDots/TypingDots'
 
 // One transcript entry. Renders stored messages and the live, streaming reply the same way:
 // user bubbles on the right (free text, form answers and picks), assistant replies on the
 // left (a planner question, `expected_input` / `choices`, reads as one too), nudges back to
-// the pending question as a soft hint card, a stage move as a divider, and failures as an
-// error notice.
+// the pending question as a soft hint card, a stage move as a divider, what a typed edit
+// changed as a list card, and failures as an error notice.
 
 // ----- types -----
 
@@ -15,11 +17,19 @@ interface MessageBubbleProps {
     role: PlanningMessage['role']
     kind: PlanningMessage['kind']
     content: string
+    /** The stored payload; a `changes` message lists its changes from it. */
+    payload?: PlanningMessage['payload']
     /** The reply is still arriving: shows a typing indicator / caret. */
     streaming?: boolean
 }
 
-export function MessageBubble({ role, kind, content, streaming = false }: MessageBubbleProps) {
+export function MessageBubble({
+    role,
+    kind,
+    content,
+    payload = null,
+    streaming = false,
+}: MessageBubbleProps) {
     // ----- markup -----
     if (role === 'user') {
         return (
@@ -60,6 +70,11 @@ export function MessageBubble({ role, kind, content, streaming = false }: Messag
                 <p className="whitespace-pre-wrap">{content}</p>
             </div>
         )
+    }
+
+    // A `changes` message that only asks which item was meant falls through to a plain reply.
+    if (kind === 'changes' && payload?.type === 'changes' && listsChanges(payload)) {
+        return <ChangesCard record={payload} />
     }
 
     if (kind === 'nudge') {
