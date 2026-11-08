@@ -359,6 +359,27 @@ class ChangeStage(_Command):
 
 Command = Annotated[RemoveItem | UpdateItem | SetBasics | ChangeStage, Field(discriminator="type")]
 
+CommandStatus = Literal["command", "ambiguous", "question", "unrelated"]
+
+
+class CommandReply(BaseModel):
+    """The command reader's reply (`extractor.read_commands`). Every command is checked
+    against the plan afterwards; this only fixes the shape."""
+
+    status: CommandStatus = Field(
+        description=(
+            "command: the message asks to change the trip; ambiguous: it does, but which "
+            "item or what change isn't clear; question: it asks something instead; "
+            "unrelated: anything else"
+        )
+    )
+    commands: list[Command] = Field(
+        default_factory=list, description="command only: the changes, in the order to make them"
+    )
+    clarification: str | None = Field(
+        default=None, description="ambiguous only: one short question asking which"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Transcript payloads: the structured content a planning message carries, so the
@@ -424,6 +445,9 @@ class ChangesRecord(BaseModel):
     type: Literal["changes"] = "changes"
     applied: list[AppliedChange] = Field(default_factory=list)
     rejected: list[RejectedChange] = Field(default_factory=list)
+    # Set instead when the words could mean more than one change: the question asked back.
+    # The user's reply is read together with it (`turn._free_text`).
+    clarification: str | None = None
 
 
 # kind "expected_input" → AskInput, "choices" → OfferChoice, "input" → AnswerRecord,

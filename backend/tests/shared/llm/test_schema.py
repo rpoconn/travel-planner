@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, JsonValue
 
@@ -82,6 +82,31 @@ def test_drops_size_limits_but_keeps_shape_hints() -> None:
         assert not _has_key(schema, keyword), keyword
     # `pattern` and `format` tell the model what a string looks like, so they stay.
     assert at(schema, "properties", "origin", "properties", "iata", "pattern") == "^[A-Z]{3}$"
+
+
+class _Cat(BaseModel):
+    kind: Literal["cat"] = "cat"
+    lives: int
+
+
+class _Dog(BaseModel):
+    kind: Literal["dog"] = "dog"
+
+
+class _Pets(BaseModel):
+    pets: list[Annotated[_Cat | _Dog, Field(discriminator="kind")]]
+
+
+def test_a_tagged_union_is_a_plain_any_of_whose_tag_is_required() -> None:
+    items = obj(inline_schema(_Pets), "properties", "pets", "items")
+
+    assert not _has_key(items, "oneOf") and not _has_key(items, "discriminator")
+    branches = at(items, "anyOf")
+    assert isinstance(branches, list)
+    cat, dog = branches
+    assert at(cat, "properties", "kind", "const") == "cat"
+    assert at(cat, "required") == ["kind", "lives"]
+    assert at(dog, "required") == ["kind"]
 
 
 def test_keeps_date_time_format() -> None:

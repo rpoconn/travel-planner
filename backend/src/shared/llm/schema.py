@@ -98,12 +98,42 @@ def _simplify(node: JsonValue, *, in_properties: bool = False) -> JsonValue:
     return node
 
 
+def _tagged_union(node: JsonObject) -> JsonObject:
+    """A Pydantic discriminated union (`oneOf` + `discriminator`) as a plain `anyOf`, which
+    every structured-output backend takes (Claude's doesn't take `oneOf`). The tag still
+    tells the branches apart: each branch requires its `const` field (`_require_consts`)."""
+    rest = {key: value for key, value in node.items() if key not in ("oneOf", "discriminator")}
+    return {**rest, "anyOf": node["oneOf"]}
+
+
+def _require_consts(node: JsonObject) -> JsonObject:
+    """Mark every `const` property required. A const has one possible value, so asking for
+    it costs nothing, and a tagged union's reply can't be read without its tag (Pydantic
+    renders the tag with a default, so it isn't required on its own)."""
+    properties = node.get("properties")
+    if not isinstance(properties, dict):
+        return node
+    consts = [
+        name for name, field in properties.items() if isinstance(field, dict) and "const" in field
+    ]
+    required = node.get("required")
+    listed = required if isinstance(required, list) else []
+    have = [name for name in listed if isinstance(name, str)]
+    missing = [name for name in consts if name not in have]
+    if not missing:
+        return node
+    return {**node, "required": [*missing, *have]}
+
+
 def _simplify_object(node: JsonObject, *, in_properties: bool) -> JsonObject:
     if in_properties:
         # Keys here are field names, not keywords; a field may be called "format".
         return {key: _simplify(value) for key, value in node.items()}
+    if "oneOf" in node:
+        node = _tagged_union(node)
     if "anyOf" in node:
         node = _collapse_any_of(node)
+    node = _require_consts(node)
     return {
         key: _simplify(value, in_properties=key == "properties")
         for key, value in node.items()

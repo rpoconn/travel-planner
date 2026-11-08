@@ -5,15 +5,32 @@ from datetime import date
 
 from pydantic import JsonValue
 
-from features.planning.extractor import PICK_SCHEMA, extraction_schema
-from features.planning.offline import OFFLINE_ANSWER, extract_reply, pick_reply, planning_reply
-from features.planning.prompts import question_messages
+from features.planning.extractor import COMMAND_SCHEMA, PICK_SCHEMA, extraction_schema
+from features.planning.offline import (
+    OFFLINE_ANSWER,
+    command_reply,
+    extract_reply,
+    pick_reply,
+    planning_reply,
+)
+from features.planning.prompts import command_messages, question_messages
 from features.plans.schemas import SlotName
 from shared.llm.fake import FakeRequest
 from shared.llm.types import LLMMessage
-from tests.features.plans.builders import snapshot
+from tests.features.plans.builders import complete_trip, snapshot
+from tests.json_path import json_object
 
 TODAY = date(2026, 10, 15)
+
+
+def _command_prompt(cancelled: int | None = None) -> str:
+    """The command reader's system prompt for the full Tokyo trip, whose items are
+    1 transfer, 2 flight, 3 transfer, 4 lodging "Hotel Okura", 5 activity "Hotel dinner"..."""
+    items = complete_trip()
+    if cancelled is not None:
+        items[cancelled - 1] = items[cancelled - 1].model_copy(update={"status": "cancelled"})
+    plan = snapshot(items)
+    return command_messages("", plan, plan.items, TODAY)[0].content
 
 
 def _request(slot: SlotName, content: str) -> FakeRequest:
@@ -78,3 +95,62 @@ def test_a_pick_request_is_recognised_by_its_schema() -> None:
     reply = planning_reply(FakeRequest(messages, [], PICK_SCHEMA, streamed=False, think=False))
 
     assert reply is not None and '"3"' in reply.content
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+def test_remove_finds_the_item_in_the_numbered_list() -> None:
+    prompt = _command_prompt()
+
+    assert command_reply("Remove the hotel.", prompt) == {
+        "status": "command",
+        "commands": [{"type": "remove_item", "item": 4}],
+    }
+    assert command_reply("remove the dinner", prompt)["commands"] == [
+        {"type": "remove_item", "item": 5}
+    ]
+
+
+def test_a_removed_item_is_not_found_again() -> None:
+    reply = command_reply("remove the hotel", _command_prompt(cancelled=4))
+
+    assert reply == {"status": "unrelated", "commands": []}
+
+
+def test_stage_phrases() -> None:
+    prompt = _command_prompt()
+
+    assert command_reply("go back to lodging", prompt)["commands"] == [
+        {"type": "change_stage", "action": "go_to", "stage": "lodging"}
+    ]
+    assert command_reply("go back to ground transport", prompt)["commands"] == [
+        {"type": "change_stage", "action": "go_to", "stage": "ground"}
+    ]
+    assert command_reply("Go back", prompt)["commands"] == [
+        {"type": "change_stage", "action": "back"}
+    ]
+    assert command_reply("skip flights", prompt)["commands"] == [
+        {"type": "change_stage", "action": "skip_flights"}
+    ]
+
+
+def test_the_command_request_is_recognised_by_its_schema() -> None:
+    messages = [
+        LLMMessage(role="system", content=_command_prompt()),
+        LLMMessage(role="user", content="remove the hotel"),
+    ]
+
+    reply = planning_reply(FakeRequest(messages, [], COMMAND_SCHEMA, streamed=False))
+
+    assert json_object(reply.content)["commands"] == [{"type": "remove_item", "item": 4}]
+
+
+def test_both_readers_hand_an_edit_on() -> None:
+    edit = [LLMMessage(role="user", content="remove the hotel")]
+
+    for schema in (extraction_schema(SlotName.DATES), PICK_SCHEMA):
+        reply = planning_reply(FakeRequest(edit, [], schema, streamed=False))
+        assert json_object(reply.content) == {"status": "command"}

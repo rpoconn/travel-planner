@@ -281,7 +281,11 @@ async def test_with_nothing_to_answer_text_is_a_question_and_nothing_runs(
     # The search fails, so a search (Retry) is what's pending.
     fake_flights.queue(FlightSearchError("Flight search is down"))
     await answer(client, headers, plan_id, "flight_preferences", {"cabin": "economy"})
-    fake_llm.queue(text("Mornings are usually quieter."))
+    # With nothing pending the command reader reads the text first: not an edit.
+    fake_llm.queue(
+        json_reply({"status": "question", "commands": []}),
+        text("Mornings are usually quieter."),
+    )
 
     events = await say(client, headers, plan_id, "When do flights leave?")
 

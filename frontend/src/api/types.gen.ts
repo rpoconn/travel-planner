@@ -399,6 +399,10 @@ export type ChangesRecord = {
      * Rejected
      */
     rejected: Array<RejectedChange>;
+    /**
+     * Clarification
+     */
+    clarification: string | null;
 };
 
 /**

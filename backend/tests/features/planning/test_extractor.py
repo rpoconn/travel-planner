@@ -54,8 +54,8 @@ async def test_the_request_is_schema_bound_and_does_not_think() -> None:
     assert extraction.answer == Travelers(adults=2)
 
 
-@pytest.mark.parametrize("status", ["question", "unrelated"])
-async def test_a_question_or_unrelated_text_has_no_value(status: str) -> None:
+@pytest.mark.parametrize("status", ["command", "question", "unrelated"])
+async def test_an_edit_a_question_or_unrelated_text_has_no_value(status: str) -> None:
     llm = FakeLLM([json_reply({"status": status, "value": None})])
 
     extraction = await _extract(llm)
@@ -117,7 +117,12 @@ def test_the_schema_wraps_the_slots_value_model() -> None:
     schema = extraction_schema(SlotName.DATES)
 
     assert schema["required"] == ["status"]
-    assert at(schema, "properties", "status", "enum") == ["answered", "question", "unrelated"]
+    assert at(schema, "properties", "status", "enum") == [
+        "answered",
+        "command",
+        "question",
+        "unrelated",
+    ]
     dates = obj(schema, "properties", "value", "properties", "dates")
     assert at(dates, "properties", "start") == {"format": "date", "type": "string"}
 

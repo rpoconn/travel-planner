@@ -295,7 +295,7 @@ Carried over from the planning flow, plus a few for writes:
 
 ## 10. Phases
 
-Progress: phases 0 and 1 done; phases 2-4 not started.
+Progress: phases 0, 1 and 2 done; phases 3 and 4 not started.
 
 Each phase lands green (`ruff`, `mypy`, `pytest`, frontend `lint` / `typecheck` / `test`),
 with a check-in after each.
@@ -347,6 +347,45 @@ stages legitimately through a shared `reach` helper.
   then move), all-or-nothing, each command's write, summaries.
 
 **Phase 2: reading commands from text**
+**Done** (2026-11-08). How it landed, where it differs from the sketch above:
+
+- The command reader is `extractor.read_commands`, not `commands.read`, so every model
+  output is still read in one module and `commands.py` stays free of model calls. Its
+  reply model `CommandReply` lives in `planning/schemas.py`. It takes the prompt messages
+  (`prompts.command_messages`, or `prompts.repair_messages` for the repair pass) and
+  returns a `CommandReading`. The repair prompt is the first prompt plus the reader's
+  reply and the reasons the rules gave.
+- The command union is a Pydantic discriminated union, which renders as `oneOf` with a
+  `discriminator`. Claude's structured outputs don't take `oneOf`, and the tag has a
+  default, so it wasn't required. `shared.llm.schema.inline_schema` now turns `oneOf`
+  into `anyOf` and marks every `const` property as required.
+- With nothing pending, `question` and `unrelated` both go to the streamed answer, as
+  before (it already turns down off-topic text). The fixed "I can only change the trip"
+  reply wasn't needed.
+- Follow-ups to `ambiguous`: the question asked back is stored as a `changes` message
+  with a new `ChangesRecord.clarification` field (spec and SDK regenerated). The next
+  text goes to the command reader first, with the request and the question as history,
+  so "the dinner" after "Which one: the flat or the dinner?" works. Text that turns out
+  not to be an edit falls through to the usual readers.
+- Rejections are stored as a `changes` message (rejected list, nothing applied) rather
+  than a `nudge`, and the drive brings the pending form or choices back. When the reader
+  says an edit is `unrelated` (an add, say), the slot's nudge answers it.
+- The phase-1 note is handled: when a turn applies a `change_stage`, `_drive(hold=True)`
+  stops at an immediate `AdvanceStage`, leaving the stage shown with Continue.
+- `summarize_validation_error` drops Pydantic's "Value error, " prefix, since rejection
+  reasons are now shown to people.
+- Offline phrases: "remove the <words>" (the first item whose title has the words not
+  already removed; "the hotel" / "the stay" means the first stay), "go back", "go back to
+  <stage>", "skip flights". "Move dinner to Saturday" was left out, since phase 3's E2E
+  only needs a removal.
+- Tests: `test_command_reader.py` (reader outcomes, schema, prompts),
+  `test_planning_commands.py` (HTTP turns: removal walks back to lodging, go_to holds,
+  form pending, one repair, repair also rejected, an add gets the nudge, ambiguous then
+  follow-up, offline end to end), the extractor and pick status tests, and the offline
+  tests. Eval: four edit cases in `test_extractor_eval.py`, and `test_commands_eval.py`
+  with 26 cases across the vocabulary, ambiguity and non-edits. Both evals share the
+  `llm` fixture, which now lives in the planning `conftest.py`. **The evals were not run
+  in this phase** (they make billed calls).
 
 - `extractor.py`: `command` status on both readers; `commands.read` with its schema and
   attempts; `prompts.command_messages` with the numbered itinerary.

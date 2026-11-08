@@ -4,23 +4,23 @@ tests/features/planning/test_extractor_eval.py -s`. On Claude this makes real, b
 
 Calls `extractor.extract` directly (no DB, no turn) with hand-written messages for the
 slots people most often type instead of using the form: dates, travelers and places. Each
-case says what a good reading is: the right value, or no value at all for a question or
-off-topic text (which must never be read as an answer). A small model's readings vary from
+case says what a good reading is: the right value, no value at all for a question or
+off-topic text (which must never be read as an answer), or "command" for a request to
+change something else in the trip (handed on to the command reader, which
+`test_commands_eval.py` measures). A small model's readings vary from
 run to run, so only the pass rate is asserted; the misses are printed so a regression can
 be read off the output.
 """
 
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from typing import TypedDict
 
-import httpx
 import pytest
 from pydantic import BaseModel
 
-from features.chat.dependencies import create_llm
 from features.planning.extractor import Extraction, extract
 from features.planning.schemas import DatesAnswer, DestinationAnswer, OriginAnswer
 from features.plans.schemas import SlotName
@@ -124,6 +124,13 @@ def no_answer(extraction: Extraction) -> str | None:
     return None
 
 
+def edit(extraction: Extraction) -> str | None:
+    """A request to change something other than what's asked: handed on as a command."""
+    if extraction.status != "command":
+        return f"read as {extraction.status} ({extraction.answer or extraction.error})"
+    return None
+
+
 CASES: tuple[Case, ...] = (
     # Dates (today is Tue 2027-03-09)
     Case(SlotName.DATES, "May 1 to May 8", dates("2027-05-01", "2027-05-08")),
@@ -158,33 +165,17 @@ CASES: tuple[Case, ...] = (
     Case(SlotName.ORIGIN, "flying out of Boston", origin("Boston")),
     Case(SlotName.ORIGIN, "from JFK", origin("JFK", "New York")),
     Case(SlotName.ORIGIN, "Chicago O'Hare", origin("Chicago", "ORD")),
+    # Edits: asked one thing, the message changes another
+    Case(SlotName.TRAVELERS, "actually, change the destination to Porto", edit),
+    Case(SlotName.DATES, "remove the hotel dinner", edit),
+    Case(SlotName.ORIGIN, "change the budget to 5000 dollars", edit),
+    Case(SlotName.DESTINATION, "skip flights, we're driving", edit),
 )
 
 
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-async def llm() -> AsyncIterator[LLMClient]:
-    settings = get_settings()
-    if settings.llm_provider == "fake":
-        pytest.skip("LLM_PROVIDER=fake; the eval needs a real model")
-    if settings.llm_provider == "anthropic" and settings.anthropic_api_key is None:
-        pytest.skip("ANTHROPIC_API_KEY is not set")
-    if settings.llm_provider == "ollama":
-        try:
-            async with httpx.AsyncClient(base_url=settings.ollama_url, timeout=5) as http:
-                response = await http.get("/api/tags")
-        except httpx.HTTPError:
-            pytest.skip(f"Ollama is not reachable at {settings.ollama_url}")
-        names = {model["name"] for model in response.json().get("models", [])}
-        if settings.ollama_model not in names:
-            pytest.skip(f"Model {settings.ollama_model} is not pulled")
-    client = create_llm(settings)
-    yield client
-    await client.aclose()
 
 
 class _MissingFields(TypedDict, total=False):

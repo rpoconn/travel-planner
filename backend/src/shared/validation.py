@@ -14,11 +14,17 @@ def _sent_keys(error: ErrorDetails) -> str:
     return f" (sent keys: {', '.join(str(key) for key in value)})"
 
 
+def _message(error: ErrorDetails) -> str:
+    # Pydantic puts "Value error, " before a validator's own message; it reads as noise to
+    # people (who see command rejections) and adds nothing for the model.
+    return error["msg"].removeprefix("Value error, ")
+
+
 def summarize_validation_error(exc: ValidationError) -> str:
-    """One line per error, e.g. `end: Value error, end must be at or after start`."""
+    """One line per error, e.g. `end: end must be at or after start`."""
     return "; ".join(
-        f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}{_sent_keys(error)}"
+        f"{'.'.join(str(part) for part in error['loc'])}: {_message(error)}{_sent_keys(error)}"
         if error["loc"]
-        else error["msg"]
+        else _message(error)
         for error in exc.errors()
     )

@@ -7,9 +7,12 @@ A turn starts from one trigger:
 - `Pick`: candidates picked from the open offer (checked by the router). Picking is the
   approval: their changes are validated and written (`planning.picks`).
 - `Text`: free text from the composer. With an input pending, the extractor reads it as
-  that slot's answer, and with choices pending as a pick ("the second one"); anything else
-  gets the slot's fixed nudge, or a short answer when it is a question. With nothing
-  pending it is a question about the trip.
+  that slot's answer, and with choices pending as a pick ("the second one"). Either can
+  say it is an edit instead ("remove the Friday dinner"): the command reader turns it into
+  commands, which are checked against the plan's rules and written all or nothing
+  (`planning.commands`); rules they break go back to the reader once, to repair. With
+  nothing pending the command reader reads it first. Anything else gets the slot's fixed
+  nudge, or a short answer when it is a question.
 - `Continue`: no input; just drive (the "Find flights" / "Retry" / "Continue" button).
   With `refresh` ("More options"), the pending choices' search runs again first, leaving
   out everything it has already offered; the new offer replaces the old one.
@@ -32,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.chat import service as chat_service
 from features.chat.schemas import MessageKind, MessageRole
+from features.chat.tools import ToolContext
 from features.planning import offers
 from features.planning import service as planning_service
 from features.planning.answers import (
@@ -41,6 +45,7 @@ from features.planning.answers import (
     describe_answer,
     skip_slot,
 )
+from features.planning.commands import check_and_apply, describe_changes, numbered_items
 from features.planning.engine import refresh_search
 from features.planning.events import (
     PlanningDoneEvent,
@@ -52,14 +57,21 @@ from features.planning.events import (
     PlanningStatusEvent,
     PlanningTokenEvent,
 )
-from features.planning.extractor import extract, extract_pick
+from features.planning.extractor import (
+    CommandReading,
+    ExtractionStatus,
+    extract,
+    extract_pick,
+    read_commands,
+)
 from features.planning.picks import PickContext, PickError, apply_pick, describe_pick
-from features.planning.prompts import question_messages
+from features.planning.prompts import command_messages, question_messages, repair_messages
 from features.planning.schemas import (
     AdvanceStage,
     AnswerRecord,
     AskInput,
     Candidate,
+    ChangesRecord,
     Complete,
     OfferChoice,
     PickRecord,
@@ -81,7 +93,7 @@ from features.plans.schemas import PlanSnapshot, PlanStage, SlotName, StageChang
 from features.plans.stages import STAGE_LABELS, StageError, apply_stage_change
 from shared.flights.types import FlightProvider
 from shared.hotels.types import HotelProvider
-from shared.llm.types import LLMClient, LLMError
+from shared.llm.types import LLMClient, LLMError, LLMMessage
 from shared.places.types import PlaceProvider
 
 logger = logging.getLogger(__name__)
@@ -149,6 +161,9 @@ class _Outcome:
     """What free text led to: whether the engine should drive on afterwards."""
 
     drive: bool = False
+    # A command moved the stage back. Going back to a finished stage leaves the engine
+    # ready to advance again at once, so the drive stops there instead of undoing it.
+    hold: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -276,14 +291,140 @@ async def _answer_question(
     yield await _store(ctx, "assistant", reply.strip() or EMPTY_ANSWER)
 
 
+# ---------------------------------------------------------------------------
+# Edits: free text read as commands
+# ---------------------------------------------------------------------------
+
+
+async def _clarified(ctx: TurnContext) -> list[LLMMessage]:
+    """The request and the clarification the latest text answers, when the planner's last
+    message asked which change was meant ("Which dinner: Friday's or Saturday's?"); empty
+    otherwise. Read together with the answer, they make one request."""
+    # Oldest first: the request, the clarification, then the text this turn stored.
+    rows = await chat_service.recent_messages(ctx.session, ctx.plan_id, limit=3)
+    if len(rows) < 3:
+        return []
+    request, asked = rows[0], rows[1]
+    if request.role != "user" or asked.kind != MessageKind.CHANGES or asked.payload is None:
+        return []
+    if ChangesRecord.model_validate(asked.payload).clarification is None:
+        return []
+    return [
+        LLMMessage(role="user", content=request.content),
+        LLMMessage(role="assistant", content=asked.content),
+    ]
+
+
+@dataclass(frozen=True)
+class _Reading:
+    """A command reading and the prompt it came from (a repair pass extends the prompt)."""
+
+    reading: CommandReading
+    messages: list[LLMMessage]
+
+    @property
+    def is_edit(self) -> bool:
+        return self.reading.status in ("command", "ambiguous")
+
+
+async def _read(
+    ctx: TurnContext,
+    plan: TravelPlan,
+    content: str,
+    pending: str | None,
+    history: list[LLMMessage] | None = None,
+) -> _Reading:
+    items = numbered_items(plan)
+    messages = command_messages(
+        content, plan, items, ctx.today, pending=pending, history=history or []
+    )
+    return _Reading(await read_commands(ctx.llm, messages), messages)
+
+
+async def _ask_which(ctx: TurnContext, clarification: str) -> PlanningMessageEvent:
+    """Ask back which change was meant. Nothing is written; the reply is read with it."""
+    record = ChangesRecord(clarification=clarification)
+    return await _store(ctx, "assistant", clarification, kind=MessageKind.CHANGES, payload=record)
+
+
+async def _edit(
+    ctx: TurnContext, plan: TravelPlan, read: _Reading, outcome: _Outcome
+) -> AsyncIterator[PlanningEvent]:
+    """Check and write an edit reading's commands. When a rule turns them down, the reader
+    gets the reasons and one more try; when that doesn't help, the reasons are stored and
+    nothing is written. Either way the engine drives on afterwards, so the pending form or
+    choices come back, or a stage the change broke is returned to."""
+    reading = read.reading
+    if reading.clarification is not None:
+        yield await _ask_which(ctx, reading.clarification)
+        return
+    tool_ctx = ToolContext(
+        session=ctx.session, user_id=ctx.user_id, plan_id=ctx.plan_id, today=ctx.today
+    )
+    record = await check_and_apply(tool_ctx, plan, reading.commands)
+    if record.rejected and not record.applied and reading.reply is not None:
+        # Nothing was written, so the repair is checked against the same plan.
+        repair = await read_commands(
+            ctx.llm, repair_messages(read.messages, reading.reply, record.rejected)
+        )
+        if repair.clarification is not None:
+            yield await _ask_which(ctx, repair.clarification)
+            return
+        if repair.status == "command":
+            record = await check_and_apply(tool_ctx, plan, repair.commands)
+    content = describe_changes(record)
+    yield await _store(ctx, "assistant", content, kind=MessageKind.CHANGES, payload=record)
+    if record.applied:
+        yield PlanningPlanEvent(plan=await _snapshot(ctx))
+        outcome.hold = any(change.name == "change_stage" for change in record.applied)
+    outcome.drive = True
+
+
+async def _not_an_answer(
+    ctx: TurnContext,
+    plan: TravelPlan,
+    content: str,
+    action: AskInput | OfferChoice,
+    status: ExtractionStatus,
+    outcome: _Outcome,
+) -> AsyncIterator[PlanningEvent]:
+    """Text that doesn't answer the pending form or choices: an edit, a question, or
+    anything else (the slot's nudge)."""
+    spec = SLOTS[action.slot]
+    if status == "command":
+        read = await _read(ctx, plan, content, action.prompt)
+        if read.is_edit:
+            async for event in _edit(ctx, plan, read, outcome):
+                yield event
+            return
+        status = "question" if read.reading.status == "question" else "unrelated"
+    if status == "question":
+        async for event in _answer_question(ctx, plan, content, spec):
+            yield event
+        outcome.drive = True  # asks again
+    else:
+        # The nudge already repeats the question, so the form isn't asked again.
+        yield await _store(ctx, "assistant", spec.nudge, kind=MessageKind.NUDGE)
+
+
 async def _free_text(
     ctx: TurnContext, content: str, outcome: _Outcome
 ) -> AsyncIterator[PlanningEvent]:
     plan = await _snapshot(ctx)
     action = plan.assessment.next_action
+    pending = action.prompt if isinstance(action, AskInput | OfferChoice) else None
+
+    history = await _clarified(ctx)
+    if history:
+        # The planner just asked which change was meant; this is most likely the answer.
+        read = await _read(ctx, plan, content, pending, history)
+        if read.is_edit:
+            async for event in _edit(ctx, plan, read, outcome):
+                yield event
+            return
+        # Not about the change after all: read it as any other text.
 
     if isinstance(action, AskInput):
-        spec = SLOTS[action.slot]
         extraction = await extract(ctx.llm, action.slot, content, plan, ctx.today)
         if extraction.answer is not None:
             got = f"Got it: {describe_answer(extraction.answer)}."
@@ -295,17 +436,14 @@ async def _free_text(
             note = f"That doesn't work: {extraction.error}."
             yield await _store(ctx, "assistant", note, kind=MessageKind.NUDGE)
             outcome.drive = True  # asks again
-        elif extraction.status == "question":
-            async for event in _answer_question(ctx, plan, content, spec):
-                yield event
-            outcome.drive = True  # asks again
         else:
-            # The nudge already repeats the question, so the form isn't asked again.
-            yield await _store(ctx, "assistant", spec.nudge, kind=MessageKind.NUDGE)
+            async for event in _not_an_answer(
+                ctx, plan, content, action, extraction.status, outcome
+            ):
+                yield event
         return
 
     if isinstance(action, OfferChoice):
-        spec = SLOTS[action.slot]
         pick = await extract_pick(ctx.llm, action, content, plan)
         if pick.candidates is not None:
             got = f"Got it: {describe_pick(pick.candidates)}."
@@ -317,16 +455,19 @@ async def _free_text(
             note = f"That doesn't work: {pick.error}."
             yield await _store(ctx, "assistant", note, kind=MessageKind.NUDGE)
             outcome.drive = True  # shows the choices again
-        elif pick.status == "question":
-            async for event in _answer_question(ctx, plan, content, spec):
-                yield event
-            outcome.drive = True
         else:
-            yield await _store(ctx, "assistant", spec.nudge, kind=MessageKind.NUDGE)
+            async for event in _not_an_answer(ctx, plan, content, action, pick.status, outcome):
+                yield event
         return
 
-    # Nothing to answer (a search to run, a stage to continue, or the trip is done). Not
-    # driving afterwards keeps a question from setting off a paid search.
+    # Nothing to answer (a search to run, a stage to continue, or the trip is done): an
+    # edit, or else a question. Not driving after a question keeps it from setting off a
+    # paid search; an edit drives, since the plan the search was for has changed.
+    read = await _read(ctx, plan, content, None)
+    if read.is_edit:
+        async for event in _edit(ctx, plan, read, outcome):
+            yield event
+        return
     async for event in _answer_question(ctx, plan, content, None):
         yield event
 
@@ -418,12 +559,17 @@ async def _more_options(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
     await _open(ctx, plan, action, candidates)
 
 
-async def _drive(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
+async def _drive(ctx: TurnContext, *, hold: bool = False) -> AsyncIterator[PlanningEvent]:
+    """Act on the engine's next action until it needs the user. With `hold` (the stage was
+    just moved back on purpose), an advance as the first action is left for the user's
+    Continue rather than taken at once."""
     searched = False
-    for _ in range(MAX_DRIVE_STEPS):
+    for step in range(MAX_DRIVE_STEPS):
         plan = await _snapshot(ctx)
         action = plan.assessment.next_action
         match action:
+            case AdvanceStage() if hold and step == 0:
+                return
             case AdvanceStage():
                 try:
                     # The single transition rule, as the Next button used to apply it.
@@ -478,7 +624,7 @@ async def _drive(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
 async def run_turn(ctx: TurnContext, trigger: Trigger) -> AsyncIterator[PlanningEvent]:
     """Handle one trigger for a plan whose ownership the caller has checked."""
     try:
-        drive = True
+        drive, hold = True, False
         match trigger:
             case Answer():
                 async for event in _form_answer(ctx, trigger):
@@ -494,14 +640,14 @@ async def run_turn(ctx: TurnContext, trigger: Trigger) -> AsyncIterator[Planning
                 outcome = _Outcome()
                 async for event in _free_text(ctx, trigger.content, outcome):
                     yield event
-                drive = outcome.drive
+                drive, hold = outcome.drive, outcome.hold
             case Continue(refresh=True):
                 async for event in _more_options(ctx):
                     yield event
             case Continue():
                 pass
         if drive:
-            async for event in _drive(ctx):
+            async for event in _drive(ctx, hold=hold):
                 yield event
         yield PlanningDoneEvent(plan=await _snapshot(ctx))
 

@@ -2454,13 +2454,25 @@
             },
             "type": "array",
             "title": "Rejected"
+          },
+          "clarification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clarification"
           }
         },
         "type": "object",
         "required": [
           "type",
           "applied",
-          "rejected"
+          "rejected",
+          "clarification"
         ],
         "title": "ChangesRecord",
         "description": "What a message's commands did (message kind \"changes\"). Commands are written all or\nnothing, so `rejected` is empty when anything was applied, unless the plan changed\nbetween the check and the write."

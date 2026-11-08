@@ -84,8 +84,8 @@ async def test_a_read_pick_the_offer_does_not_allow_is_explained() -> None:
     assert (pick.status, pick.candidates, pick.error) == ("answered", None, "Pick 1 option")
 
 
-@pytest.mark.parametrize("status", ["question", "unrelated"])
-async def test_a_question_or_unrelated_text_picks_nothing(status: str) -> None:
+@pytest.mark.parametrize("status", ["command", "question", "unrelated"])
+async def test_an_edit_a_question_or_unrelated_text_picks_nothing(status: str) -> None:
     llm = FakeLLM([json_reply({"status": status, "candidate_ids": []})])
 
     pick = await extract_pick(llm, _offer(), "hm", snapshot())

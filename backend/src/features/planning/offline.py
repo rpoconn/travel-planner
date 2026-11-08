@@ -7,16 +7,23 @@ Playwright suite), so free text works with no model.
   else is unrelated.
 - Pick requests (`extractor.PICK_SCHEMA`) read "the first one", "the second one"... as
   that option's id; the ids are positions ("1", "2"), as the searches number them.
+- Either reader says "command" for an edit phrase: "remove the <words>", "go back",
+  "go back to <stage>", "skip flights". The command reader (`extractor.COMMAND_SCHEMA`)
+  then turns it into a command, finding the item in the numbered itinerary its prompt
+  shows: the first one not removed whose title has the words ("the hotel" or "the stay"
+  is the first stay).
 - Question requests (`prompts.QA_INTRO`), and anything else, get a fixed answer; a
   structured request for an unknown schema is "unrelated", which fails closed to a nudge.
 """
 
+import re
 from datetime import date, timedelta
 
 from pydantic import JsonValue
 
 from features.planning.slots import SLOTS
-from features.plans.schemas import SlotName
+from features.plans.schemas import PlanStage, SlotName
+from features.plans.stages import STAGE_LABELS
 from shared.llm.fake import FakeRequest, json_reply, text
 from shared.llm.types import LLMMessage
 
@@ -137,13 +144,91 @@ def _is_pick_schema(schema: dict[str, JsonValue]) -> bool:
     return set(_properties(schema)) == {"status", "candidate_ids"}
 
 
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+# A line of the numbered itinerary (`prompts.item_line`): number, type, title, and whether
+# it was removed.
+_ITEM_LINE = re.compile(r"^(\d+)\. (\w+) “(.*?)”.*?( \| removed)?$", re.MULTILINE)
+_STAY_WORDS = ("hotel", "stay")
+
+
+def _phrase(content: str) -> str:
+    return content.strip().rstrip(".!").casefold()
+
+
+def is_edit(content: str) -> bool:
+    """Whether the readers hand `content` on as a command."""
+    phrase = _phrase(content)
+    return phrase.startswith(("remove ", "go back")) or phrase == "skip flights"
+
+
+def _item_number(words: str, prompt: str) -> int | None:
+    """The first item in the prompt's list, not removed, that `words` names."""
+    for number, kind, title, removed in _ITEM_LINE.findall(prompt):
+        if removed:
+            continue
+        # "the hotel" means a stay, not the "Hotel dinner".
+        names = kind == "lodging" if words in _STAY_WORDS else words in title.casefold()
+        if names:
+            return int(number)
+    return None
+
+
+def _stage(name: str) -> PlanStage | None:
+    return next((stage for stage in PlanStage if name in (stage.value, STAGE_LABELS[stage])), None)
+
+
+def _command(phrase: str, prompt: str) -> dict[str, JsonValue] | None:
+    if phrase == "skip flights":
+        return {"type": "change_stage", "action": "skip_flights"}
+    if phrase == "go back":
+        return {"type": "change_stage", "action": "back"}
+    if phrase.startswith("go back to "):
+        stage = _stage(phrase.removeprefix("go back to ").removeprefix("the "))
+        if stage is None:
+            return None
+        return {"type": "change_stage", "action": "go_to", "stage": stage.value}
+    if phrase.startswith("remove "):
+        number = _item_number(phrase.removeprefix("remove ").removeprefix("the "), prompt)
+        return None if number is None else {"type": "remove_item", "item": number}
+    return None
+
+
+def command_reply(content: str, prompt: str) -> dict[str, JsonValue]:
+    """The command reader's reply to `content`, given the system `prompt` it was sent."""
+    command = _command(_phrase(content), prompt)
+    if command is not None:
+        return {"status": "command", "commands": [command]}
+    if content.strip().endswith("?"):
+        return {"status": "question", "commands": []}
+    return {"status": "unrelated", "commands": []}
+
+
+def _is_command_schema(schema: dict[str, JsonValue]) -> bool:
+    return set(_properties(schema)) == {"status", "commands", "clarification"}
+
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+
 def planning_reply(request: FakeRequest) -> LLMMessage:
     """The fake's reply to any request the app makes (`FakeLLM`'s offline fallback)."""
+    content = _latest_user_text(request)
+    if request.format is not None and _is_command_schema(request.format):
+        prompt = request.messages[0].content if request.messages else ""
+        return json_reply(command_reply(content, prompt))
+    if request.format is not None and is_edit(content):
+        # Both readers have a "command" status; neither gives a value with it.
+        return json_reply({"status": "command"})
     if request.format is not None and _is_pick_schema(request.format):
-        return json_reply(pick_reply(_latest_user_text(request)))
+        return json_reply(pick_reply(content))
     if request.format is not None:
         slot = _slot_for_schema(request.format)
         if slot is None:
             return json_reply({"status": "unrelated", "value": None})
-        return json_reply(extract_reply(slot, _latest_user_text(request), date.today()))
+        return json_reply(extract_reply(slot, content, date.today()))
     return text(OFFLINE_ANSWER)
