@@ -24,7 +24,7 @@ export function AuthCard({ title, description, children, footer }: AuthCardProps
             <Card className="w-full max-w-sm">
                 <CardHeader>
                     <CardTitle>
-                        <h1 className="font-heading text-2xl font-normal">{title}</h1>
+                        <h1 className="font-heading text-2xl">{title}</h1>
                     </CardTitle>
                     <CardDescription>{description}</CardDescription>
                 </CardHeader>
