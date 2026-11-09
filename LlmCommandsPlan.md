@@ -295,7 +295,7 @@ Carried over from the planning flow, plus a few for writes:
 
 ## 10. Phases
 
-Progress: phases 0, 1, 2 and 3 done; phase 4 not started.
+Progress: every phase (0 to 4) done.
 
 Each phase lands green (`ruff`, `mypy`, `pytest`, frontend `lint` / `typecheck` / `test`),
 with a check-in after each.
@@ -422,6 +422,43 @@ stages legitimately through a shared `reach` helper.
   expect the changes card, the "Back to lodging" divider and the lodging choices.
 
 **Phase 4: phase-2 vocabulary and docs**
+**Done** (2026-11-09). How it landed, where it differs from the sketch above:
+
+- `set_preferences` takes one of `flights` / `lodging` / `activities` as an edit model
+  whose fields are all optional (`FlightPreferenceEdits`, ...). The fields given go over
+  the stored preferences and the result is checked by the stored model, so "under 150 a
+  night" keeps the hotel class. Interests are the whole new list. A command can't send
+  null (`inline_schema` drops it), so stops are words (`nonstop`, `up_to_1`, `up_to_2`,
+  `any`). It writes with `plans_service.update_preferences`, not `answers.apply_answer`,
+  so a picked flight out keeps its search token and the flights home still pair with it.
+  Two in one message build on each other.
+- `redo_search` takes `search: flights | lodging | activities`, not a slot, and **has no
+  `hint`**: preferences already carry what steers a search, and the model never writes
+  search text. It writes nothing. It is accepted only when that stage's search is the
+  one behind the pending choices (`engine.refresh_search`); the turn then runs it as
+  **More options** does (`turn._refresh`, shared with `POST /continue`), leaving out what
+  was already offered. Dismissing the offer first, as sketched, would have searched again
+  for the same list, and lost the choices when nothing new turned up. With a preference
+  change in the same message the version has moved on, so nothing is left out, and the
+  drive doesn't search a second time.
+- A `redo_search` for a stage that's done is turned down with "No places to stay are
+  being offered right now; to find a different one, remove it", which the repair pass
+  can act on.
+- The command prompt shows the stored preferences (without the flight token), and the
+  edit description the other readers use mentions preferences and other options.
+- Offline phrases: "show me other <hotels / flights / things to do / options>" (options:
+  the current stage's) and "make the hotel <class>".
+- No UI change was needed: the changes card shows any summary. The SDK regen changed
+  only `AppliedChange.name`'s values.
+- Docs: README "Planning flow" (the command reader, offline edits) and Userflow.md
+  (intro, sections 1, 2 and 4, with the command table and the command turn diagram).
+- Tests: `test_commands.py` (merging, the kept token, stops as words, stacking, form
+  rules, vocabulary, redo accepted and turned down), `test_planning_commands.py` (other
+  options lists new stays, a new preference searches again, both search once, a done
+  stage is turned down, offline), the reader and offline tests, and eight new cases in
+  `test_commands_eval.py` (cases can now name the pending question). **The eval was not
+  run** (billed calls).
+
 
 - `set_preferences`, `redo_search` (dismiss the slot's open offer; `offers.close_offer
   (..., "dismissed")` exists).

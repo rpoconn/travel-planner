@@ -2241,7 +2241,9 @@
               "remove_item",
               "update_item",
               "set_basics",
-              "change_stage"
+              "set_preferences",
+              "change_stage",
+              "redo_search"
             ],
             "title": "Name"
           },

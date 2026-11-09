@@ -10,9 +10,10 @@ A turn starts from one trigger:
   that slot's answer, and with choices pending as a pick ("the second one"). Either can
   say it is an edit instead ("remove the Friday dinner"): the command reader turns it into
   commands, which are checked against the plan's rules and written all or nothing
-  (`planning.commands`); rules they break go back to the reader once, to repair. With
-  nothing pending the command reader reads it first. Anything else gets the slot's fixed
-  nudge, or a short answer when it is a question.
+  (`planning.commands`); rules they break go back to the reader once, to repair. An edit
+  asking for other options than the choices on show runs their search again, as "More
+  options" does. With nothing pending the command reader reads it first. Anything else
+  gets the slot's fixed nudge, or a short answer when it is a question.
 - `Continue`: no input; just drive (the "Find flights" / "Retry" / "Continue" button).
   With `refresh` ("More options"), the pending choices' search runs again first, leaving
   out everything it has already offered; the new offer replaces the old one.
@@ -164,6 +165,8 @@ class _Outcome:
     # A command moved the stage back. Going back to a finished stage leaves the engine
     # ready to advance again at once, so the drive stops there instead of undoing it.
     hold: bool = False
+    # A command asked for other options: the pending choices' search runs again first.
+    refresh: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +379,9 @@ async def _edit(
     yield await _store(ctx, "assistant", content, kind=MessageKind.CHANGES, payload=record)
     if record.applied:
         yield PlanningPlanEvent(plan=await _snapshot(ctx))
-        outcome.hold = any(change.name == "change_stage" for change in record.applied)
+        names = {change.name for change in record.applied}
+        outcome.hold = "change_stage" in names
+        outcome.refresh = "redo_search" in names
     outcome.drive = True
 
 
@@ -536,14 +541,14 @@ async def _search(
     await _open(ctx, plan, action, candidates)
 
 
-async def _more_options(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
+async def _refresh(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
     """Search again for the pending choices, leaving out every candidate already offered
-    for that search, and replace the offer with what's new. When nothing new turns up (or
-    the search fails) the current choices stay open, with a note saying why."""
-    yield await _store(ctx, "user", MORE_OPTIONS_TEXT)
+    for that search since the plan last changed, and replace the offer with what's new.
+    When nothing new turns up (or the search fails) the current choices stay open, with a
+    note saying why."""
     plan = await _snapshot(ctx)
     action = refresh_search(plan)
-    if action is None:  # the router checked; the plan moved on since
+    if action is None:  # checked by the router or the command; the plan moved on since
         return
     yield PlanningStatusEvent(text=f"{action.label}…")
     key = query_hash(plan, action)
@@ -559,11 +564,13 @@ async def _more_options(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
     await _open(ctx, plan, action, candidates)
 
 
-async def _drive(ctx: TurnContext, *, hold: bool = False) -> AsyncIterator[PlanningEvent]:
+async def _drive(
+    ctx: TurnContext, *, hold: bool = False, searched: bool = False
+) -> AsyncIterator[PlanningEvent]:
     """Act on the engine's next action until it needs the user. With `hold` (the stage was
     just moved back on purpose), an advance as the first action is left for the user's
-    Continue rather than taken at once."""
-    searched = False
+    Continue rather than taken at once. With `searched` (the turn already ran a search),
+    a search left to run waits for the user's Retry rather than running again."""
     for step in range(MAX_DRIVE_STEPS):
         plan = await _snapshot(ctx)
         action = plan.assessment.next_action
@@ -624,7 +631,7 @@ async def _drive(ctx: TurnContext, *, hold: bool = False) -> AsyncIterator[Plann
 async def run_turn(ctx: TurnContext, trigger: Trigger) -> AsyncIterator[PlanningEvent]:
     """Handle one trigger for a plan whose ownership the caller has checked."""
     try:
-        drive, hold = True, False
+        drive, hold, searched = True, False, False
         match trigger:
             case Answer():
                 async for event in _form_answer(ctx, trigger):
@@ -641,13 +648,19 @@ async def run_turn(ctx: TurnContext, trigger: Trigger) -> AsyncIterator[Planning
                 async for event in _free_text(ctx, trigger.content, outcome):
                     yield event
                 drive, hold = outcome.drive, outcome.hold
+                if outcome.refresh:
+                    async for event in _refresh(ctx):
+                        yield event
+                    searched = True
             case Continue(refresh=True):
-                async for event in _more_options(ctx):
+                yield await _store(ctx, "user", MORE_OPTIONS_TEXT)
+                async for event in _refresh(ctx):
                     yield event
+                searched = True
             case Continue():
                 pass
         if drive:
-            async for event in _drive(ctx, hold=hold):
+            async for event in _drive(ctx, hold=hold, searched=searched):
                 yield event
         yield PlanningDoneEvent(plan=await _snapshot(ctx))
 

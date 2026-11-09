@@ -3,7 +3,8 @@ selects: `uv run pytest -m live_llm tests/features/planning/test_commands_eval.p
 Claude this makes real, billed API calls.
 
 Calls `extractor.read_commands` directly (no DB, no turn, no rules) on the Tokyo trip at
-the review stage, whose itinerary is numbered:
+the review stage, with economy flights, a midrange hotel and food as the stored search
+preferences, and whose itinerary is numbered:
 
     1 transfer "Narita Express" (home to SFO)    5 activity "Hotel dinner" (Sun 18:00-19:00)
     2 flight "SFO → NRT" (outbound)              6 transfer "Narita Express" (to NRT)
@@ -12,8 +13,9 @@ the review stage, whose itinerary is numbered:
 
 Each case says what a good reading is: the right command, a question back when the words
 fit more than one item, or no commands at all for a question, off-topic text or an add
-(adds come from searches). As in the extractor eval, only the pass rate is asserted and
-the misses are printed.
+(adds come from searches). A case can name the question the planner is waiting on, for
+asking for other options than the choices on show. As in the extractor eval, only the pass
+rate is asserted and the misses are printed.
 """
 
 import logging
@@ -27,8 +29,23 @@ import pytest
 
 from features.planning.extractor import CommandReading, read_commands
 from features.planning.prompts import command_messages
-from features.planning.schemas import ChangeStage, Command, RemoveItem, SetBasics, UpdateItem
-from features.plans.schemas import PlanStage
+from features.planning.schemas import (
+    ChangeStage,
+    Command,
+    RedoSearch,
+    RemoveItem,
+    SearchName,
+    SetBasics,
+    SetPreferences,
+    UpdateItem,
+)
+from features.plans.schemas import (
+    ActivityPreferences,
+    FlightPreferences,
+    LodgingPreferences,
+    PlanPreferences,
+    PlanStage,
+)
 from shared.config import get_settings
 from shared.llm.types import LLMClient
 from tests.features.plans.builders import complete_trip, snapshot
@@ -56,6 +73,7 @@ Check = Callable[[CommandReading], str | None]
 class Case:
     text: str
     check: Check
+    pending: str | None = None  # the question the planner is waiting on, if any
 
 
 def _only(reading: CommandReading) -> Command | str:
@@ -134,6 +152,28 @@ def stage(action: Literal["back", "go_to", "skip_flights"], to: PlanStage | None
     return check
 
 
+def prefers(test: Callable[[SetPreferences], bool], what: str) -> Check:
+    def check(reading: CommandReading) -> str | None:
+        command = _only(reading)
+        if isinstance(command, str):
+            return command
+        if not isinstance(command, SetPreferences) or not test(command):
+            return f"wanted {what}, read {command}"
+        return None
+
+    return check
+
+
+def searches(search: SearchName) -> Check:
+    def check(reading: CommandReading) -> str | None:
+        command = _only(reading)
+        if isinstance(command, str):
+            return command
+        return None if command == RedoSearch(search=search) else f"read {command}"
+
+    return check
+
+
 def asks_which(reading: CommandReading) -> str | None:
     if reading.status != "ambiguous":
         return f"read as {reading.status}: {reading.commands}"
@@ -194,6 +234,42 @@ CASES: tuple[Case, ...] = (
             "May 2-5",
         ),
     ),
+    # Preferences
+    Case(
+        "we'd rather fly business",
+        prefers(lambda c: c.flights is not None and c.flights.cabin == "business", "business"),
+    ),
+    Case(
+        "nonstop flights only",
+        prefers(lambda c: c.flights is not None and c.flights.max_stops == "nonstop", "nonstop"),
+    ),
+    Case(
+        "keep hotels under 150 dollars a night",
+        prefers(
+            lambda c: (
+                c.lodging is not None
+                and c.lodging.nightly_budget is not None
+                and c.lodging.nightly_budget.amount == Decimal(150)
+            ),
+            "150 a night",
+        ),
+    ),
+    Case(
+        "we're into museums too",
+        prefers(
+            lambda c: (
+                c.activities is not None and set(c.activities.interests or []) == {"food", "museum"}
+            ),
+            "food and museum",
+        ),
+    ),
+    # Other options than the ones on show
+    Case("show me some other hotels", searches("lodging"), pending="Pick a place to stay."),
+    Case(
+        "none of these work, find me other flights",
+        searches("flights"),
+        pending="Pick your flight home.",
+    ),
     # Stages
     Case("go back to lodging", stage("go_to", PlanStage.LODGING)),
     Case("let's redo the flights stage", stage("go_to", PlanStage.FLIGHTS)),
@@ -214,11 +290,18 @@ CASES: tuple[Case, ...] = (
 # ---------------------------------------------------------------------------
 
 
+PREFERENCES = PlanPreferences(
+    flights=FlightPreferences(),
+    lodging=LodgingPreferences(hotel_class="midrange"),
+    activities=ActivityPreferences(interests=["food"]),
+)
+
+
 async def test_command_reader_reads_edit_requests(llm: LLMClient) -> None:
-    plan = snapshot(complete_trip(), stage=PlanStage.REVIEW)
+    plan = snapshot(complete_trip(), stage=PlanStage.REVIEW, preferences=PREFERENCES)
     misses: list[str] = []
     for case in CASES:
-        messages = command_messages(case.text, plan, plan.items, TODAY)
+        messages = command_messages(case.text, plan, plan.items, TODAY, pending=case.pending)
         problem = case.check(await read_commands(llm, messages))
         if problem is not None:
             misses.append(f"{case.text!r}: {problem}")

@@ -4,8 +4,8 @@ How a trip gets planned, from the user's point of view, and every rule that deci
 happens next. The short version: the **rules engine** reads the plan and says what to ask
 next; the user answers a form or picks from a list; picking **is** the approval, so the pick
 is checked and written straight away; and a finished stage moves on by itself. The model
-never decides anything. It only reads free text into the question being asked, and answers
-short questions.
+never decides anything. It only reads free text into the question being asked, turns an edit
+request into typed commands that the rules then check, and answers short questions.
 
 - [1. The big picture (sequence)](#1-the-big-picture-sequence)
 - [2. One turn (flowchart)](#2-one-turn-flowchart)
@@ -21,6 +21,7 @@ Source of truth: [engine.py](backend/src/features/planning/engine.py),
 [router.py](backend/src/features/planning/router.py),
 [extractor.py](backend/src/features/planning/extractor.py),
 [picks.py](backend/src/features/planning/picks.py),
+[commands.py](backend/src/features/planning/commands.py),
 [searches.py](backend/src/features/planning/searches.py),
 [tools.py](backend/src/features/chat/tools.py),
 [planningTurn.ts](frontend/src/lib/planningTurn.ts),
@@ -32,8 +33,9 @@ Source of truth: [engine.py](backend/src/features/planning/engine.py),
 
 Every turn is one POST that streams server-sent events. A form answer or a pick
 (`POST /plans/{id}/planning/inputs`) never reaches the model. Free text
-(`POST /plans/{id}/planning/chat`) reaches it once, as an extractor with a fixed JSON
-schema, or as a short answer to a question.
+(`POST /plans/{id}/planning/chat`) reaches it as an extractor with a fixed JSON schema;
+when that says the text is an edit, the command reader turns it into commands (once more to
+repair them if they break a rule). A question gets a short streamed answer.
 
 ```mermaid
 sequenceDiagram
@@ -56,8 +58,12 @@ sequenceDiagram
         opt free text
             T->>M: extract into the slot's schema (format=…, think=False)
             M-->>T: {status, value}
+            opt status = command (or nothing pending)
+                T->>M: read commands (numbered itinerary, closed command list)
+                M-->>T: {status, commands}
+            end
         end
-        T->>T: write the answer or pick to the plan
+        T->>T: write the answer, pick or commands to the plan
         loop drive: snapshot → evaluate → act
             T->>E: next action?
             alt AdvanceStage / ReturnToStage
@@ -95,13 +101,25 @@ flowchart TD
     FS -- question --> QA[Short streamed answer, ask again]
     FS -- unrelated / malformed twice --> N3[The slot's fixed nudge]
     F -- choices --> PX[Pick extractor: 'the second one'] --> P
-    F -- nothing --> QA2[Short streamed answer, no drive]
+    PX -- command --> CR
+    FS -- command --> CR[Command reader]
+    F -- nothing --> CR
+    CR -- question, nothing pending --> QA2[Short streamed answer, no drive]
+    CR -- ambiguous --> AW[Ask which item, nothing written]
+    CR -- commands --> CK[Check every command,<br/>earlier ones staged]
+    CK -- one breaks a rule --> CR2{repair left?}
+    CR2 -- yes --> CR
+    CR2 -- no --> CN[Store the reasons, nothing written]
+    CK -- all fit --> CW[Write them all, store 'changes']
     B -- continue --> DR
     D --> DR[Drive the engine]
     W --> DR
     N2 --> DR
     QA --> DR
+    CN --> DR
+    CW --> DR
     DR --> DONE[done]
+    AW --> DONE
     N3 --> DONE
     N1 --> DONE
     QA2 --> DONE
@@ -146,12 +164,72 @@ The composer always works. What it does depends on what is pending:
 |---|---|---|
 | A form | the slot's value (extractor) | answered: stored as "Got it: …" and written; invalid: a nudge saying why; a question: a short answer, then the form again; anything else: the slot's fixed nudge |
 | Choices | a pick ("the second one") | as for a form, but the answer is a pick |
-| Nothing (a search to run, the trip done) | a question about the trip | a short answer; nothing else runs, so a question never sets off a paid search |
+| Nothing (a search to run, the trip done) | an edit, or else a question about the trip | an edit as below; a question gets a short answer and nothing else runs, so it never sets off a paid search |
+| Any of the above | an edit: remove, move or rename an item, change the basics or the search preferences, other options, go back, skip flights | the command reader turns it into commands; written all or nothing, shown as a "Trip updated" card, then the engine drives on from the changed plan |
 
 The extractor asks for one small schema (`{status, value}`), with `think=False` and two
 attempts. Malformed JSON twice counts as unrelated, so the user gets the deterministic
-nudge rather than a guess. Nothing else reads model output, and the answer to a question is
-shown and stored but never parsed.
+nudge rather than a guess. The answer to a question is shown and stored but never parsed.
+
+### Edits
+
+When the extractor or the pick reader says the text is an edit (or nothing is pending), the
+**command reader** reads it against the itinerary, numbered one item per line, and replies
+with commands from a closed list ([schemas.py](backend/src/features/planning/schemas.py)):
+
+| Command | Does | Checked by |
+|---|---|---|
+| `remove_item` | cancels an item (kept, struck through, can come back) | route, overnight, timezone and budget rules (`chat/tools.py`) |
+| `update_item` | changes an item's title, times, notes or status; never its cost, places or airports | the same rules |
+| `set_basics` | changes the dates, travelers, destination, origin or budget | the basics form's rules ("can't start in the past") |
+| `set_preferences` | changes only the fields given of the flight, lodging or activity preferences | the preferences form's rules (1–5 interests) |
+| `change_stage` | goes back a stage, to an earlier stage, or skips flights | the stepper's rules |
+| `redo_search` | other options than the choices on show, as **More options** | only while that stage's choices are pending |
+
+There is no command to add an item: flights, stays and activities come from searches, so
+"add a museum" is at most a change to the activity interests, and the user picks from what
+the search finds. Up to five commands per message; when the words could mean more than one
+item, the reader asks which instead of guessing, and the reply is read together with the
+question.
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant T as turn._free_text
+    participant X as extractor / pick reader
+    participant C as command reader (LLM)
+    participant K as commands.check_and_apply
+    participant E as engine (via snapshot)
+
+    U->>T: "remove the hotel and show me other options"
+    opt a form or choices are pending
+        T->>X: read as the answer
+        X-->>T: status = command
+    end
+    T->>C: text, numbered itinerary, preferences, pending question
+    C-->>T: [remove_item(4), ...]
+    T->>K: check every command, earlier ones staged
+    alt a command breaks a rule
+        K-->>T: rejected(reasons)
+        T->>C: again, with the reasons (once)
+        C-->>T: corrected commands, or none
+    end
+    K->>K: write them all (each bumps the plan version)
+    K-->>T: what changed
+    T->>T: store a "changes" message
+    opt redo_search
+        T->>T: search again, leaving out what was offered
+    end
+    T->>E: next action
+    Note over T,E: open offers are stale after any write, so the search runs again
+    T->>T: drive: back to a stage the change broke, then ask / search / show choices
+    T-->>U: done {plan, assessment}
+```
+
+After the write, the turn drives as after any answer: removing the only stay at review
+goes back to lodging with a divider ("Back to lodging: the trip still needs a place to stay
+…"), a new preference searches the pending choices again, and going back to a finished
+stage waits there with Continue rather than moving straight on.
 
 ## 5. Picking
 

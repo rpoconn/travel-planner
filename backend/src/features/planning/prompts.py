@@ -18,8 +18,9 @@ QA_INTRO = "You answer one question from someone planning a trip"
 # What counts as an edit, for the readers that hand edits on to the command reader.
 _EDITS = (
     "remove or move something already in the trip, change its details, change the dates, "
-    "travelers, destination, starting point or budget, go back to an earlier stage, or skip "
-    "flights"
+    "travelers, destination, starting point or budget, change what kind of flights, place to "
+    "stay or things to do they want, see other options than the ones offered, go back to an "
+    "earlier stage, or skip flights"
 )
 
 
@@ -128,6 +129,22 @@ def item_line(number: int, item: ItineraryItem) -> str:
     return " | ".join(parts)
 
 
+def preferences_summary(plan: PlanSnapshot) -> str:
+    """The stored search preferences, one kind per line, in the fields a `set_preferences`
+    command names; empty when none are set."""
+    stored = plan.preferences
+    lines = [
+        f"- {name}: {value.model_dump_json(exclude={'outbound_token'})}"
+        for name, value in (
+            ("flights", stored.flights),
+            ("lodging", stored.lodging),
+            ("activities", stored.activities),
+        )
+        if value is not None
+    ]
+    return "Search preferences:\n" + "\n".join(lines) + "\n" if lines else ""
+
+
 def _stage_name(stage: PlanStage) -> str:
     label = STAGE_LABELS[stage]
     return stage.value if label == stage.value else f"{stage.value} ({label})"
@@ -157,6 +174,7 @@ def command_messages(
         "into commands.\n"
         f"Today is {today:%A} {today.isoformat()}.\n"
         f"The trip so far:\n{trip_summary(plan)}\n"
+        f"{preferences_summary(plan)}"
         f"{asking}"
         f"Stages, in order: {stages}. The plan is at {plan.stage.value}.\n"
         f"{itinerary}\n\n"
@@ -175,6 +193,12 @@ def command_messages(
         "- Item times are local wall-clock times in the item's timezone, like "
         "2027-05-02T19:30. When moving an item, give both start and end, and keep its "
         "length unless told otherwise.\n"
+        "- set_preferences changes what a stage searches for, giving only the fields to "
+        "change (interests: the whole new list). Choices on show for that stage are searched "
+        "for again by themselves.\n"
+        "- redo_search finds other options than the choices the planner is waiting on; use "
+        "it only for those. A stay or activity already in the trip is replaced by removing "
+        "it.\n"
         "- go_to only goes back to an earlier stage; moving forward isn't a command.\n"
         f"- At most {MAX_COMMANDS} commands, and only the changes the message asks for."
     )

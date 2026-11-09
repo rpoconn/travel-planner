@@ -1,8 +1,9 @@
 """Commands: resolving item numbers, checking every command against the plan's rules with
 the earlier ones staged, writing all or nothing, and the summaries the transcript shows.
 
-The plan is the Lisbon trip at the ground stage (`planning_http.reach`): its items, in
-time order, are 1 "Friend's flat" (May 1-8) and 2 "Dinner in" (May 2).
+The plan is the Lisbon trip at the ground stage (`planning_http.reach`), with no search
+preferences: its items, in time order, are 1 "Friend's flat" (May 1-8) and 2 "Dinner in"
+(May 2).
 """
 
 from datetime import date, datetime
@@ -29,7 +30,13 @@ from features.planning.schemas import (
     TravelPlan,
 )
 from features.plans import service as plans_service
-from features.plans.schemas import PlanStage, PlanUpdate
+from features.plans.schemas import (
+    FlightPreferences,
+    LodgingPreferences,
+    PlanPreferences,
+    PlanStage,
+    PlanUpdate,
+)
 from shared.domain import Cost, Money, Place
 from tests.features.planning.planning_http import BASICS, FLAT, LISBON_TZ, create_plan, reach
 
@@ -375,3 +382,159 @@ async def test_an_item_change_and_a_stage_change_go_together(ctx: ToolContext) -
         AppliedChange(name="change_stage", summary="Back to lodging"),
     ]
     assert describe_changes(record) == "Removed “Friend's flat”. Back to lodging."
+
+
+# ---------------------------------------------------------------------------
+# Preferences
+# ---------------------------------------------------------------------------
+
+
+def _prefs(**edits: JsonValue) -> dict[str, JsonValue]:
+    return {"type": "set_preferences", **edits}
+
+
+async def test_new_preferences_are_written(ctx: ToolContext) -> None:
+    version = (await _plan(ctx)).version
+
+    record = await _run(ctx, _prefs(lodging={"hotel_class": "upscale"}))
+
+    assert record.applied == [
+        AppliedChange(name="set_preferences", summary="Lodging preferences: Upscale hotel")
+    ]
+    plan = await _plan(ctx)
+    assert plan.preferences.lodging == LodgingPreferences(hotel_class="upscale")
+    assert plan.version > version
+
+
+async def test_preferences_change_only_the_fields_given(ctx: ToolContext) -> None:
+    await _run(ctx, _prefs(lodging={"hotel_class": "upscale", "neighborhood": "Alfama"}))
+
+    record = await _run(ctx, _prefs(lodging={"nightly_budget": {"amount": 200, "currency": "USD"}}))
+
+    assert [change.summary for change in record.applied] == [
+        "Lodging preferences: Upscale hotel, in Alfama → "
+        "Upscale hotel, up to 200 USD a night, in Alfama"
+    ]
+    lodging = (await _plan(ctx)).preferences.lodging
+    assert lodging is not None and lodging.hotel_class == "upscale"
+
+
+async def test_flight_preferences_keep_the_flight_out_they_pair_with(ctx: ToolContext) -> None:
+    stored = PlanPreferences(flights=FlightPreferences(outbound_token="tok"))
+    await plans_service.update_preferences(ctx.session, ctx.user_id, ctx.plan_id, stored)
+
+    record = await _run(ctx, _prefs(flights={"max_stops": "nonstop"}))
+
+    assert [change.summary for change in record.applied] == [
+        "Flight preferences: Economy cabin, any number of stops → Economy cabin, nonstop"
+    ]
+    flights = (await _plan(ctx)).preferences.flights
+    assert flights == FlightPreferences(max_stops=0, outbound_token="tok")
+    # "any" is how a command says None.
+    await _run(ctx, _prefs(flights={"max_stops": "any"}))
+    flights = (await _plan(ctx)).preferences.flights
+    assert flights is not None and flights.max_stops is None
+
+
+async def test_preference_changes_in_one_message_build_on_each_other(ctx: ToolContext) -> None:
+    record = await _run(
+        ctx,
+        _prefs(lodging={"hotel_class": "budget"}),
+        _prefs(lodging={"kind": "hostel"}),
+    )
+
+    assert len(record.applied) == 2
+    assert (await _plan(ctx)).preferences.lodging == LodgingPreferences(
+        hotel_class="budget", kind="hostel"
+    )
+
+
+@pytest.mark.parametrize(
+    ("edits", "summary", "reason"),
+    [
+        ({"lodging": {}}, "Change the lodging preferences", "No changes were given"),
+        # Nothing stored to merge into, and interests are required.
+        ({"activities": {"dietary": "vegan"}}, "Change the activity preferences", "interests"),
+        (
+            {
+                "activities": {
+                    "interests": ["museum", "food", "tour", "outdoors", "nightlife", "relax"]
+                }
+            },
+            "Change the activity preferences",
+            "interests",
+        ),
+    ],
+)
+async def test_preferences_follow_their_form_rules(
+    ctx: ToolContext, edits: dict[str, JsonValue], summary: str, reason: str
+) -> None:
+    record = await _run(ctx, _prefs(**edits))
+
+    (rejection,) = record.rejected
+    assert rejection.summary == summary and reason in rejection.reason
+    assert (await _plan(ctx)).preferences == PlanPreferences()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        _prefs(lodging={"hotel_class": "upscale"}, flights={"cabin": "business"}),
+        _prefs(),
+        _prefs(lodging={"stars": 5}),
+        _prefs(flights={"max_stops": 3}),
+        {"type": "redo_search", "search": "transfer"},
+        {"type": "redo_search", "search": "lodging", "hint": "near the sea"},
+    ],
+)
+def test_a_preference_or_search_command_outside_the_vocabulary_is_malformed(
+    command: dict[str, JsonValue],
+) -> None:
+    with pytest.raises(ValidationError):
+        COMMANDS.validate_python([command])
+
+
+# ---------------------------------------------------------------------------
+# Searching again
+# ---------------------------------------------------------------------------
+
+
+async def test_searching_again_needs_those_choices_to_be_pending(ctx: ToolContext) -> None:
+    record = await _run(ctx, {"type": "redo_search", "search": "lodging"})
+
+    assert record == ChangesRecord(
+        rejected=[
+            RejectedChange(
+                summary="Look for other places to stay",
+                reason="No places to stay are being offered right now; to find a different "
+                "one, remove it",
+            )
+        ]
+    )
+
+
+async def test_searching_again_follows_a_preference_change(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], session: AsyncSession
+) -> None:
+    # At lodging with no preferences, the form is pending: no search to run again until
+    # the first command answers it.
+    plan_id = await create_plan(client, headers, **BASICS)
+    await reach(app, client, headers, plan_id, PlanStage.LODGING)
+    plan = TravelPlan.model_validate_json(
+        (await client.get(f"/plans/{plan_id}", headers=headers)).content
+    )
+    lodging_ctx = ToolContext(session=session, user_id=plan.user_id, plan_id=plan.id, today=TODAY)
+    version = plan.version
+
+    record = await _run(
+        lodging_ctx,
+        _prefs(lodging={"hotel_class": "midrange"}),
+        {"type": "redo_search", "search": "lodging"},
+    )
+
+    assert record.applied == [
+        AppliedChange(name="set_preferences", summary="Lodging preferences: Midrange hotel"),
+        AppliedChange(name="redo_search", summary="Looking for other places to stay"),
+    ]
+    # Searching again writes nothing itself; the turn runs the search.
+    assert (await _plan(lodging_ctx)).version == version + 1

@@ -14,7 +14,7 @@ from features.planning.offline import (
     planning_reply,
 )
 from features.planning.prompts import command_messages, question_messages
-from features.plans.schemas import SlotName
+from features.plans.schemas import PlanStage, SlotName
 from shared.llm.fake import FakeRequest
 from shared.llm.types import LLMMessage
 from tests.features.plans.builders import complete_trip, snapshot
@@ -23,13 +23,13 @@ from tests.json_path import json_object
 TODAY = date(2026, 10, 15)
 
 
-def _command_prompt(cancelled: int | None = None) -> str:
+def _command_prompt(cancelled: int | None = None, stage: PlanStage = PlanStage.BASICS) -> str:
     """The command reader's system prompt for the full Tokyo trip, whose items are
     1 transfer, 2 flight, 3 transfer, 4 lodging "Hotel Okura", 5 activity "Hotel dinner"..."""
     items = complete_trip()
     if cancelled is not None:
         items[cancelled - 1] = items[cancelled - 1].model_copy(update={"status": "cancelled"})
-    plan = snapshot(items)
+    plan = snapshot(items, stage=stage)
     return command_messages("", plan, plan.items, TODAY)[0].content
 
 
@@ -135,6 +135,32 @@ def test_stage_phrases() -> None:
     assert command_reply("skip flights", prompt)["commands"] == [
         {"type": "change_stage", "action": "skip_flights"}
     ]
+
+
+def test_other_options_phrases() -> None:
+    prompt = _command_prompt(stage=PlanStage.ACTIVITIES)
+
+    assert command_reply("show me other hotels", prompt)["commands"] == [
+        {"type": "redo_search", "search": "lodging"}
+    ]
+    assert command_reply("Show me other flights.", prompt)["commands"] == [
+        {"type": "redo_search", "search": "flights"}
+    ]
+    # "Options" are the current stage's.
+    assert command_reply("show me other options", prompt)["commands"] == [
+        {"type": "redo_search", "search": "activities"}
+    ]
+    ground = _command_prompt(stage=PlanStage.GROUND)
+    assert command_reply("show me other options", ground)["status"] == "unrelated"
+
+
+def test_preference_phrases() -> None:
+    prompt = _command_prompt()
+
+    assert command_reply("make the hotel upscale", prompt)["commands"] == [
+        {"type": "set_preferences", "lodging": {"hotel_class": "upscale"}}
+    ]
+    assert command_reply("make the hotel cheap", prompt)["status"] == "unrelated"
 
 
 def test_the_command_request_is_recognised_by_its_schema() -> None:

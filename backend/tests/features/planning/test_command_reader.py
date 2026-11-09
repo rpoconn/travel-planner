@@ -15,7 +15,12 @@ from features.planning.extractor import (
 )
 from features.planning.prompts import command_messages, item_line, repair_messages
 from features.planning.schemas import ChangeStage, RejectedChange, RemoveItem
-from features.plans.schemas import PlanStage
+from features.plans.schemas import (
+    FlightPreferences,
+    LodgingPreferences,
+    PlanPreferences,
+    PlanStage,
+)
 from shared.llm.fake import FakeLLM, json_reply
 from shared.llm.types import LLMError, LLMMessage
 from tests.features.plans.builders import complete_trip, return_flight, snapshot
@@ -142,7 +147,14 @@ def test_the_schema_offers_each_command_by_its_tag() -> None:
     assert "oneOf" not in items and "discriminator" not in items
     assert isinstance(branches, list)
     tags = [at(branch, "properties", "type", "const") for branch in branches]
-    assert tags == ["remove_item", "update_item", "set_basics", "change_stage"]
+    assert tags == [
+        "remove_item",
+        "update_item",
+        "set_basics",
+        "set_preferences",
+        "change_stage",
+        "redo_search",
+    ]
     # The tag is asked for, so every reply can be told apart.
     for branch in branches:
         required = at(branch, "required")
@@ -193,6 +205,26 @@ def test_the_prompt_numbers_the_itinerary_and_names_the_pending_question() -> No
         ("assistant", "Which one?"),
         ("user", "the dinner"),
     ]
+
+
+def test_the_prompt_shows_the_search_preferences_to_change() -> None:
+    preferences = PlanPreferences(
+        flights=FlightPreferences(max_stops=0, outbound_token="secret-token"),
+        lodging=LodgingPreferences(hotel_class="midrange"),
+    )
+    plan = snapshot(complete_trip(), preferences=preferences)
+
+    system = command_messages("make it upscale", plan, plan.items, TODAY)[0].content
+
+    assert "Search preferences:\n- flights: {" in system
+    assert '- lodging: {"hotel_class":"midrange","kind":"hotel"' in system
+    assert "- activities" not in system
+    # The search token is for the flight search, not the model.
+    assert "secret-token" not in system
+
+
+def test_a_plan_without_preferences_shows_none() -> None:
+    assert "Search preferences" not in _messages()[0].content
 
 
 def test_an_empty_itinerary_says_so() -> None:

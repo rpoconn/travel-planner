@@ -8,21 +8,24 @@ Playwright suite), so free text works with no model.
 - Pick requests (`extractor.PICK_SCHEMA`) read "the first one", "the second one"... as
   that option's id; the ids are positions ("1", "2"), as the searches number them.
 - Either reader says "command" for an edit phrase: "remove the <words>", "go back",
-  "go back to <stage>", "skip flights". The command reader (`extractor.COMMAND_SCHEMA`)
+  "go back to <stage>", "skip flights", "show me other <hotels / flights / things to do /
+  options>", "make the hotel <class>". The command reader (`extractor.COMMAND_SCHEMA`)
   then turns it into a command, finding the item in the numbered itinerary its prompt
   shows: the first one not removed whose title has the words ("the hotel" or "the stay"
-  is the first stay).
+  is the first stay). "Other options" are the current stage's, as the prompt names it.
 - Question requests (`prompts.QA_INTRO`), and anything else, get a fixed answer; a
   structured request for an unknown schema is "unrelated", which fails closed to a nudge.
 """
 
 import re
 from datetime import date, timedelta
+from typing import get_args
 
 from pydantic import JsonValue
 
+from features.planning.schemas import SearchName
 from features.planning.slots import SLOTS
-from features.plans.schemas import PlanStage, SlotName
+from features.plans.schemas import HotelClass, PlanStage, SlotName
 from features.plans.stages import STAGE_LABELS
 from shared.llm.fake import FakeRequest, json_reply, text
 from shared.llm.types import LLMMessage
@@ -152,6 +155,17 @@ def _is_pick_schema(schema: dict[str, JsonValue]) -> bool:
 # it was removed.
 _ITEM_LINE = re.compile(r"^(\d+)\. (\w+) “(.*?)”.*?( \| removed)?$", re.MULTILINE)
 _STAY_WORDS = ("hotel", "stay")
+# The stage the command prompt says the plan is at (`prompts.command_messages`).
+_PLAN_AT = re.compile(r"The plan is at (\w+)\.")
+# What "show me other <words>" asks to search again.
+_SEARCH_WORDS: dict[str, SearchName] = {
+    "hotels": "lodging",
+    "places to stay": "lodging",
+    "flights": "flights",
+    "things to do": "activities",
+    "activities": "activities",
+}
+_EDIT_PREFIXES = ("remove ", "go back", "show me other ", "make the hotel ")
 
 
 def _phrase(content: str) -> str:
@@ -161,7 +175,7 @@ def _phrase(content: str) -> str:
 def is_edit(content: str) -> bool:
     """Whether the readers hand `content` on as a command."""
     phrase = _phrase(content)
-    return phrase.startswith(("remove ", "go back")) or phrase == "skip flights"
+    return phrase.startswith(_EDIT_PREFIXES) or phrase == "skip flights"
 
 
 def _item_number(words: str, prompt: str) -> int | None:
@@ -180,6 +194,14 @@ def _stage(name: str) -> PlanStage | None:
     return next((stage for stage in PlanStage if name in (stage.value, STAGE_LABELS[stage])), None)
 
 
+def _search(words: str, prompt: str) -> SearchName | None:
+    if words != "options":
+        return _SEARCH_WORDS.get(words)
+    at = _PLAN_AT.search(prompt)
+    stage = at.group(1) if at else ""
+    return next((name for name in get_args(SearchName) if name == stage), None)
+
+
 def _command(phrase: str, prompt: str) -> dict[str, JsonValue] | None:
     if phrase == "skip flights":
         return {"type": "change_stage", "action": "skip_flights"}
@@ -193,6 +215,14 @@ def _command(phrase: str, prompt: str) -> dict[str, JsonValue] | None:
     if phrase.startswith("remove "):
         number = _item_number(phrase.removeprefix("remove ").removeprefix("the "), prompt)
         return None if number is None else {"type": "remove_item", "item": number}
+    if phrase.startswith("show me other "):
+        search = _search(phrase.removeprefix("show me other "), prompt)
+        return None if search is None else {"type": "redo_search", "search": search}
+    if phrase.startswith("make the hotel "):
+        hotel_class = phrase.removeprefix("make the hotel ")
+        if hotel_class not in get_args(HotelClass):
+            return None
+        return {"type": "set_preferences", "lodging": {"hotel_class": hotel_class}}
     return None
 
 

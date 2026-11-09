@@ -214,16 +214,22 @@ value model, or the model.
   so a reload never searches again. Each candidate carries its ready-made changes; picking
   checks all of them first (`features/chat/tools.py`: route, overnight, timezone, budget), then
   writes them, so a pick that doesn't fit changes nothing and says why.
-- The model makes two kinds of call and nothing else: the **extractor**
+- The model makes three kinds of call and nothing else: the **extractor**
   (`planning/extractor.py`) reads free text into the pending slot's schema, or into a pick
   ("the second one"), with a JSON-schema `format` (Claude's structured outputs, or Ollama's
   `format`) and two attempts; the reply is
-  validated with Pydantic, and anything else gets the slot's fixed nudge. A question gets a
-  short streamed **answer**, which is shown and stored but never parsed. No reply text is
-  ever matched with regexes.
+  validated with Pydantic, and anything else gets the slot's fixed nudge. The **command
+  reader** turns an edit ("remove the Friday dinner", "go back to lodging", "somewhere
+  cheaper") into typed commands from a closed list, pointing at items by their number in
+  the itinerary it was shown. It never writes: `planning/commands.py` checks every command
+  against the same rules as a pick or the item sheet and writes them all or none, and the
+  rules a command breaks go back to the reader once to repair. A question gets a short
+  streamed **answer**, which is shown and stored but never parsed. No reply text is ever
+  matched with regexes.
 - `LLM_PROVIDER=fake` runs without a model (`planning/offline.py`): free text is read from a
   small phrase table per slot ("two adults", "next month for a week", "the second one"),
-  questions get a fixed answer, and anything else is nudged.
+  plus a few edits ("remove the hotel", "go back to lodging", "show me other options",
+  "make the hotel upscale"); questions get a fixed answer, and anything else is nudged.
 - Flight search uses Google Flights results from [SerpApi](https://serpapi.com): set
   `SERPAPI_API_KEY` (250 free searches a month; a round trip takes two). Results are
   structured, so flight times are copied from the search, never written by the model.

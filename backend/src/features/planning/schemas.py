@@ -12,9 +12,25 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from features.itinerary.schemas import Gap, ItemNotes, ItemStatus, ItemTitle
-from features.plans.schemas import Issue, PlanSnapshot, PlanStage, SlotName
+from features.itinerary.schemas import (
+    ActivityCategory,
+    Gap,
+    ItemNotes,
+    ItemStatus,
+    ItemTitle,
+    LodgingKind,
+)
+from features.plans.schemas import (
+    DepartWindow,
+    HotelClass,
+    Issue,
+    PlanSnapshot,
+    PlanStage,
+    ShortAnswer,
+    SlotName,
+)
 from shared.domain import Money, Place, Travelers
+from shared.flights.types import FlightCabin
 
 # ---------------------------------------------------------------------------
 # Form fields
@@ -280,7 +296,9 @@ PlanningInput = Annotated[SlotAnswer | SlotSkip | ChoicePick, Field(discriminato
 
 MAX_COMMANDS = 5
 
-CommandName = Literal["remove_item", "update_item", "set_basics", "change_stage"]
+CommandName = Literal[
+    "remove_item", "update_item", "set_basics", "set_preferences", "change_stage", "redo_search"
+]
 
 # An item's number in the itinerary list the model is shown (`commands.numbered_items`),
 # so it never has to spell an id; the server maps it back.
@@ -357,7 +375,79 @@ class ChangeStage(_Command):
     stage: PlanStage | None = Field(default=None, description="go_to only: the earlier stage")
 
 
-Command = Annotated[RemoveItem | UpdateItem | SetBasics | ChangeStage, Field(discriminator="type")]
+# How a command says how many stops a flight may make. A preference's `max_stops` uses
+# None for "any number", but a command can't send null (`inline_schema` drops it), so the
+# choices are words, mapped back in `planning.commands`.
+StopsChoice = Literal["nonstop", "up_to_1", "up_to_2", "any"]
+
+
+class FlightPreferenceEdits(_Command):
+    """The flight preferences to change; fields left out keep their value."""
+
+    cabin: FlightCabin | None = None
+    max_stops: StopsChoice | None = None
+    depart_window: DepartWindow | None = None
+
+
+class LodgingPreferenceEdits(_Command):
+    """The lodging preferences to change; fields left out keep their value."""
+
+    hotel_class: HotelClass | None = None
+    kind: LodgingKind | None = None
+    nightly_budget: Money | None = None
+    neighborhood: ShortAnswer | None = None
+
+
+class ActivityPreferenceEdits(_Command):
+    """The activity preferences to change; fields left out keep their value."""
+
+    interests: list[ActivityCategory] | None = Field(
+        default=None, description="The whole new list of interests, up to 5"
+    )
+    dietary: ShortAnswer | None = None
+
+
+# The preferences `SetPreferences` can change, each with the input slot that asks for them.
+PREFERENCE_FIELDS: dict[str, SlotName] = {
+    "flights": SlotName.FLIGHT_PREFERENCES,
+    "lodging": SlotName.LODGING_PREFERENCES,
+    "activities": SlotName.ACTIVITY_PREFERENCES,
+}
+
+
+class SetPreferences(_Command):
+    """Change what one stage searches for. The plan's version moves on, so choices on show
+    for that stage are searched for again."""
+
+    type: Literal["set_preferences"] = "set_preferences"
+    flights: FlightPreferenceEdits | None = None
+    lodging: LodgingPreferenceEdits | None = None
+    activities: ActivityPreferenceEdits | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> Self:
+        given = [name for name in PREFERENCE_FIELDS if getattr(self, name) is not None]
+        if len(given) != 1:
+            raise ValueError(f"Set exactly one of {', '.join(PREFERENCE_FIELDS)}")
+        return self
+
+
+# The searches whose choices `RedoSearch` can ask others for, by the stage that runs them.
+# Transfers aren't here: their rules list every way across at once.
+SearchName = Literal["flights", "lodging", "activities"]
+
+
+class RedoSearch(_Command):
+    """Look for other options than the choices on show, as "More options" does."""
+
+    type: Literal["redo_search"] = "redo_search"
+    search: SearchName = Field(description="Which choices to find others for")
+
+
+Command = Annotated[
+    RemoveItem | UpdateItem | SetBasics | SetPreferences | ChangeStage | RedoSearch,
+    Field(discriminator="type"),
+]
 
 CommandStatus = Literal["command", "ambiguous", "question", "unrelated"]
 

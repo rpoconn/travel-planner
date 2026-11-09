@@ -8,7 +8,13 @@ turns each one into the write that already exists for it and runs that write's r
 - `remove_item` / `update_item` → a `chat.tools` change (route, overnight, timezone,
   budget). A removal cancels the item rather than deleting it, so it can come back.
 - `set_basics` → `answers.parse_answer` / `apply_answer`, as the slot's form.
+- `set_preferences` → the fields given, over the stored preferences, checked by the
+  preference model and written with `plans_service.update_preferences`. The version moves
+  on, so choices on show for that stage are searched for again.
 - `change_stage` → `plans.stages.apply_stage_change` / `plans_service.set_stage`.
+- `redo_search` → nothing to write: it checks that the search is the one behind the
+  pending choices (`engine.refresh_search`), and the turn then runs it again the way
+  "More options" does, leaving out what it already offered.
 
 Every command is checked, with the earlier ones staged, before any is written; one that
 breaks a rule means nothing is written, and the outcome says which rule. No model calls
@@ -26,23 +32,42 @@ from pydantic import BaseModel, JsonValue, ValidationError
 from features.chat import tools
 from features.chat.schemas import ProposedChange
 from features.itinerary.schemas import ItineraryItem
-from features.planning.answers import AnswerError, apply_answer, describe_value, parse_answer
+from features.planning.answers import (
+    AnswerError,
+    apply_answer,
+    describe_answer,
+    describe_value,
+    parse_answer,
+)
+from features.planning.engine import refresh_search
 from features.planning.schemas import (
     BASICS_FIELDS,
     MAX_COMMANDS,
+    PREFERENCE_FIELDS,
     AppliedChange,
     ChangesRecord,
     ChangeStage,
     Command,
     CommandName,
+    RedoSearch,
     RejectedChange,
     RemoveItem,
+    SearchName,
     SetBasics,
+    SetPreferences,
     UpdateItem,
 )
 from features.planning.slots import SLOTS
 from features.plans import service as plans_service
-from features.plans.schemas import PlanSnapshot, PlanStage, StageChange
+from features.plans.schemas import (
+    ActivityPreferences,
+    FlightPreferences,
+    LodgingPreferences,
+    PlanPreferences,
+    PlanSnapshot,
+    PlanStage,
+    StageChange,
+)
 from features.plans.stages import STAGE_LABELS, StageError, apply_stage_change
 from shared.validation import summarize_validation_error
 
@@ -55,6 +80,29 @@ _BASICS_LABELS: dict[str, str] = {
     "destination": "Destination",
     "origin": "Starting point",
     "budget": "Budget",
+}
+
+# How each kind of preferences is named in a change's summary, and the stored model the
+# fields given are merged into.
+_PREFERENCE_LABELS: dict[str, str] = {
+    "flights": "Flight preferences",
+    "lodging": "Lodging preferences",
+    "activities": "Activity preferences",
+}
+_PREFERENCE_MODELS: dict[str, type[BaseModel]] = {
+    "flights": FlightPreferences,
+    "lodging": LodgingPreferences,
+    "activities": ActivityPreferences,
+}
+
+# Each `StopsChoice` as the `max_stops` a flight preference stores (None: any number).
+_STOPS: dict[str, int | None] = {"nonstop": 0, "up_to_1": 1, "up_to_2": 2, "any": None}
+
+# Each search `redo_search` can run again: the stage it belongs to, and its choices in words.
+_SEARCHES: dict[SearchName, tuple[PlanStage, str]] = {
+    "flights": (PlanStage.FLIGHTS, "flights"),
+    "lodging": (PlanStage.LODGING, "places to stay"),
+    "activities": (PlanStage.ACTIVITIES, "things to do"),
 }
 
 
@@ -109,9 +157,19 @@ class _BasicsStep(_Step):
 
 
 @dataclass(frozen=True)
+class _PreferencesStep(_Step):
+    preferences: PlanPreferences  # all of them, with this command's (and earlier ones') edits
+
+
+@dataclass(frozen=True)
 class _StageStep(_Step):
     stage: PlanStage
     flights_skipped: bool
+
+
+@dataclass(frozen=True)
+class _SearchStep(_Step):
+    """Nothing to write: the turn runs the search again once the other commands are in."""
 
 
 def _asked(command: Command, items: Sequence[ItineraryItem]) -> str:
@@ -123,6 +181,10 @@ def _asked(command: Command, items: Sequence[ItineraryItem]) -> str:
             return f"Change {_item_label(items, command.item)}"
         case SetBasics():
             return f"Change the {_BASICS_LABELS[_basics_field(command)].lower()}"
+        case SetPreferences():
+            return f"Change the {_PREFERENCE_LABELS[_preferences_field(command)].lower()}"
+        case RedoSearch():
+            return f"Look for other {_SEARCHES[command.search][1]}"
         case ChangeStage():
             if command.action == "skip_flights":
                 return "Skip flights"
@@ -193,6 +255,51 @@ def _set_basics(command: SetBasics, plan: PlanSnapshot, today: date) -> _BasicsS
     return _BasicsStep(name=command.type, asked=_asked(command, ()), done=done, answer=answer)
 
 
+def _preferences_field(command: SetPreferences) -> str:
+    # The model validator guarantees exactly one.
+    return next(name for name in PREFERENCE_FIELDS if getattr(command, name) is not None)
+
+
+def _set_preferences(command: SetPreferences, plan: PlanSnapshot) -> _PreferencesStep:
+    field = _preferences_field(command)
+    edits: dict[str, JsonValue] = getattr(command, field).model_dump(mode="json", exclude_none=True)
+    if not edits:
+        raise CommandError("No changes were given")
+    stops = edits.get("max_stops")
+    if isinstance(stops, str):
+        edits["max_stops"] = _STOPS[stops]
+    before: BaseModel | None = getattr(plan.preferences, field)
+    stored = before.model_dump(mode="json") if before is not None else {}
+    # Over the stored preferences, so the rest stay as they were. For flights that keeps
+    # the picked flight out's token too, so the flights home still pair with it.
+    try:
+        after = _PREFERENCE_MODELS[field].model_validate({**stored, **edits})
+    except ValidationError as exc:
+        raise CommandError(summarize_validation_error(exc)) from exc
+    label = _PREFERENCE_LABELS[field]
+    now = describe_answer(after)
+    done = f"{label}: {now}" if before is None else f"{label}: {describe_answer(before)} → {now}"
+    return _PreferencesStep(
+        name=command.type,
+        asked=_asked(command, ()),
+        done=done,
+        preferences=plan.preferences.model_copy(update={field: after}),
+    )
+
+
+def _redo_search(command: RedoSearch, plan: PlanSnapshot) -> _SearchStep:
+    stage, choices = _SEARCHES[command.search]
+    pending = refresh_search(plan)
+    if pending is None or pending.stage != stage:
+        # Worded for the repair pass too: a stay already picked is found again by removing it.
+        raise CommandError(
+            f"No {choices} are being offered right now; to find a different one, remove it"
+        )
+    return _SearchStep(
+        name=command.type, asked=_asked(command, ()), done=f"Looking for other {choices}"
+    )
+
+
 def _change_stage(command: ChangeStage, plan: PlanSnapshot) -> _StageStep:
     try:
         change = StageChange(action=command.action, stage=command.stage)
@@ -223,8 +330,12 @@ def _resolve(
             return _update(command, items)
         case SetBasics():
             return _set_basics(command, plan, today)
+        case SetPreferences():
+            return _set_preferences(command, plan)
         case ChangeStage():
             return _change_stage(command, plan)
+        case RedoSearch():
+            return _redo_search(command, plan)
 
 
 # ---------------------------------------------------------------------------
@@ -243,13 +354,14 @@ async def _check(
 ) -> _Checked:
     """Resolve and check every command (writes nothing). Item changes are checked with the
     earlier ones staged, so "remove the hotel, then move dinner" checks the move without
-    the hotel; a stage change is checked from where the earlier ones left the plan. Every
-    command is checked even after one fails, so all the broken rules are reported."""
+    the hotel; stage and preference changes are checked from where the earlier ones left
+    the plan. Every command is checked even after one fails, so all the broken rules are
+    reported."""
     items = numbered_items(plan)
     checked = _Checked(steps=[], rejected=[])
     staged: list[ProposedChange] = []
     touched: set[UUID] = set()
-    at = plan  # the plan as the stage changes so far leave it
+    at = plan  # the plan as the stage and preference changes so far leave it
     for command in commands:
         try:
             step = _resolve(command, items, at, ctx.today)
@@ -267,6 +379,8 @@ async def _check(
                 at = at.model_copy(
                     update={"stage": step.stage, "flights_skipped": step.flights_skipped}
                 )
+            elif isinstance(step, _PreferencesStep):
+                at = at.model_copy(update={"preferences": step.preferences})
         except CommandError as exc:
             checked.rejected.append(RejectedChange(summary=_asked(command, items), reason=str(exc)))
             continue
@@ -290,6 +404,10 @@ async def _write(ctx: tools.ToolContext, plan: PlanSnapshot, step: _Step) -> Non
             await apply_answer(ctx.session, ctx.user_id, plan, step.answer)
         except AnswerError as exc:
             raise CommandError(str(exc)) from exc
+    elif isinstance(step, _PreferencesStep):
+        await plans_service.update_preferences(
+            ctx.session, ctx.user_id, ctx.plan_id, step.preferences
+        )
     elif isinstance(step, _StageStep):
         await plans_service.set_stage(
             ctx.session, ctx.user_id, ctx.plan_id, step.stage, step.flights_skipped

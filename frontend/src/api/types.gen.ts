@@ -274,7 +274,7 @@ export type AppliedChange = {
     /**
      * Name
      */
-    name: 'remove_item' | 'update_item' | 'set_basics' | 'change_stage';
+    name: 'remove_item' | 'update_item' | 'set_basics' | 'set_preferences' | 'change_stage' | 'redo_search';
     /**
      * Summary
      */

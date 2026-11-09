@@ -6,17 +6,24 @@ The plan is the Lisbon trip without flights (`planning_http.reach`): its items, 
 order, are 1 "Friend's flat" (May 1-8) and 2 "Dinner in" (May 2). The model is scripted.
 """
 
+from decimal import Decimal
+
 from fastapi import FastAPI
 from httpx import AsyncClient
 from pydantic import JsonValue
 
 from features.itinerary.schemas import ItineraryItem
+from features.planning.events import PlanningEvent
 from features.planning.offline import planning_reply
-from features.planning.schemas import ChangesRecord, RejectedChange, TravelPlan
+from features.planning.schemas import ChangesRecord, OfferChoice, RejectedChange, TravelPlan
 from features.plans.schemas import PlanStage
+from shared.domain import Money
+from shared.hotels.fake import FakeHotelProvider
+from shared.hotels.types import HotelOption
 from shared.llm.fake import FakeLLM, json_reply
 from tests.features.planning.planning_http import (
     BASICS,
+    answer,
     asking,
     create_plan,
     done,
@@ -57,6 +64,41 @@ def _flat_end(end: str) -> dict[str, JsonValue]:
 async def _items(client: AsyncClient, headers: dict[str, str], plan_id: str) -> list[ItineraryItem]:
     response = await client.get(f"/plans/{plan_id}", headers=headers)
     return TravelPlan.model_validate_json(response.content).items
+
+
+# A pick reader's reply handing the text on as an edit.
+PICK_COMMAND: dict[str, JsonValue] = {"status": "command", "candidate_ids": []}
+REDO_LODGING: dict[str, JsonValue] = {"type": "redo_search", "search": "lodging"}
+
+
+def _hotels(count: int) -> list[HotelOption]:
+    """`count` 3-star hotels, best rated first: "Hotel 1" ranks above "Hotel 2"."""
+    return [
+        HotelOption(
+            name=f"Hotel {n}",
+            nightly_rate=Money(amount=Decimal(100), currency="USD"),
+            total_rate=Money(amount=Decimal(700), currency="USD"),
+            stars=3,
+            rating=5 - n / 10,
+        )
+        for n in range(1, count + 1)
+    ]
+
+
+def _choices(events: list[PlanningEvent]) -> OfferChoice:
+    action = done(events).plan.assessment.next_action
+    assert isinstance(action, OfferChoice), action
+    return action
+
+
+async def _choosing_a_stay(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str]
+) -> tuple[str, OfferChoice]:
+    """A plan at lodging, showing the stays found for a midrange hotel."""
+    plan_id = await _plan_at(app, client, headers, PlanStage.LODGING)
+    midrange: dict[str, JsonValue] = {"hotel_class": "midrange", "kind": "hotel"}
+    events = await answer(client, headers, plan_id, "lodging_preferences", midrange)
+    return plan_id, _choices(events)
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +247,110 @@ async def test_an_edit_the_reader_turns_down_gets_the_nudge(
 
 
 # ---------------------------------------------------------------------------
+# Choices pending: other options, other preferences
+# ---------------------------------------------------------------------------
+
+
+async def test_asking_for_other_options_searches_again_without_the_ones_shown(
+    app: FastAPI,
+    client: AsyncClient,
+    headers: dict[str, str],
+    fake_llm: FakeLLM,
+    fake_hotels: FakeHotelProvider,
+) -> None:
+    fake_hotels.queue(_hotels(7), _hotels(7))
+    plan_id, first = await _choosing_a_stay(app, client, headers)
+    fake_llm.queue(json_reply(PICK_COMMAND), json_reply(_commands(REDO_LODGING)))
+
+    events = await say(client, headers, plan_id, "show me some other hotels")
+
+    assert stored(events) == [
+        ("message", "show me some other hotels"),
+        ("changes", "Looking for other places to stay."),
+        ("choices", "Pick a place to stay."),
+    ]
+    second = _choices(events)
+    assert second.offer_id != first.offer_id
+    assert [c.title for c in second.candidates] == ["Hotel 6", "Hotel 7"]
+    assert len(fake_hotels.searches) == 2
+
+
+async def test_a_new_preference_searches_the_choices_again(
+    app: FastAPI,
+    client: AsyncClient,
+    headers: dict[str, str],
+    fake_llm: FakeLLM,
+    fake_hotels: FakeHotelProvider,
+) -> None:
+    plan_id, first = await _choosing_a_stay(app, client, headers)
+    upscale: dict[str, JsonValue] = {
+        "type": "set_preferences",
+        "lodging": {"hotel_class": "upscale"},
+    }
+    fake_llm.queue(json_reply(PICK_COMMAND), json_reply(_commands(upscale)))
+
+    events = await say(client, headers, plan_id, "somewhere fancier please")
+
+    assert stored(events)[1:] == [
+        ("changes", "Lodging preferences: Midrange hotel → Upscale hotel."),
+        ("choices", "Pick a place to stay."),
+    ]
+    assert _choices(events).offer_id != first.offer_id
+    # The version moved on, so the old offer is stale and the search ran with the new class.
+    midrange, upscale_search = fake_hotels.searches
+    assert upscale_search.stars != midrange.stars
+
+
+async def test_a_new_preference_and_other_options_search_once(
+    app: FastAPI,
+    client: AsyncClient,
+    headers: dict[str, str],
+    fake_llm: FakeLLM,
+    fake_hotels: FakeHotelProvider,
+) -> None:
+    plan_id, _first = await _choosing_a_stay(app, client, headers)
+    hostel: dict[str, JsonValue] = {"type": "set_preferences", "lodging": {"kind": "hostel"}}
+    fake_llm.queue(json_reply(PICK_COMMAND), json_reply(_commands(hostel, REDO_LODGING)))
+
+    events = await say(client, headers, plan_id, "find me hostels instead")
+
+    assert stored(events)[1:] == [
+        (
+            "changes",
+            "Lodging preferences: Midrange hotel → Midrange hostel. "
+            "Looking for other places to stay.",
+        ),
+        ("choices", "Pick a place to stay."),
+    ]
+    # The new preference starts a new list, so nothing is left out of it, and the drive
+    # doesn't search a second time.
+    assert len(fake_hotels.searches) == 2
+
+
+async def test_other_options_for_a_stay_already_picked_are_turned_down(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
+) -> None:
+    # At activities, the form is pending and lodging is done.
+    plan_id = await _plan_at(app, client, headers, PlanStage.ACTIVITIES)
+    fake_llm.queue(
+        json_reply({"status": "command", "value": None}),
+        json_reply(_commands(REDO_LODGING)),
+        json_reply({"status": "unrelated", "commands": []}),  # the repair gives up
+    )
+
+    events = await say(client, headers, plan_id, "show me other hotels")
+
+    assert stored(events)[1:] == [
+        (
+            "changes",
+            "Couldn't look for other places to stay: No places to stay are being offered "
+            "right now; to find a different one, remove it.",
+        ),
+        ("expected_input", "What do you like to do?"),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Asking which
 # ---------------------------------------------------------------------------
 
@@ -254,3 +400,24 @@ async def test_the_offline_fake_removes_an_item_by_name(
         ("changes", "Removed “Friend's flat”."),
         ("stage", "Back to lodging: the trip still needs a place to stay the night of May 1."),
     ]
+
+
+async def test_the_offline_fake_asks_for_other_options_and_preferences(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_hotels: FakeHotelProvider
+) -> None:
+    app.state.llm = FakeLLM(fallback=planning_reply)
+    fake_hotels.queue(_hotels(7), _hotels(7), _hotels(7))
+    plan_id, _first = await _choosing_a_stay(app, client, headers)
+
+    other = await say(client, headers, plan_id, "show me other options")
+    upscale = await say(client, headers, plan_id, "make the hotel upscale")
+
+    assert stored(other)[1:] == [
+        ("changes", "Looking for other places to stay."),
+        ("choices", "Pick a place to stay."),
+    ]
+    assert stored(upscale)[1] == (
+        "changes",
+        "Lodging preferences: Midrange hotel → Upscale hotel.",
+    )
+    assert len(fake_hotels.searches) == 3
