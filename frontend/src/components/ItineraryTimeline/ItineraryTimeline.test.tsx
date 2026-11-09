@@ -5,14 +5,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { getTimelineQueryKey } from '@/api/@tanstack/react-query.gen'
 import * as sdk from '@/api/sdk.gen'
 import { gap, PHILADELPHIA, PLAN_ID, sdkOk, timeline, tokyoTimeline } from '@/test/fixtures'
+import type { ItineraryItem } from '@/lib/itemMeta'
 import { renderWithQuery } from '@/test/render'
 
 import { ItineraryTimeline } from './ItineraryTimeline'
 
 // ----- setup -----
 
-function renderTimeline() {
-    return renderWithQuery(<ItineraryTimeline planId={PLAN_ID} />)
+function renderTimeline(onRemoveItem?: (item: ItineraryItem) => void) {
+    return renderWithQuery(<ItineraryTimeline planId={PLAN_ID} onRemoveItem={onRemoveItem} />)
 }
 
 // ----- tests -----
@@ -70,6 +71,32 @@ describe('ItineraryTimeline', () => {
         await waitFor(() => {
             expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
         })
+    })
+
+    it('removes an item from its sheet, closing the sheet', async () => {
+        vi.spyOn(sdk, 'getTimeline').mockResolvedValue(sdkOk(tokyoTimeline()))
+        const onRemoveItem = vi.fn()
+        renderTimeline(onRemoveItem)
+
+        await userEvent.click(await screen.findByRole('button', { name: /Senso-ji Temple/ }))
+        await userEvent.click(screen.getByRole('button', { name: 'Remove from trip' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+        expect(onRemoveItem).toHaveBeenCalledWith(
+            expect.objectContaining({ title: 'Senso-ji Temple' }),
+        )
+        await waitFor(() => {
+            expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        })
+    })
+
+    it('has no Remove button when nothing handles it', async () => {
+        vi.spyOn(sdk, 'getTimeline').mockResolvedValue(sdkOk(tokyoTimeline()))
+        renderTimeline()
+
+        await userEvent.click(await screen.findByRole('button', { name: /Senso-ji Temple/ }))
+
+        expect(screen.queryByRole('button', { name: 'Remove from trip' })).not.toBeInTheDocument()
     })
 
     it('closes the sheet when a refetch no longer has the item', async () => {

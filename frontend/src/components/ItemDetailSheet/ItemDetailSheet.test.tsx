@@ -84,6 +84,19 @@ describe('ItemDetailSheet', () => {
         expect(field('To')).toHaveTextContent('Tokyo Station')
     })
 
+    it('offers to remove the item only when told how', async () => {
+        const onRemove = vi.fn()
+        const item = transferItem()
+        const { rerender } = render(<ItemDetailSheet item={item} onClose={vi.fn()} />)
+        expect(screen.queryByRole('button', { name: 'Remove from trip' })).not.toBeInTheDocument()
+
+        rerender(<ItemDetailSheet item={item} onClose={vi.fn()} onRemove={onRemove} />)
+        await userEvent.click(screen.getByRole('button', { name: 'Remove from trip' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+        expect(onRemove).toHaveBeenCalledWith(item)
+    })
+
     it('asks to close from the close button', async () => {
         const { onClose } = renderSheet(transferItem())
 

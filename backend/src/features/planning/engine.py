@@ -148,7 +148,7 @@ def night_ranges(nights: Sequence[date]) -> list[NightRange]:
     return ranges
 
 
-def _range_label(nights: NightRange) -> str:
+def range_label(nights: NightRange) -> str:
     check_in, check_out = nights.check_in, nights.check_out
     if check_out - check_in == timedelta(days=1):
         return f"the night of {check_in:%b} {check_in.day}"
@@ -163,7 +163,7 @@ def _search_label(slot: SlotName, gap: Gap | None, nights: NightRange | None) ->
         case SlotName.FLIGHT_RETURN:
             return "Find flights home"
         case SlotName.LODGING_STAY if nights is not None:
-            return f"Find a place to stay {_range_label(nights)}"
+            return f"Find a place to stay {range_label(nights)}"
         case SlotName.ACTIVITIES:
             return "Find things to do"
         case SlotName.TRANSFER if gap is not None:

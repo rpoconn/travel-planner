@@ -19,8 +19,12 @@ turns each one into the write that already exists for it and runs that write's r
   pending choices (`engine.refresh_search`), and the turn then runs it again the way
   "More options" does, leaving out what it already offered.
 
-Once written, any change of place the edit left without a ride (the plan's gaps, as the
-ground stage counts them) is named in the outcome, so the user hears it then and there.
+Once written, what the edit left to fix is named in the outcome with how to fix it, so the
+user hears it then and there: a flight, a stay or the activities the plan no longer has,
+or else any change of place left without a ride (the plan's gaps, as the ground stage
+counts them). The engine then asks for the fix (`turn._drive`).
+
+An item's Remove button comes here too, as a `remove_item` command (`removal`).
 
 Every command is checked, with the earlier ones staged, before any is written; one that
 breaks a rule means nothing is written, and the outcome says which rule. No model calls
@@ -49,7 +53,7 @@ from features.planning.answers import (
     describe_value,
     parse_answer,
 )
-from features.planning.engine import refresh_search
+from features.planning.engine import night_ranges, range_label, refresh_search
 from features.planning.schemas import (
     BASICS_FIELDS,
     MAX_COMMANDS,
@@ -73,8 +77,10 @@ from features.planning.schemas import (
 from features.planning.slots import SLOTS
 from features.plans import service as plans_service
 from features.plans.schemas import (
+    STAGES,
     ActivityPreferences,
     FlightPreferences,
+    Issue,
     LodgingPreferences,
     PlanPreferences,
     PlanSnapshot,
@@ -82,6 +88,7 @@ from features.plans.schemas import (
     StageChange,
 )
 from features.plans.stages import STAGE_LABELS, StageError, apply_stage_change
+from shared.domain import IssueCode
 from shared.validation import summarize_validation_error
 
 logger = logging.getLogger(__name__)
@@ -132,6 +139,15 @@ def numbered_items(plan: PlanSnapshot) -> list[ItineraryItem]:
     """The items as a command numbers them, from 1: the itinerary in time order, as the
     timeline shows it (no cancelled items). The prompt that shows the list uses this too."""
     return active(plan.items)
+
+
+def removal(plan: PlanSnapshot, item_id: UUID) -> tuple[RemoveItem, ItineraryItem] | None:
+    """The command that removes item `item_id` (an item's Remove button), with the item;
+    None when it isn't in the list (gone, or cancelled)."""
+    for ref, item in enumerate(numbered_items(plan), start=1):
+        if item.id == item_id:
+            return RemoveItem(item=ref), item
+    return None
 
 
 def _item(items: Sequence[ItineraryItem], ref: int) -> ItineraryItem:
@@ -489,8 +505,22 @@ async def check_and_apply(
 
 
 # ---------------------------------------------------------------------------
-# Rides left missing
+# What the edit left to fix
 # ---------------------------------------------------------------------------
+
+# How the user can fix each checklist issue an edit can open, put to them with it. The
+# planner then asks (the choices or the form), so each names the ways to answer.
+_FLIGHT_FIX = (
+    "Pick another flight, tell me what you'd like instead, or skip flights if you'll get "
+    "there another way"
+)
+_FIXES: dict[IssueCode, str] = {
+    IssueCode.MISSING_OUTBOUND: _FLIGHT_FIX,
+    IssueCode.MISSING_RETURN: _FLIGHT_FIX,
+    IssueCode.UNCOVERED_NIGHT: "Pick another place to stay, or tell me what you'd like instead",
+    IssueCode.NO_ACTIVITIES: "Pick something else to do, or tell me what you're into",
+}
+_RIDE_FIX = "Pick a way to get there, or tell me how you'd like to go"
 
 
 def _route(gap: Gap) -> tuple[str, str]:
@@ -500,24 +530,70 @@ def _route(gap: Gap) -> tuple[str, str]:
     )
 
 
+def _new(before: Sequence[Issue], after: Sequence[Issue]) -> list[Issue]:
+    """The issues in `after` that `before` didn't have, counted by what they say."""
+    known = Counter((issue.code, issue.message) for issue in before)
+    opened: list[Issue] = []
+    for issue in after:
+        key = (issue.code, issue.message)
+        if known[key] > 0:
+            known[key] -= 1
+        else:
+            opened.append(issue)
+    return opened
+
+
+def _checklist(plan: PlanSnapshot, reached: PlanStage) -> list[Issue]:
+    """The blocking issues an edit can open and the user is asked to fix (flights, stays,
+    activities), in stages up to `reached`. A later stage asks for its own anyway."""
+    upto = STAGES[: STAGES.index(reached) + 1]
+    return [
+        issue
+        for status in plan.stages
+        if status.stage in upto
+        for issue in status.issues
+        if issue.code in _FIXES
+    ]
+
+
+def _issue_notes(opened: Sequence[Issue]) -> list[str]:
+    """Each opened issue in words, with how to fix it. Uncovered nights come as runs, one
+    stay each, as the lodging stage asks for them."""
+    notes: list[str] = []
+    nights = [i.date for i in opened if i.code == IssueCode.UNCOVERED_NIGHT and i.date]
+    for issue in opened:
+        if issue.code != IssueCode.UNCOVERED_NIGHT:
+            notes.append(f"The trip needs {issue.message} now. {_FIXES[issue.code]}")
+    for run in night_ranges(nights):
+        fix = _FIXES[IssueCode.UNCOVERED_NIGHT]
+        notes.append(f"The trip needs a place to stay {range_label(run)} now. {fix}")
+    return notes
+
+
 async def _left_open(ctx: tools.ToolContext, before: PlanSnapshot) -> list[str]:
-    """Each change of place without a ride now that wasn't one before the commands, in
-    words. Compared by places, counted: the ids around a gap change when items go, and
-    so can its day (the flat goes, so the ride from home is due at dinner instead), but
-    a route missing more often than before is new."""
+    """What the commands left for the user to fix, in words, each with how: a flight, a
+    stay or the activities the plan no longer has, else each change of place without a
+    ride now that wasn't one before.
+
+    Rides are compared by places, counted: the ids around a gap change when items go, and
+    so can its day (the flat goes, so the ride from home is due at dinner instead), but a
+    route missing more often than before is new. They aren't named when a flight or stay
+    is missing too: replacing it moves the rides, and the ground stage finds them then."""
     after = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
+    opened = _new(_checklist(before, after.stage), _checklist(after, after.stage))
+    if opened:
+        return _issue_notes(opened)
     known = Counter(_route(gap) for gap in before.gaps)
     # The ground stage searches for rides; before it, they wait until it comes.
-    when = "" if after.stage in (PlanStage.GROUND, PlanStage.REVIEW) else " at ground transport"
+    at_ground = after.stage in (PlanStage.GROUND, PlanStage.REVIEW)
+    fix = _RIDE_FIX if at_ground else "I'll look for a ride at ground transport"
     notes: list[str] = []
     for gap in after.gaps:
         route = _route(gap)
         if known[route] > 0:
             known[route] -= 1
             continue
-        notes.append(
-            f"Nothing gets you from {route[0]} to {route[1]} now. I'll look for a ride{when}"
-        )
+        notes.append(f"Nothing gets you from {route[0]} to {route[1]} now. {fix}")
     return notes
 
 

@@ -251,6 +251,29 @@ test('removes the hotel by typing, and goes back to lodging to find another', as
     await expect(page.getByRole('region', { name: 'Pick a place to stay.' })).toBeVisible()
 })
 
+test('removes the hotel from the itinerary, says what the trip needs, and finds another', async ({
+    page,
+}) => {
+    await answerBasics(page)
+    await bookFlightsAndStay(page)
+    await expect(question(page, 'What do you like to do?')).toBeVisible()
+
+    // The stay's bar on the timeline opens its details, with a button to remove it.
+    const itinerary = page.getByRole('region', { name: 'Itinerary' })
+    await itinerary.getByRole('button', { name: /, \d+ nights?$/ }).click()
+    await page.getByRole('button', { name: 'Remove from trip' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click()
+
+    // The planner says what the trip needs now and how to fix it, then walks back to lodging
+    // and, with the preferences already answered, searches for another place at once.
+    const updated = page.getByRole('region', { name: 'Trip updated' })
+    await expect(updated).toContainText('Removed “')
+    await expect(updated).toContainText('The trip needs a place to stay')
+    await expect(updated).toContainText('Pick another place to stay')
+    await expect(page.getByRole('separator', { name: /^Back to lodging: / })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Pick a place to stay.' })).toBeVisible()
+})
+
 test('drives the own car on a trip without flights', async ({ page }) => {
     await answerBasics(page)
     await page.getByRole('button', { name: 'Skip flights' }).click()

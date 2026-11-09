@@ -39,6 +39,17 @@ from tests.features.planning.planning_http import (
 
 FLAT_REF, DINNER_REF = 1, 2
 
+# What the changes card says the trip needs once the flat (every night) or the dinner (the
+# only activity) is gone, with how to fix it.
+NEEDS_A_STAY = (
+    "The trip needs a place to stay May 1 to May 8 now. Pick another place to stay, or tell "
+    "me what you'd like instead"
+)
+NEEDS_AN_ACTIVITY = (
+    "The trip needs at least one activity now. Pick something else to do, or tell me what "
+    "you're into"
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,7 +133,7 @@ async def test_removing_the_only_stay_goes_back_to_lodging(
 
     assert stored(events) == [
         ("message", "remove the flat"),
-        ("changes", "Removed “Friend's flat”."),
+        ("changes", f"Removed “Friend's flat”. {NEEDS_A_STAY}."),
         ("stage", "Back to lodging: the trip still needs a place to stay the night of May 1."),
         ("expected_input", "What kind of place do you want to stay in?"),
     ]
@@ -407,7 +418,7 @@ async def test_a_ride_left_missing_is_named_and_ground_transport_takes_it_up(
         (
             "changes",
             "Removed “Taxi back”. Nothing gets you from Tram 28 stop to Friend's flat now. "
-            "I'll look for a ride.",
+            "Pick a way to get there, or tell me how you'd like to go.",
         ),
         (
             "stage",
@@ -445,7 +456,7 @@ async def test_an_ambiguous_edit_asks_which_and_reads_the_reply_with_it(
 
     events = await say(client, headers, plan_id, "the dinner")
 
-    assert stored(events)[1] == ("changes", "Removed “Dinner in”.")
+    assert stored(events)[1] == ("changes", f"Removed “Dinner in”. {NEEDS_AN_ACTIVITY}.")
     reader = fake_llm.requests[-1]
     assert [(m.role, m.content) for m in reader.messages[1:]] == [
         ("user", "remove it"),
@@ -470,7 +481,7 @@ async def test_the_offline_fake_removes_an_item_by_name(
     events = await say(client, headers, plan_id, "remove the flat")
 
     assert stored(events)[1:3] == [
-        ("changes", "Removed “Friend's flat”."),
+        ("changes", f"Removed “Friend's flat”. {NEEDS_A_STAY}."),
         ("stage", "Back to lodging: the trip still needs a place to stay the night of May 1."),
     ]
 

@@ -38,6 +38,12 @@ class PlanningText(BaseModel):
     content: MessageContent
 
 
+class ItemRemoval(BaseModel):
+    """An item's Remove button (`POST /plans/{id}/planning/removals`)."""
+
+    item_id: UUID
+
+
 class ContinueRequest(BaseModel):
     """`POST /plans/{id}/planning/continue`. With `refresh`, the pending choices are
     searched again for other options ("More options"); without it (or with no body) the

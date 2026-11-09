@@ -1501,6 +1501,138 @@
         }
       }
     },
+    "/plans/{plan_id}/planning/removals": {
+      "post": {
+        "tags": [
+          "planning"
+        ],
+        "summary": "Remove Item",
+        "description": "Take an item off the trip, as a typed \"remove \u2026\" would: no model call. The item goes\nwith the rides to and from it, the planner says what the trip now needs and how to fix\nit, and then asks for it (going back to that stage if need be), streaming\n`PlanningEvent`s that end in `done`.",
+        "operationId": "removePlanItem",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemRemoval"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/PlanningStatusEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningTokenEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningMessageEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningPlanEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningDoneEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        ],
+                        "discriminator": {
+                          "propertyName": "type",
+                          "mapping": {
+                            "status": "#/components/schemas/PlanningStatusEvent",
+                            "token": "#/components/schemas/PlanningTokenEvent",
+                            "message": "#/components/schemas/PlanningMessageEvent",
+                            "plan_updated": "#/components/schemas/PlanningPlanEvent",
+                            "done": "#/components/schemas/PlanningDoneEvent",
+                            "error": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        },
+                        "title": "Streamitem Removeplanitem"
+                      }
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/plans/{plan_id}/planning/continue": {
       "post": {
         "tags": [
@@ -3569,6 +3701,21 @@
         ],
         "title": "IssueCode",
         "description": "Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's\nwarnings use the same codes."
+      },
+      "ItemRemoval": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_id"
+        ],
+        "title": "ItemRemoval",
+        "description": "An item's Remove button (`POST /plans/{id}/planning/removals`)."
       },
       "JsonValue": {},
       "LodgingItem": {

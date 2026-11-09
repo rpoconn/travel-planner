@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { getPlanQueryKey } from '@/api/@tanstack/react-query.gen'
@@ -21,7 +22,7 @@ import {
 import { renderWithQuery } from '@/test/render'
 import { controlledSseResponse, jsonResponse, sseResponse } from '@/test/sse'
 
-import { PlanningPanel } from './PlanningPanel'
+import { PlanningPanel, type PlanningPanelHandle } from './PlanningPanel'
 
 // ----- setup -----
 // The transcript comes from a spied `listPlanningMessages`; turns go through the real
@@ -247,6 +248,44 @@ describe('PlanningPanel', () => {
         stream.close()
         await waitFor(() => {
             expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+        })
+    })
+
+    it("runs an item's removal as a turn, showing what the trip needs", async () => {
+        const removed = planningMessage({
+            id: 'm7',
+            kind: 'changes',
+            content: 'Removed “Hotel Okura”. The trip needs a place to stay May 2 to May 5 now.',
+            payload: {
+                type: 'changes',
+                applied: [{ name: 'remove_item', summary: 'Removed “Hotel Okura”', item_id: 'h' }],
+                rejected: [],
+                left_open: [
+                    'The trip needs a place to stay May 2 to May 5 now. Pick another place to ' +
+                        "stay, or tell me what you'd like instead",
+                ],
+                clarification: null,
+            },
+        })
+        mockTranscript([], [removed])
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+            sseResponse([
+                { type: 'message', message: removed },
+                { type: 'done', plan: planAsking(ASK_DESTINATION) },
+            ]),
+        )
+        const ref = createRef<PlanningPanelHandle>()
+        renderWithQuery(<PlanningPanel plan={planAsking(ASK_DESTINATION)} ref={ref} />)
+        await screen.findByRole('textbox', { name: 'Message' })
+
+        ref.current?.removeItem('item-1')
+
+        expect(await screen.findByRole('region', { name: 'Trip updated' })).toHaveTextContent(
+            'Pick another place to stay',
+        )
+        expect(await sentRequest(fetchSpy)).toEqual({
+            url: `http://api.test/plans/${PLAN_ID}/planning/removals`,
+            body: { item_id: 'item-1' },
         })
     })
 

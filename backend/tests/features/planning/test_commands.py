@@ -202,9 +202,17 @@ async def test_removing_an_item_deletes_it(ctx: ToolContext) -> None:
     assert record == ChangesRecord(
         applied=[
             AppliedChange(name="remove_item", summary="Removed “Dinner in”", item_id=dinner.id)
-        ]
+        ],
+        # The only activity: the planner says what the trip needs now, and how to fix it.
+        left_open=[
+            "The trip needs at least one activity now. Pick something else to do, or tell me "
+            "what you're into"
+        ],
     )
-    assert describe_changes(record) == "Removed “Dinner in”."
+    assert describe_changes(record) == (
+        "Removed “Dinner in”. The trip needs at least one activity now. Pick something "
+        "else to do, or tell me what you're into."
+    )
     plan = await _plan(ctx)
     assert [item.title for item in plan.items] == ["Friend's flat"]
     assert plan.version > version
@@ -274,11 +282,12 @@ async def test_removing_a_stop_in_the_middle_says_which_ride_is_missing(
     record = await _run(ctx, _remove(3))
 
     assert record.left_open == [
-        "Nothing gets you from Friend's flat to Time Out Market now. I'll look for a ride"
+        "Nothing gets you from Friend's flat to Time Out Market now. Pick a way to get "
+        "there, or tell me how you'd like to go"
     ]
     assert describe_changes(record) == (
         "Removed “Museum” and “Taxi to lunch”. Nothing gets you from Friend's flat to "
-        "Time Out Market now. I'll look for a ride."
+        "Time Out Market now. Pick a way to get there, or tell me how you'd like to go."
     )
 
 
@@ -305,6 +314,17 @@ async def test_a_ride_left_missing_before_ground_transport_waits_for_it(
         "Nothing gets you from Friend's flat to Tram 28 stop now. I'll look for a ride at "
         "ground transport"
     ]
+
+
+async def test_what_a_stage_not_reached_yet_asks_for_anyway_is_not_named(
+    ctx: ToolContext,
+) -> None:
+    # At lodging, the activities stage is still to come and will ask for activities itself.
+    await plans_service.set_stage(ctx.session, ctx.user_id, ctx.plan_id, PlanStage.LODGING, True)
+
+    record = await _run(ctx, _remove(DINNER_REF))
+
+    assert record.left_open == []
 
 
 async def test_a_cancelled_item_is_not_in_the_list(ctx: ToolContext) -> None:
@@ -546,7 +566,11 @@ async def test_an_item_change_and_a_stage_change_go_together(ctx: ToolContext) -
         AppliedChange(name="remove_item", summary="Removed “Friend's flat”", item_id=flat),
         AppliedChange(name="change_stage", summary="Back to lodging"),
     ]
-    assert describe_changes(record) == "Removed “Friend's flat”. Back to lodging."
+    # Lodging is reached again, so the nights the flat covered are named with the fix.
+    assert describe_changes(record) == (
+        "Removed “Friend's flat”. Back to lodging. The trip needs a place to stay May 1 to "
+        "May 8 now. Pick another place to stay, or tell me what you'd like instead."
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -607,8 +607,10 @@ class ChangesRecord(BaseModel):
     type: Literal["changes"] = "changes"
     applied: list[AppliedChange] = Field(default_factory=list)
     rejected: list[RejectedChange] = Field(default_factory=list)
-    # Rides the applied changes left missing (a removal took the taxi on to dinner), in
-    # words: "Nothing gets you from Hotel Okura to Sushi Dai now. …"
+    # What the applied changes left to fix, in words, each with how: a flight, a stay or
+    # the activities the plan no longer has ("The trip needs a flight home now. Pick
+    # another flight, …"), else the rides they left missing (a removal took the taxi on to
+    # dinner): "Nothing gets you from Hotel Okura to Sushi Dai now. …"
     left_open: list[str] = Field(default_factory=list)
     # Set instead when the words could mean more than one change: the question asked back.
     # The user's reply is read together with it (`turn._free_text`).

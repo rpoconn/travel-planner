@@ -986,6 +986,18 @@ export const IssueCode = {
  */
 export type IssueCode = typeof IssueCode[keyof typeof IssueCode];
 
+/**
+ * ItemRemoval
+ *
+ * An item's Remove button (`POST /plans/{id}/planning/removals`).
+ */
+export type ItemRemoval = {
+    /**
+     * Item Id
+     */
+    item_id: string;
+};
+
 export type JsonValue = unknown;
 
 /**
@@ -3301,6 +3313,42 @@ export type SendPlanningMessageErrors = {
 export type SendPlanningMessageError = SendPlanningMessageErrors[keyof SendPlanningMessageErrors];
 
 export type SendPlanningMessageResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type RemovePlanItemData = {
+    body: ItemRemoval;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/planning/removals';
+};
+
+export type RemovePlanItemErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RemovePlanItemError = RemovePlanItemErrors[keyof RemovePlanItemErrors];
+
+export type RemovePlanItemResponses = {
     /**
      * Successful Response
      */

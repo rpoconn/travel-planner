@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AddItemData, AddItemErrors, AddItemResponses, ChangeStageData, ChangeStageErrors, ChangeStageResponses, ContinuePlanningData, ContinuePlanningErrors, ContinuePlanningResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListPlanningMessagesData, ListPlanningMessagesErrors, ListPlanningMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, SendPlanningMessageData, SendPlanningMessageErrors, SendPlanningMessageResponses, SubmitPlanningInputData, SubmitPlanningInputErrors, SubmitPlanningInputResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdateMeData, UpdateMeErrors, UpdateMeResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
+import type { AddItemData, AddItemErrors, AddItemResponses, ChangeStageData, ChangeStageErrors, ChangeStageResponses, ContinuePlanningData, ContinuePlanningErrors, ContinuePlanningResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListPlanningMessagesData, ListPlanningMessagesErrors, ListPlanningMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, RemovePlanItemData, RemovePlanItemErrors, RemovePlanItemResponses, SendPlanningMessageData, SendPlanningMessageErrors, SendPlanningMessageResponses, SubmitPlanningInputData, SubmitPlanningInputErrors, SubmitPlanningInputResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdateMeData, UpdateMeErrors, UpdateMeResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -257,6 +257,24 @@ export const submitPlanningInput = <ThrowOnError extends boolean = false>(option
 export const sendPlanningMessage = <ThrowOnError extends boolean = false>(options: Options<SendPlanningMessageData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<SendPlanningMessageResponses>> => (options.client ?? client).sse.post<SendPlanningMessageResponses, SendPlanningMessageErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/plans/{plan_id}/planning/chat',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Remove Item
+ *
+ * Take an item off the trip, as a typed "remove …" would: no model call. The item goes
+ * with the rides to and from it, the planner says what the trip now needs and how to fix
+ * it, and then asks for it (going back to that stage if need be), streaming
+ * `PlanningEvent`s that end in `done`.
+ */
+export const removePlanItem = <ThrowOnError extends boolean = false>(options: Options<RemovePlanItemData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<RemovePlanItemResponses>> => (options.client ?? client).sse.post<RemovePlanItemResponses, RemovePlanItemErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/planning/removals',
     ...options,
     headers: {
         'Content-Type': 'application/json',

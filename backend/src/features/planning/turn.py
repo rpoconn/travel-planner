@@ -14,6 +14,9 @@ A turn starts from one trigger:
   asking for other options than the choices on show runs their search again, as "More
   options" does. With nothing pending the command reader reads it first. Anything else
   gets the slot's fixed nudge, or a short answer when it is a question.
+- `Remove`: an item's Remove button. No model call: it is the `remove_item` command a
+  typed "remove the hotel" becomes, checked and written the same way (with the rides to
+  and from the item), and the outcome says what the trip now needs and how to fix it.
 - `Continue`: no input; just drive (the "Find flights" / "Retry" / "Continue" button).
   With `refresh` ("More options"), the pending choices' search runs again first, leaving
   out everything it has already offered; the new offer replaces the old one.
@@ -46,7 +49,12 @@ from features.planning.answers import (
     describe_answer,
     skip_slot,
 )
-from features.planning.commands import check_and_apply, describe_changes, numbered_items
+from features.planning.commands import (
+    check_and_apply,
+    describe_changes,
+    numbered_items,
+    removal,
+)
 from features.planning.engine import refresh_search
 from features.planning.events import (
     PlanningDoneEvent,
@@ -150,11 +158,16 @@ class Text:
 
 
 @dataclass(frozen=True)
+class Remove:
+    item_id: UUID  # checked by the router: in the plan's itinerary list
+
+
+@dataclass(frozen=True)
 class Continue:
     refresh: bool = False  # checked by the router: only with refreshable choices pending
 
 
-Trigger = Answer | Skip | Pick | Text | Continue
+Trigger = Answer | Skip | Pick | Text | Remove | Continue
 
 
 @dataclass
@@ -350,6 +363,26 @@ async def _ask_which(ctx: TurnContext, clarification: str) -> PlanningMessageEve
     return await _store(ctx, "assistant", clarification, kind=MessageKind.CHANGES, payload=record)
 
 
+def _tool_context(ctx: TurnContext) -> ToolContext:
+    return ToolContext(
+        session=ctx.session, user_id=ctx.user_id, plan_id=ctx.plan_id, today=ctx.today
+    )
+
+
+async def _changes(
+    ctx: TurnContext, record: ChangesRecord, outcome: _Outcome
+) -> AsyncIterator[PlanningEvent]:
+    """Store what the commands did, and drive on from the plan they left."""
+    content = describe_changes(record)
+    yield await _store(ctx, "assistant", content, kind=MessageKind.CHANGES, payload=record)
+    if record.applied:
+        yield PlanningPlanEvent(plan=await _snapshot(ctx))
+        names = {change.name for change in record.applied}
+        outcome.hold = "change_stage" in names
+        outcome.refresh = "redo_search" in names
+    outcome.drive = True
+
+
 async def _edit(
     ctx: TurnContext, plan: TravelPlan, read: _Reading, outcome: _Outcome
 ) -> AsyncIterator[PlanningEvent]:
@@ -361,9 +394,7 @@ async def _edit(
     if reading.clarification is not None:
         yield await _ask_which(ctx, reading.clarification)
         return
-    tool_ctx = ToolContext(
-        session=ctx.session, user_id=ctx.user_id, plan_id=ctx.plan_id, today=ctx.today
-    )
+    tool_ctx = _tool_context(ctx)
     record = await check_and_apply(tool_ctx, plan, reading.commands)
     if record.rejected and not record.applied and reading.reply is not None:
         # Nothing was written, so the repair is checked against the same plan.
@@ -375,14 +406,25 @@ async def _edit(
             return
         if repair.status == "command":
             record = await check_and_apply(tool_ctx, plan, repair.commands)
-    content = describe_changes(record)
-    yield await _store(ctx, "assistant", content, kind=MessageKind.CHANGES, payload=record)
-    if record.applied:
-        yield PlanningPlanEvent(plan=await _snapshot(ctx))
-        names = {change.name for change in record.applied}
-        outcome.hold = "change_stage" in names
-        outcome.refresh = "redo_search" in names
-    outcome.drive = True
+    async for event in _changes(ctx, record, outcome):
+        yield event
+
+
+async def _remove(
+    ctx: TurnContext, trigger: Remove, outcome: _Outcome
+) -> AsyncIterator[PlanningEvent]:
+    """An item's Remove button, as the command a typed removal becomes: checked, written
+    with the rides to and from the item, and stored as a "changes" message that says what
+    the trip now needs. The drive then asks for it (or goes back to the stage that does)."""
+    plan = await _snapshot(ctx)
+    found = removal(plan, trigger.item_id)
+    if found is None:  # checked by the router; gone since (another tab removed it)
+        return
+    command, item = found
+    yield await _store(ctx, "user", f"Remove “{item.title}”.")
+    record = await check_and_apply(_tool_context(ctx), plan, [command])
+    async for event in _changes(ctx, record, outcome):
+        yield event
 
 
 async def _not_an_answer(
@@ -652,6 +694,11 @@ async def run_turn(ctx: TurnContext, trigger: Trigger) -> AsyncIterator[Planning
                     async for event in _refresh(ctx):
                         yield event
                     searched = True
+            case Remove():
+                outcome = _Outcome()
+                async for event in _remove(ctx, trigger, outcome):
+                    yield event
+                drive = outcome.drive
             case Continue(refresh=True):
                 yield await _store(ctx, "user", MORE_OPTIONS_TEXT)
                 async for event in _refresh(ctx):

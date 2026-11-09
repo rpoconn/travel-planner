@@ -1,14 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { CalendarRange, LogOut, MessagesSquare, Plane } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { getPlanOptions } from '@/api/@tanstack/react-query.gen'
 import { EmptyPane } from '@/components/EmptyPane/EmptyPane'
 import { HomeSetup } from '@/components/HomeSetup/HomeSetup'
 import { IssuesPanel } from '@/components/IssuesPanel/IssuesPanel'
 import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
-import { PlanningPanel } from '@/components/PlanningPanel/PlanningPanel'
+import { PlanningPanel, type PlanningPanelHandle } from '@/components/PlanningPanel/PlanningPanel'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
 import { SplitPane } from '@/components/SplitPane/SplitPane'
 import { StageStepper } from '@/components/StageStepper/StageStepper'
@@ -23,7 +23,8 @@ import { formatDateRange } from '@/lib/format'
 // (and aborts a streaming turn). The stage steps span the top of the page and lock while a
 // turn streams, since the turn acts on the stage it started in. The planner's issues ("things
 // to check", with "Go to" a stage) sit at the right end of the stage bar, leaving the
-// timeline its room.
+// timeline its room. An item's Remove button in the timeline runs as a turn in the planning
+// panel, so the planner's answer (what the trip needs now) shows in the chat.
 
 interface WorkspacePageProps {
     planId?: string
@@ -40,6 +41,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
     const plan = planId === undefined ? undefined : planQuery.data
     // The stage steps and issues lock while the planning panel streams a turn.
     const [chatBusy, setChatBusy] = useState(false)
+    const panelRef = useRef<PlanningPanelHandle>(null)
 
     // ----- event handlers -----
     function handleSelectPlan(id: string) {
@@ -106,7 +108,12 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                                     Select a trip to see its itinerary.
                                 </EmptyPane>
                             ) : (
-                                <ItineraryTimeline key={planId} planId={planId} />
+                                <ItineraryTimeline
+                                    key={planId}
+                                    planId={planId}
+                                    onRemoveItem={(item) => panelRef.current?.removeItem(item.id)}
+                                    removeDisabled={chatBusy}
+                                />
                             )}
                         </section>
                     }
@@ -144,6 +151,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                                     </p>
                                 ) : (
                                     <PlanningPanel
+                                        ref={panelRef}
                                         key={planQuery.data.id}
                                         plan={planQuery.data}
                                         onBusyChange={setChatBusy}

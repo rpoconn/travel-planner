@@ -1,4 +1,9 @@
-import { continuePlanning, sendPlanningMessage, submitPlanningInput } from '@/api/sdk.gen'
+import {
+    continuePlanning,
+    removePlanItem,
+    sendPlanningMessage,
+    submitPlanningInput,
+} from '@/api/sdk.gen'
 import type {
     PlanningDoneEvent,
     PlanningErrorEvent,
@@ -12,7 +17,7 @@ import { errorMessage } from '@/lib/apiError'
 import { clearSession } from '@/lib/auth'
 
 // Streaming a planning turn over the generated SDK's SSE client: a form answer or pick, free
-// text, or continue. hey-api types each stream item as `unknown` (it ignores OpenAPI 3.2
+// text, an item's Remove button, or continue. hey-api types each stream item as `unknown` (it ignores OpenAPI 3.2
 // `itemSchema`), so the event union is rebuilt here from the generated event types and
 // every item is narrowed on its `type` tag.
 
@@ -159,6 +164,23 @@ export function streamPlanningChat(
     return streamEvents(
         (options) =>
             sendPlanningMessage({ path: { plan_id: planId }, body: { content }, ...options }),
+        signal,
+        parsePlanningEvent,
+    )
+}
+
+/**
+ * Take an item off the trip (its Remove button): the rides to and from it go too, and the
+ * planner says what the trip now needs and asks how to fix it.
+ */
+export function streamPlanningRemove(
+    planId: string,
+    itemId: string,
+    { signal }: StreamOptions = {},
+): AsyncGenerator<PlanningEvent, void, undefined> {
+    return streamEvents(
+        (options) =>
+            removePlanItem({ path: { plan_id: planId }, body: { item_id: itemId }, ...options }),
         signal,
         parsePlanningEvent,
     )

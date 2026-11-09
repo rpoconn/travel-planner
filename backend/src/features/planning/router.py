@@ -1,5 +1,5 @@
-"""The planning flow's routes: the transcript, form answers and picks, free text, and
-"continue".
+"""The planning flow's routes: the transcript, form answers and picks, free text, an item's
+Remove button, and "continue".
 
 Every check that can fail (the plan, the pending slot, the answer's shape) runs in a
 dependency, before the event stream opens, so a failure is a plain 404 / 409 / 422.
@@ -18,8 +18,10 @@ from features.chat import service as chat_service
 from features.chat.dependencies import LLMDep, limit_chat_messages
 from features.planning import service as planning_service
 from features.planning.answers import AnswerError, parse_answer
+from features.planning.commands import removal
 from features.planning.events import (
     ContinueRequest,
+    ItemRemoval,
     PlanningEvent,
     PlanningMessage,
     PlanningText,
@@ -30,6 +32,7 @@ from features.planning.turn import (
     Answer,
     Continue,
     Pick,
+    Remove,
     Skip,
     Text,
     Trigger,
@@ -130,6 +133,19 @@ async def get_checked_continue(
 CheckedContinue = Annotated[Continue, Depends(get_checked_continue)]
 
 
+async def get_checked_removal(body: ItemRemoval, plan: OwnedPlan, session: SessionDep) -> Remove:
+    """The Remove button as a turn trigger: 404 unless the item is on the plan's itinerary."""
+    snapshot = await planning_service.snapshot(session, plan)
+    if removal(snapshot, body.item_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="That item is no longer in this plan"
+        )
+    return Remove(item_id=body.item_id)
+
+
+CheckedRemoval = Annotated[Remove, Depends(get_checked_removal)]
+
+
 def get_turn_context(
     session: SessionDep,
     llm: LLMDep,
@@ -194,6 +210,20 @@ async def send_message(body: PlanningText, turn: Turn) -> AsyncIterator[Planning
     choices are pending as a pick (or answered as a question, or nudged back to the
     question); otherwise it is a question about the trip."""
     async for event in run_turn(turn, Text(content=body.content)):
+        yield event
+
+
+@router.post(
+    "/removals",
+    operation_id="removePlanItem",
+    response_class=EventSourceResponse,
+)
+async def remove_item(trigger: CheckedRemoval, turn: Turn) -> AsyncIterator[PlanningEvent]:
+    """Take an item off the trip, as a typed "remove …" would: no model call. The item goes
+    with the rides to and from it, the planner says what the trip now needs and how to fix
+    it, and then asks for it (going back to that stage if need be), streaming
+    `PlanningEvent`s that end in `done`."""
+    async for event in run_turn(turn, trigger):
         yield event
 
 

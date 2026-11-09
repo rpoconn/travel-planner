@@ -10,18 +10,27 @@ import { errorMessage } from '@/lib/apiError'
 import type { ItineraryItem } from '@/lib/itemMeta'
 import { findTimelineItem } from '@/lib/timeline'
 
-// The read-only itinerary panel: day columns left to right (outbound flight on the first day,
+// The itinerary panel: day columns left to right (outbound flight on the first day,
 // return on the last) and lodging bars spanning the nights. The layout comes from the server's
-// timeline view model; plan_updated events refetch it. The planner's issues live in the stage bar
-// (IssuesPanel); per-day and per-item warnings still mark the cards here.
+// timeline view model; plan_updated events refetch it. Clicking an item opens its details, with
+// a button to remove it (the planner runs the removal as a turn in the chat). The planner's issues
+// live in the stage bar (IssuesPanel); per-day and per-item warnings still mark the cards here.
 
 // ----- types -----
 
 interface ItineraryTimelineProps {
     planId: string
+    /** Takes an item off the trip; the detail sheet has no Remove button without it. */
+    onRemoveItem?: (item: ItineraryItem) => void
+    /** While the planner is busy with another turn. */
+    removeDisabled?: boolean
 }
 
-export function ItineraryTimeline({ planId }: ItineraryTimelineProps) {
+export function ItineraryTimeline({
+    planId,
+    onRemoveItem,
+    removeDisabled = false,
+}: ItineraryTimelineProps) {
     // ----- state -----
     const timelineQuery = useQuery(getTimelineOptions({ path: { plan_id: planId } }))
     // Store the id, not the item, so the sheet shows fresh data after the assistant edits it
@@ -35,6 +44,12 @@ export function ItineraryTimeline({ planId }: ItineraryTimelineProps) {
     // ----- event handlers -----
     function handleSelect(item: ItineraryItem) {
         setSelectedId(item.id)
+    }
+
+    /** Close the sheet, so the chat (where the planner asks what's next) is in view. */
+    function handleRemove(item: ItineraryItem) {
+        setSelectedId(null)
+        onRemoveItem?.(item)
     }
 
     // ----- markup -----
@@ -63,6 +78,8 @@ export function ItineraryTimeline({ planId }: ItineraryTimelineProps) {
                 onClose={() => {
                     setSelectedId(null)
                 }}
+                onRemove={onRemoveItem ? handleRemove : undefined}
+                removeDisabled={removeDisabled}
             />
         </div>
     )

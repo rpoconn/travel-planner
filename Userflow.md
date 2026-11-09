@@ -179,7 +179,7 @@ with commands from a closed list ([schemas.py](backend/src/features/planning/sch
 
 | Command | Does | Checked by |
 |---|---|---|
-| `remove_item` | cancels an item (kept, struck through, can come back) | route, overnight, timezone and budget rules (`chat/tools.py`) |
+| `remove_item` | deletes an item, with the rides straight to and from it | route, overnight, timezone and budget rules (`chat/tools.py`) |
 | `update_item` | changes an item's title, times, notes or status; never its cost, places or airports | the same rules |
 | `set_dates`, `set_travelers`, `set_destination`, `set_origin`, `set_budget` | changes one of the basics | the basics form's rules ("can't start in the past") |
 | `set_flight_preferences`, `set_lodging_preferences`, `set_activity_preferences` | changes only the fields given of that stage's preferences | the preferences form's rules (1–5 interests) |
@@ -232,10 +232,28 @@ sequenceDiagram
     T-->>U: done {plan, assessment}
 ```
 
-After the write, the turn drives as after any answer: removing the only stay at review
-goes back to lodging with a divider ("Back to lodging: the trip still needs a place to stay
-…"), a new preference searches the pending choices again, and going back to a finished
-stage waits there with Continue rather than moving straight on.
+After the write, the "Trip updated" card names what the edit left to fix, with how: a
+flight, a stay or the activities the trip no longer has ("The trip needs a flight home now.
+Pick another flight, tell me what you'd like instead, or skip flights if you'll get there
+another way."), or else each ride now missing ("Nothing gets you from the museum to lunch
+now. …"; before ground transport, it says the ride will be looked for there). Rides aren't
+named when a flight or stay is missing too, since replacing it moves them. Only stages the
+plan has reached count: a later stage asks for its own.
+
+Then the turn drives as after any answer, so the planner asks for the fix: removing the
+only stay at review goes back to lodging with a divider ("Back to lodging: the trip still
+needs a place to stay …") and lists stays, where the user can pick one, type what they'd
+like instead, or ask for other options. A new preference searches the pending choices
+again, and going back to a finished stage waits there with Continue rather than moving
+straight on.
+
+### Removing from the itinerary
+
+Every item on the timeline (a flight, a stay, an activity, a ride) opens a sheet with
+**Remove from trip**. After a confirm, it runs as a turn in the chat
+(`POST /plans/{id}/planning/removals`, no model call): the `remove_item` command a typed
+"remove the hotel" becomes, so the same rules, the same rides going with it, the same card
+and the same walk-back as above. The user's bubble reads "Remove “Hotel Okura”."
 
 ## 5. Picking
 
@@ -258,12 +276,12 @@ Each candidate carries the plan changes picking it makes (`add_flight`, `add_lod
 - **Back** and the stepper's earlier steps go back a stage; later steps are locked. Going
   back keeps what was planned, and the engine picks up where it left off.
 - A stage can only be left once its checklist is empty, so an issue in an earlier stage can
-  only come from a later change: a stay deleted from the item sheet at the ground stage
-  leaves nights uncovered. The engine then **goes back by itself** to the earliest such
-  stage, with a "Back to lodging: the trip still needs a place to stay the night of May 2."
-  divider, and asks that stage's question. Basics are the exception: a missing basic is
-  re-asked in place, whatever the stage. When the change happened outside a turn (the item
-  sheet), the stage bar shows **Back to Lodging** and the next turn does it.
+  only come from a later change: a stay removed at the ground stage leaves nights
+  uncovered. The engine then **goes back by itself** to the earliest such stage, with a
+  "Back to lodging: the trip still needs a place to stay the night of May 2." divider, and
+  asks that stage's question. Basics are the exception: a missing basic is re-asked in
+  place, whatever the stage. When the change happened outside a turn (the items API), the
+  stage bar shows **Back to Lodging** and the next turn does it.
 - **Skip flights** marks the flights stage skipped and moves on to lodging.
 - The issues flyout at the end of the stepper lists blocking issues and timeline warnings,
   each with **Go to** the stage that fixes it.

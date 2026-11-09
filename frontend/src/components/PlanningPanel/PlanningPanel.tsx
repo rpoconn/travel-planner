@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 
 import { getPlanQueryKey, listPlanningMessagesOptions } from '@/api/@tanstack/react-query.gen'
 import type { TravelPlan } from '@/api/types.gen'
@@ -17,6 +17,7 @@ import {
     streamPlanningChat,
     streamPlanningContinue,
     streamPlanningInput,
+    streamPlanningRemove,
     type PlanningEvent,
     type PlanningInputBody,
 } from '@/lib/sse'
@@ -28,20 +29,28 @@ import { composerPlaceholder, mergeTranscript, visibleMessages } from './Plannin
 // free text. What comes next is
 // always `plan.assessment.next_action`, so the form and buttons follow the server.
 // Every turn (a form answer, free text, Continue) streams the messages the server stores;
-// once it ends the transcript is refetched. Mount with `key={plan.id}`.
+// once it ends the transcript is refetched. Mount with `key={plan.id}`. The itinerary's Remove
+// button runs its turn here too, through the `ref` handle, so its outcome lands in this transcript.
 
 // ----- types -----
+
+/** What the panel lets its parent do: turns started outside it. */
+export interface PlanningPanelHandle {
+    /** Take an item off the trip; ignored while a turn is streaming. */
+    removeItem: (itemId: string) => void
+}
 
 interface PlanningPanelProps {
     plan: TravelPlan
     /** Told whenever a turn starts or stops streaming (and `false` on unmount). */
     onBusyChange?: (busy: boolean) => void
+    ref?: Ref<PlanningPanelHandle>
 }
 
 /** Starts a turn's request; the turn loop owns the abort signal. */
 type StartTurn = (signal: AbortSignal) => AsyncGenerator<PlanningEvent, void, undefined>
 
-export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
+export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
     // ----- state -----
     const queryClient = useQueryClient()
     const messagesOptions = listPlanningMessagesOptions({ path: { plan_id: plan.id } })
@@ -100,6 +109,12 @@ export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
         await runTurn(null, (signal) => streamPlanningInput(plan.id, body, { signal }))
     }
 
+    /** The itinerary's Remove button: the planner says what the trip needs, then asks for it. */
+    async function removeItem(itemId: string) {
+        if (busy) return
+        await runTurn(null, (signal) => streamPlanningRemove(plan.id, itemId, { signal }))
+    }
+
     /** Drive the planner on; with `refresh`, look for other options than the choices shown. */
     async function continuePlanning(refresh = false) {
         if (busy) return
@@ -156,6 +171,12 @@ export function PlanningPanel({ plan, onBusyChange }: PlanningPanelProps) {
         await queryClient.invalidateQueries({ queryKey: messagesOptions.queryKey })
         setTurn(null)
     }
+
+    // The parent's handle on the turns above. After them, since it calls them; recreated each
+    // render, so `removeItem` always sees whether a turn is streaming.
+    useImperativeHandle(ref, () => ({
+        removeItem: (itemId) => void removeItem(itemId),
+    }))
 
     // ----- markup -----
     return (
