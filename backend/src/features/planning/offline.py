@@ -222,7 +222,7 @@ def _command(phrase: str, prompt: str) -> dict[str, JsonValue] | None:
         hotel_class = phrase.removeprefix("make the hotel ")
         if hotel_class not in get_args(HotelClass):
             return None
-        return {"type": "set_preferences", "lodging": {"hotel_class": hotel_class}}
+        return {"type": "set_lodging_preferences", "hotel_class": hotel_class}
     return None
 
 

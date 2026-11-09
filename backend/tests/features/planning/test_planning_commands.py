@@ -283,10 +283,7 @@ async def test_a_new_preference_searches_the_choices_again(
     fake_hotels: FakeHotelProvider,
 ) -> None:
     plan_id, first = await _choosing_a_stay(app, client, headers)
-    upscale: dict[str, JsonValue] = {
-        "type": "set_preferences",
-        "lodging": {"hotel_class": "upscale"},
-    }
+    upscale: dict[str, JsonValue] = {"type": "set_lodging_preferences", "hotel_class": "upscale"}
     fake_llm.queue(json_reply(PICK_COMMAND), json_reply(_commands(upscale)))
 
     events = await say(client, headers, plan_id, "somewhere fancier please")
@@ -309,7 +306,7 @@ async def test_a_new_preference_and_other_options_search_once(
     fake_hotels: FakeHotelProvider,
 ) -> None:
     plan_id, _first = await _choosing_a_stay(app, client, headers)
-    hostel: dict[str, JsonValue] = {"type": "set_preferences", "lodging": {"kind": "hostel"}}
+    hostel: dict[str, JsonValue] = {"type": "set_lodging_preferences", "kind": "hostel"}
     fake_llm.queue(json_reply(PICK_COMMAND), json_reply(_commands(hostel, REDO_LODGING)))
 
     events = await say(client, headers, plan_id, "find me hostels instead")

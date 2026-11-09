@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
 from typing import Literal, TypedDict
 
 import anthropic
@@ -104,6 +105,54 @@ def strict_schema(schema: dict[str, JsonValue]) -> dict[str, JsonValue]:
     strict = _strict(schema)
     assert isinstance(strict, dict)  # an object stays an object
     return strict
+
+
+# Claude compiles a structured-output schema into a grammar and rejects the request (400)
+# when the schema has more than these, counted across the whole schema, nested objects
+# included. https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+MAX_OPTIONAL_FIELDS = 24
+MAX_UNION_FIELDS = 16
+
+
+@dataclass(frozen=True)
+class SchemaSize:
+    optional: int  # fields not in their object's `required`
+    unions: int  # fields that are an `anyOf` or a type list, or a list of one
+
+
+def _is_union(field: JsonValue) -> bool:
+    if not isinstance(field, dict):
+        return False
+    items = field.get("items")
+    return (
+        "anyOf" in field
+        or isinstance(field.get("type"), list)
+        or (isinstance(items, dict) and "anyOf" in items)
+    )
+
+
+def schema_size(node: JsonValue) -> SchemaSize:
+    """What `node` counts toward Claude's limits (`MAX_OPTIONAL_FIELDS`, `MAX_UNION_FIELDS`).
+    A test holds every structured-output schema to them, so one that grows too big fails
+    there rather than as a rejected request."""
+    if isinstance(node, list):
+        sizes = [schema_size(value) for value in node]
+        return SchemaSize(sum(s.optional for s in sizes), sum(s.unions for s in sizes))
+    if not isinstance(node, dict):
+        return SchemaSize(0, 0)
+    optional = unions = 0
+    properties = node.get("properties")
+    if isinstance(properties, dict):
+        required = node.get("required")
+        names = set(required) if isinstance(required, list) else set()
+        optional += sum(name not in names for name in properties)
+        unions += sum(_is_union(field) for field in properties.values())
+    # Field names under "properties" aren't schemas, so only its values are walked.
+    children = [value for key, value in node.items() if key != "properties"]
+    if isinstance(properties, dict):
+        children += list(properties.values())
+    inner = schema_size(children)
+    return SchemaSize(optional + inner.optional, unions + inner.unions)
 
 
 def _to_wire(messages: Sequence[LLMMessage]) -> tuple[str, list[BetaMessageParam]]:

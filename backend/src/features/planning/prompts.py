@@ -130,8 +130,8 @@ def item_line(number: int, item: ItineraryItem) -> str:
 
 
 def preferences_summary(plan: PlanSnapshot) -> str:
-    """The stored search preferences, one kind per line, in the fields a `set_preferences`
-    command names; empty when none are set."""
+    """The stored search preferences, one kind per line, in the fields the
+    `set_*_preferences` commands name; empty when none are set."""
     stored = plan.preferences
     lines = [
         f"- {name}: {value.model_dump_json(exclude={'outbound_token'})}"
@@ -193,9 +193,11 @@ def command_messages(
         "- Item times are local wall-clock times in the item's timezone, like "
         "2027-05-02T19:30. When moving an item, give both start and end, and keep its "
         "length unless told otherwise.\n"
-        "- set_preferences changes what a stage searches for, giving only the fields to "
-        "change (interests: the whole new list). Choices on show for that stage are searched "
-        "for again by themselves.\n"
+        "- set_flight_preferences, set_lodging_preferences and set_activity_preferences "
+        "change what a stage searches for, giving only the fields to change (interests: the "
+        "whole new list). Choices on show for that stage are searched for again by "
+        "themselves.\n"
+        "- A budget always names its currency: the trip's, unless the message says another.\n"
         "- redo_search finds other options than the choices the planner is waiting on; use "
         "it only for those. A stay or activity already in the trip is replaced by removing "
         "it.\n"

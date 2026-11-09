@@ -274,7 +274,7 @@ export type AppliedChange = {
     /**
      * Name
      */
-    name: 'remove_item' | 'update_item' | 'set_basics' | 'set_preferences' | 'change_stage' | 'redo_search';
+    name: 'remove_item' | 'update_item' | 'set_dates' | 'set_travelers' | 'set_destination' | 'set_origin' | 'set_budget' | 'set_flight_preferences' | 'set_lodging_preferences' | 'set_activity_preferences' | 'change_stage' | 'redo_search';
     /**
      * Summary
      */

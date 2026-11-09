@@ -158,7 +158,7 @@ def test_preference_phrases() -> None:
     prompt = _command_prompt()
 
     assert command_reply("make the hotel upscale", prompt)["commands"] == [
-        {"type": "set_preferences", "lodging": {"hotel_class": "upscale"}}
+        {"type": "set_lodging_preferences", "hotel_class": "upscale"}
     ]
     assert command_reply("make the hotel cheap", prompt)["status"] == "unrelated"
 

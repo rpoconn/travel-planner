@@ -181,10 +181,16 @@ with commands from a closed list ([schemas.py](backend/src/features/planning/sch
 |---|---|---|
 | `remove_item` | cancels an item (kept, struck through, can come back) | route, overnight, timezone and budget rules (`chat/tools.py`) |
 | `update_item` | changes an item's title, times, notes or status; never its cost, places or airports | the same rules |
-| `set_basics` | changes the dates, travelers, destination, origin or budget | the basics form's rules ("can't start in the past") |
-| `set_preferences` | changes only the fields given of the flight, lodging or activity preferences | the preferences form's rules (1–5 interests) |
+| `set_dates`, `set_travelers`, `set_destination`, `set_origin`, `set_budget` | changes one of the basics | the basics form's rules ("can't start in the past") |
+| `set_flight_preferences`, `set_lodging_preferences`, `set_activity_preferences` | changes only the fields given of that stage's preferences | the preferences form's rules (1–5 interests) |
 | `change_stage` | goes back a stage, to an earlier stage, or skips flights | the stepper's rules |
 | `redo_search` | other options than the choices on show, as **More options** | only while that stage's choices are pending |
+
+Each command changes one thing, and a field is required wherever its value is always known
+(a budget's currency, the number of children). That keeps the schema within Claude's
+structured-output limits (24 optional fields, 16 unions across the whole schema), which a
+test holds every schema to; every command's `type` also comes first, since Claude writes
+keys in schema order.
 
 There is no command to add an item: flights, stays and activities come from searches, so
 "add a museum" is at most a change to the activity interests, and the user picks from what

@@ -150,8 +150,14 @@ def test_the_schema_offers_each_command_by_its_tag() -> None:
     assert tags == [
         "remove_item",
         "update_item",
-        "set_basics",
-        "set_preferences",
+        "set_dates",
+        "set_travelers",
+        "set_destination",
+        "set_origin",
+        "set_budget",
+        "set_flight_preferences",
+        "set_lodging_preferences",
+        "set_activity_preferences",
         "change_stage",
         "redo_search",
     ]
@@ -159,6 +165,9 @@ def test_the_schema_offers_each_command_by_its_tag() -> None:
     for branch in branches:
         required = at(branch, "required")
         assert isinstance(required, list) and "type" in required
+        # And it comes first: Claude writes keys in schema order, so a command whose tag
+        # came after its fields could never be chosen.
+        assert next(iter(obj(branch, "properties"))) == "type"
 
 
 # ---------------------------------------------------------------------------

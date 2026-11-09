@@ -7,7 +7,8 @@ the dependency only runs one way: `planning` imports `plans`, never the reverse.
 
 import datetime as dt
 from datetime import datetime
-from typing import Annotated, Literal, Self
+from decimal import Decimal
+from typing import Annotated, ClassVar, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -29,7 +30,7 @@ from features.plans.schemas import (
     ShortAnswer,
     SlotName,
 )
-from shared.domain import Money, Place, Travelers
+from shared.domain import Money, Place
 from shared.flights.types import FlightCabin
 
 # ---------------------------------------------------------------------------
@@ -292,12 +293,28 @@ PlanningInput = Annotated[SlotAnswer | SlotSkip | ChoicePick, Field(discriminato
 # Commands: plan edits read from the user's own words ("remove the Friday dinner"). The
 # model only fills these in; `planning.commands` checks them against the plan's rules and
 # writes them. The union is closed: anything it can't say is not an edit.
+#
+# Claude's structured outputs allow at most 24 optional fields across the whole schema
+# (`shared.llm.anthropic_client.schema_size`, checked in a test), so each command changes one
+# thing, its fields are required wherever a value is always known, and places carry only
+# what a search uses.
 # ---------------------------------------------------------------------------
 
 MAX_COMMANDS = 5
 
 CommandName = Literal[
-    "remove_item", "update_item", "set_basics", "set_preferences", "change_stage", "redo_search"
+    "remove_item",
+    "update_item",
+    "set_dates",
+    "set_travelers",
+    "set_destination",
+    "set_origin",
+    "set_budget",
+    "set_flight_preferences",
+    "set_lodging_preferences",
+    "set_activity_preferences",
+    "change_stage",
+    "redo_search",
 ]
 
 # An item's number in the itinerary list the model is shown (`commands.numbered_items`),
@@ -338,8 +355,9 @@ class UpdateItem(_Command):
     changes: ItemEdits
 
 
-# The basics `SetBasics` can change, each with the input slot whose rules it follows.
-BASICS_FIELDS: dict[str, SlotName] = {
+# The basics a command can change, each with the input slot whose rules it follows.
+BasicName = Literal["dates", "travelers", "destination", "origin", "budget"]
+BASICS_FIELDS: dict[BasicName, SlotName] = {
     "dates": SlotName.DATES,
     "travelers": SlotName.TRAVELERS,
     "destination": SlotName.DESTINATION,
@@ -348,22 +366,79 @@ BASICS_FIELDS: dict[str, SlotName] = {
 }
 
 
-class SetBasics(_Command):
-    """Change one of the trip's basics, with the same rules as its form."""
+class BasicsCommand(_Command):
+    """Changes one of the trip's basics. Its fields are the slot's answer (wrapped in
+    `basic`, except travelers), so `planning.commands` checks it with the form's rules."""
 
-    type: Literal["set_basics"] = "set_basics"
-    dates: DateRange | None = None
-    travelers: Travelers | None = None
-    destination: Place | None = None
-    origin: Place | None = None
-    budget: Money | None = None
+    # Declared here so `type` is the first key of every subclass, whichever fields it
+    # inherits: Claude's structured outputs write keys in schema order, so a command whose
+    # tag came after its fields could never be chosen once the reply starts with "type".
+    type: str
+    basic: ClassVar[BasicName]
 
-    @model_validator(mode="after")
-    def _exactly_one(self) -> Self:
-        given = [name for name in BASICS_FIELDS if getattr(self, name) is not None]
-        if len(given) != 1:
-            raise ValueError(f"Set exactly one of {', '.join(BASICS_FIELDS)}")
-        return self
+
+class SetDates(BasicsCommand):
+    """Change the trip's dates."""
+
+    type: Literal["set_dates"] = "set_dates"
+    basic: ClassVar[BasicName] = "dates"
+    start: dt.date
+    end: dt.date
+
+
+class SetTravelers(BasicsCommand):
+    """Change who is going."""
+
+    type: Literal["set_travelers"] = "set_travelers"
+    basic: ClassVar[BasicName] = "travelers"
+    adults: int
+    children: int = Field(description="0 when there are none")
+
+
+class _PlaceCommand(BasicsCommand):
+    # Only what the flight and stay searches read: the city's name, and its airport code
+    # and country when known. A command never sends coordinates or an address.
+    name: str = Field(description="The city")
+    country: str | None = None
+    iata: str | None = Field(
+        default=None, pattern=r"^[A-Z]{3}$", description="The city's main 3-letter airport code"
+    )
+
+
+class SetDestination(_PlaceCommand):
+    """Change where the trip goes."""
+
+    type: Literal["set_destination"] = "set_destination"
+    basic: ClassVar[BasicName] = "destination"
+
+
+class SetOrigin(_PlaceCommand):
+    """Change where the trip starts from."""
+
+    type: Literal["set_origin"] = "set_origin"
+    basic: ClassVar[BasicName] = "origin"
+
+
+# An amount and its currency as a command gives them: both required (the stored `Money`
+# defaults the currency, which would make it one more optional field).
+CommandAmount = Annotated[Decimal, Field(description="A plain number such as 1380.50")]
+CommandCurrency = Annotated[
+    str, Field(pattern=r"^[A-Z]{3}$", description="ISO 4217 code: USD, EUR, JPY...")
+]
+
+
+class CommandMoney(_Command):
+    amount: CommandAmount
+    currency: CommandCurrency
+
+
+class SetBudget(BasicsCommand):
+    """Change the trip's total budget."""
+
+    type: Literal["set_budget"] = "set_budget"
+    basic: ClassVar[BasicName] = "budget"
+    amount: CommandAmount
+    currency: CommandCurrency
 
 
 class ChangeStage(_Command):
@@ -381,55 +456,48 @@ class ChangeStage(_Command):
 StopsChoice = Literal["nonstop", "up_to_1", "up_to_2", "any"]
 
 
-class FlightPreferenceEdits(_Command):
-    """The flight preferences to change; fields left out keep their value."""
+# The preferences a command can change: the `PlanPreferences` field each kind is stored in.
+PreferenceSection = Literal["flights", "lodging", "activities"]
 
+
+class PreferencesCommand(_Command):
+    """Changes what one stage searches for: the fields given go over the stored
+    preferences and the rest keep their value. The plan's version moves on, so choices on
+    show for that stage are searched for again."""
+
+    section: ClassVar[PreferenceSection]
+
+
+class SetFlightPreferences(PreferencesCommand):
+    """Change what the flight search looks for; fields left out keep their value."""
+
+    type: Literal["set_flight_preferences"] = "set_flight_preferences"
+    section: ClassVar[PreferenceSection] = "flights"
     cabin: FlightCabin | None = None
     max_stops: StopsChoice | None = None
     depart_window: DepartWindow | None = None
 
 
-class LodgingPreferenceEdits(_Command):
-    """The lodging preferences to change; fields left out keep their value."""
+class SetLodgingPreferences(PreferencesCommand):
+    """Change what the stay search looks for; fields left out keep their value."""
 
+    type: Literal["set_lodging_preferences"] = "set_lodging_preferences"
+    section: ClassVar[PreferenceSection] = "lodging"
     hotel_class: HotelClass | None = None
     kind: LodgingKind | None = None
-    nightly_budget: Money | None = None
+    nightly_budget: CommandMoney | None = None
     neighborhood: ShortAnswer | None = None
 
 
-class ActivityPreferenceEdits(_Command):
-    """The activity preferences to change; fields left out keep their value."""
+class SetActivityPreferences(PreferencesCommand):
+    """Change what the activity search looks for; fields left out keep their value."""
 
+    type: Literal["set_activity_preferences"] = "set_activity_preferences"
+    section: ClassVar[PreferenceSection] = "activities"
     interests: list[ActivityCategory] | None = Field(
         default=None, description="The whole new list of interests, up to 5"
     )
     dietary: ShortAnswer | None = None
-
-
-# The preferences `SetPreferences` can change, each with the input slot that asks for them.
-PREFERENCE_FIELDS: dict[str, SlotName] = {
-    "flights": SlotName.FLIGHT_PREFERENCES,
-    "lodging": SlotName.LODGING_PREFERENCES,
-    "activities": SlotName.ACTIVITY_PREFERENCES,
-}
-
-
-class SetPreferences(_Command):
-    """Change what one stage searches for. The plan's version moves on, so choices on show
-    for that stage are searched for again."""
-
-    type: Literal["set_preferences"] = "set_preferences"
-    flights: FlightPreferenceEdits | None = None
-    lodging: LodgingPreferenceEdits | None = None
-    activities: ActivityPreferenceEdits | None = None
-
-    @model_validator(mode="after")
-    def _exactly_one(self) -> Self:
-        given = [name for name in PREFERENCE_FIELDS if getattr(self, name) is not None]
-        if len(given) != 1:
-            raise ValueError(f"Set exactly one of {', '.join(PREFERENCE_FIELDS)}")
-        return self
 
 
 # The searches whose choices `RedoSearch` can ask others for, by the stage that runs them.
@@ -444,8 +512,12 @@ class RedoSearch(_Command):
     search: SearchName = Field(description="Which choices to find others for")
 
 
+# The commands under each base class, for code that reads their `type`.
+BasicsChange = SetDates | SetTravelers | SetDestination | SetOrigin | SetBudget
+PreferencesChange = SetFlightPreferences | SetLodgingPreferences | SetActivityPreferences
+
 Command = Annotated[
-    RemoveItem | UpdateItem | SetBasics | SetPreferences | ChangeStage | RedoSearch,
+    RemoveItem | UpdateItem | BasicsChange | PreferencesChange | ChangeStage | RedoSearch,
     Field(discriminator="type"),
 ]
 

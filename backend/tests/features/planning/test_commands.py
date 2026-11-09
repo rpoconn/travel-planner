@@ -124,12 +124,15 @@ async def _add_activity(ctx: ToolContext, title: str, day: int, status: ItemStat
         {"type": "remove_item", "item": 0},  # numbers start at 1
         {"type": "remove_item", "item": "a1b2"},  # never an id
         _update(1, cost={"amount": 10}),  # costs come from searches
-        {
-            "type": "set_basics",
-            "dates": {"start": "2027-05-03", "end": "2027-05-10"},
-            "budget": {"amount": 1},
-        },
-        {"type": "set_basics"},
+        # One basic per command.
+        {"type": "set_dates", "start": "2027-05-03", "end": "2027-05-10", "amount": 1},
+        {"type": "set_dates"},
+        # Fields a command always knows are required, so the schema stays small.
+        {"type": "set_budget", "amount": 3000},
+        {"type": "set_travelers", "adults": 2},
+        # A place carries only what the searches read.
+        {"type": "set_destination", "name": "Lisbon", "lat": 38.7},
+        {"type": "set_basics", "budget": {"amount": 1, "currency": "USD"}},  # the old shape
         _stage("next"),  # moving on is the engine's job
     ],
 )
@@ -288,13 +291,13 @@ async def test_no_commands_change_nothing(ctx: ToolContext) -> None:
 
 
 async def test_new_dates_are_written_with_the_old_ones_in_the_summary(ctx: ToolContext) -> None:
-    dates: JsonValue = {"start": "2027-05-03", "end": "2027-05-10"}
+    dates: dict[str, JsonValue] = {"start": "2027-05-03", "end": "2027-05-10"}
 
-    record = await _run(ctx, {"type": "set_basics", "dates": dates})
+    record = await _run(ctx, {"type": "set_dates", **dates})
 
     assert record.applied == [
         AppliedChange(
-            name="set_basics",
+            name="set_dates",
             summary="Dates: May 1, 2027 to May 8, 2027 → May 3, 2027 to May 10, 2027",
         )
     ]
@@ -303,29 +306,56 @@ async def test_new_dates_are_written_with_the_old_ones_in_the_summary(ctx: ToolC
 
 
 async def test_a_first_budget_is_summarised_alone(ctx: ToolContext) -> None:
-    record = await _run(ctx, {"type": "set_basics", "budget": {"amount": 3000, "currency": "USD"}})
+    record = await _run(ctx, {"type": "set_budget", "amount": 3000, "currency": "USD"})
 
     assert [change.summary for change in record.applied] == ["Budget: 3,000 USD"]
+
+
+async def test_travelers_are_written_with_the_children(ctx: ToolContext) -> None:
+    record = await _run(ctx, {"type": "set_travelers", "adults": 2, "children": 1})
+
+    assert [change.name for change in record.applied] == ["set_travelers"]
+    plan = await _plan(ctx)
+    assert plan.travelers is not None
+    assert (plan.travelers.adults, plan.travelers.children) == (2, 1)
+
+
+async def test_a_new_destination_keeps_its_airport_code(ctx: ToolContext) -> None:
+    record = await _run(
+        ctx, {"type": "set_destination", "name": "Porto", "country": "Portugal", "iata": "OPO"}
+    )
+
+    assert [change.name for change in record.applied] == ["set_destination"]
+    destination = (await _plan(ctx)).destination
+    assert destination is not None
+    assert (destination.name, destination.country, destination.iata) == (
+        "Porto",
+        "Portugal",
+        "OPO",
+    )
 
 
 @pytest.mark.parametrize(
     ("value", "reason"),
     [
         (
-            {"dates": {"start": "2026-10-01", "end": "2026-10-05"}},
+            {"type": "set_dates", "start": "2026-10-01", "end": "2026-10-05"},
             "The trip can't start in the past",
         ),
         (
-            {"dates": {"start": "2027-05-08", "end": "2027-05-01"}},
+            {"type": "set_dates", "start": "2027-05-08", "end": "2027-05-01"},
             "The trip has to end on or after",
         ),
-        ({"budget": {"amount": 0}}, "A budget has to be more than 0"),
+        (
+            {"type": "set_budget", "amount": 0, "currency": "USD"},
+            "A budget has to be more than 0",
+        ),
     ],
 )
 async def test_basics_follow_their_form_rules(
     ctx: ToolContext, value: dict[str, JsonValue], reason: str
 ) -> None:
-    record = await _run(ctx, {"type": "set_basics", **value})
+    record = await _run(ctx, value)
 
     (rejection,) = record.rejected
     assert rejection.reason.startswith(reason)
@@ -389,17 +419,25 @@ async def test_an_item_change_and_a_stage_change_go_together(ctx: ToolContext) -
 # ---------------------------------------------------------------------------
 
 
-def _prefs(**edits: JsonValue) -> dict[str, JsonValue]:
-    return {"type": "set_preferences", **edits}
+def _flights(**edits: JsonValue) -> dict[str, JsonValue]:
+    return {"type": "set_flight_preferences", **edits}
+
+
+def _lodging(**edits: JsonValue) -> dict[str, JsonValue]:
+    return {"type": "set_lodging_preferences", **edits}
+
+
+def _activities(**edits: JsonValue) -> dict[str, JsonValue]:
+    return {"type": "set_activity_preferences", **edits}
 
 
 async def test_new_preferences_are_written(ctx: ToolContext) -> None:
     version = (await _plan(ctx)).version
 
-    record = await _run(ctx, _prefs(lodging={"hotel_class": "upscale"}))
+    record = await _run(ctx, _lodging(hotel_class="upscale"))
 
     assert record.applied == [
-        AppliedChange(name="set_preferences", summary="Lodging preferences: Upscale hotel")
+        AppliedChange(name="set_lodging_preferences", summary="Lodging preferences: Upscale hotel")
     ]
     plan = await _plan(ctx)
     assert plan.preferences.lodging == LodgingPreferences(hotel_class="upscale")
@@ -407,9 +445,9 @@ async def test_new_preferences_are_written(ctx: ToolContext) -> None:
 
 
 async def test_preferences_change_only_the_fields_given(ctx: ToolContext) -> None:
-    await _run(ctx, _prefs(lodging={"hotel_class": "upscale", "neighborhood": "Alfama"}))
+    await _run(ctx, _lodging(hotel_class="upscale", neighborhood="Alfama"))
 
-    record = await _run(ctx, _prefs(lodging={"nightly_budget": {"amount": 200, "currency": "USD"}}))
+    record = await _run(ctx, _lodging(nightly_budget={"amount": 200, "currency": "USD"}))
 
     assert [change.summary for change in record.applied] == [
         "Lodging preferences: Upscale hotel, in Alfama → "
@@ -423,7 +461,7 @@ async def test_flight_preferences_keep_the_flight_out_they_pair_with(ctx: ToolCo
     stored = PlanPreferences(flights=FlightPreferences(outbound_token="tok"))
     await plans_service.update_preferences(ctx.session, ctx.user_id, ctx.plan_id, stored)
 
-    record = await _run(ctx, _prefs(flights={"max_stops": "nonstop"}))
+    record = await _run(ctx, _flights(max_stops="nonstop"))
 
     assert [change.summary for change in record.applied] == [
         "Flight preferences: Economy cabin, any number of stops → Economy cabin, nonstop"
@@ -431,7 +469,7 @@ async def test_flight_preferences_keep_the_flight_out_they_pair_with(ctx: ToolCo
     flights = (await _plan(ctx)).preferences.flights
     assert flights == FlightPreferences(max_stops=0, outbound_token="tok")
     # "any" is how a command says None.
-    await _run(ctx, _prefs(flights={"max_stops": "any"}))
+    await _run(ctx, _flights(max_stops="any"))
     flights = (await _plan(ctx)).preferences.flights
     assert flights is not None and flights.max_stops is None
 
@@ -439,8 +477,8 @@ async def test_flight_preferences_keep_the_flight_out_they_pair_with(ctx: ToolCo
 async def test_preference_changes_in_one_message_build_on_each_other(ctx: ToolContext) -> None:
     record = await _run(
         ctx,
-        _prefs(lodging={"hotel_class": "budget"}),
-        _prefs(lodging={"kind": "hostel"}),
+        _lodging(hotel_class="budget"),
+        _lodging(kind="hostel"),
     )
 
     assert len(record.applied) == 2
@@ -450,26 +488,22 @@ async def test_preference_changes_in_one_message_build_on_each_other(ctx: ToolCo
 
 
 @pytest.mark.parametrize(
-    ("edits", "summary", "reason"),
+    ("command", "summary", "reason"),
     [
-        ({"lodging": {}}, "Change the lodging preferences", "No changes were given"),
+        (_lodging(), "Change the lodging preferences", "No changes were given"),
         # Nothing stored to merge into, and interests are required.
-        ({"activities": {"dietary": "vegan"}}, "Change the activity preferences", "interests"),
+        (_activities(dietary="vegan"), "Change the activity preferences", "interests"),
         (
-            {
-                "activities": {
-                    "interests": ["museum", "food", "tour", "outdoors", "nightlife", "relax"]
-                }
-            },
+            _activities(interests=["museum", "food", "tour", "outdoors", "nightlife", "relax"]),
             "Change the activity preferences",
             "interests",
         ),
     ],
 )
 async def test_preferences_follow_their_form_rules(
-    ctx: ToolContext, edits: dict[str, JsonValue], summary: str, reason: str
+    ctx: ToolContext, command: dict[str, JsonValue], summary: str, reason: str
 ) -> None:
-    record = await _run(ctx, _prefs(**edits))
+    record = await _run(ctx, command)
 
     (rejection,) = record.rejected
     assert rejection.summary == summary and reason in rejection.reason
@@ -479,10 +513,11 @@ async def test_preferences_follow_their_form_rules(
 @pytest.mark.parametrize(
     "command",
     [
-        _prefs(lodging={"hotel_class": "upscale"}, flights={"cabin": "business"}),
-        _prefs(),
-        _prefs(lodging={"stars": 5}),
-        _prefs(flights={"max_stops": 3}),
+        _lodging(hotel_class="upscale", cabin="business"),  # one stage's per command
+        _lodging(stars=5),
+        _lodging(nightly_budget={"amount": 200}),  # the currency is required
+        _flights(max_stops=3),
+        {"type": "set_preferences", "lodging": {"hotel_class": "upscale"}},  # the old shape
         {"type": "redo_search", "search": "transfer"},
         {"type": "redo_search", "search": "lodging", "hint": "near the sea"},
     ],
@@ -528,12 +563,14 @@ async def test_searching_again_follows_a_preference_change(
 
     record = await _run(
         lodging_ctx,
-        _prefs(lodging={"hotel_class": "midrange"}),
+        _lodging(hotel_class="midrange"),
         {"type": "redo_search", "search": "lodging"},
     )
 
     assert record.applied == [
-        AppliedChange(name="set_preferences", summary="Lodging preferences: Midrange hotel"),
+        AppliedChange(
+            name="set_lodging_preferences", summary="Lodging preferences: Midrange hotel"
+        ),
         AppliedChange(name="redo_search", summary="Looking for other places to stay"),
     ]
     # Searching again writes nothing itself; the turn runs the search.

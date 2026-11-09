@@ -35,8 +35,14 @@ from features.planning.schemas import (
     RedoSearch,
     RemoveItem,
     SearchName,
-    SetBasics,
-    SetPreferences,
+    SetActivityPreferences,
+    SetBudget,
+    SetDates,
+    SetDestination,
+    SetFlightPreferences,
+    SetLodgingPreferences,
+    SetOrigin,
+    SetTravelers,
     UpdateItem,
 )
 from features.plans.schemas import (
@@ -121,12 +127,14 @@ def ends(ref: int, at: str) -> Check:
     return updates(ref, lambda c: _wall(c.changes.end) == datetime.fromisoformat(at), at)
 
 
-def sets(test: Callable[[SetBasics], bool], what: str) -> Check:
+def reads[C](kind: type[C], test: Callable[[C], bool], what: str) -> Check:
+    """One command of `kind` that passes `test`."""
+
     def check(reading: CommandReading) -> str | None:
         command = _only(reading)
         if isinstance(command, str):
             return command
-        if not isinstance(command, SetBasics) or not test(command):
+        if not isinstance(command, kind) or not test(command):
             return f"wanted {what}, read {command}"
         return None
 
@@ -134,11 +142,11 @@ def sets(test: Callable[[SetBasics], bool], what: str) -> Check:
 
 
 def travelers(adults: int, children: int = 0) -> Check:
-    def test(command: SetBasics) -> bool:
-        group = command.travelers
-        return group is not None and (group.adults, group.children) == (adults, children)
-
-    return sets(test, f"{adults} adults, {children} kids")
+    return reads(
+        SetTravelers,
+        lambda c: (c.adults, c.children) == (adults, children),
+        f"{adults} adults, {children} kids",
+    )
 
 
 def stage(action: Literal["back", "go_to", "skip_flights"], to: PlanStage | None = None) -> Check:
@@ -148,18 +156,6 @@ def stage(action: Literal["back", "go_to", "skip_flights"], to: PlanStage | None
             return command
         wanted = ChangeStage(action=action, stage=to)
         return None if command == wanted else f"read {command}"
-
-    return check
-
-
-def prefers(test: Callable[[SetPreferences], bool], what: str) -> Check:
-    def check(reading: CommandReading) -> str | None:
-        command = _only(reading)
-        if isinstance(command, str):
-            return command
-        if not isinstance(command, SetPreferences) or not test(command):
-            return f"wanted {what}, read {command}"
-        return None
 
     return check
 
@@ -218,48 +214,44 @@ CASES: tuple[Case, ...] = (
     Case("we're bringing our two kids too", travelers(2, 2)),
     Case(
         "change the budget to 6000 dollars",
-        sets(lambda c: c.budget is not None and c.budget.amount == Decimal(6000), "6000"),
+        reads(SetBudget, lambda c: (c.amount, c.currency) == (Decimal(6000), "USD"), "6000 USD"),
+    ),
+    Case(
+        "let's go to Osaka instead",
+        reads(SetDestination, lambda c: "osaka" in c.name.casefold(), "Osaka"),
     ),
     Case(
         "we're leaving from Oakland now",
-        sets(lambda c: c.origin is not None and "oakland" in c.origin.name.casefold(), "Oakland"),
+        reads(SetOrigin, lambda c: "oakland" in c.name.casefold(), "Oakland"),
     ),
     Case(
         "change the dates to May 2 to May 5",
-        sets(
-            lambda c: (
-                c.dates is not None
-                and (c.dates.start, c.dates.end) == (date(2027, 5, 2), date(2027, 5, 5))
-            ),
-            "May 2-5",
+        reads(
+            SetDates, lambda c: (c.start, c.end) == (date(2027, 5, 2), date(2027, 5, 5)), "May 2-5"
         ),
     ),
     # Preferences
     Case(
         "we'd rather fly business",
-        prefers(lambda c: c.flights is not None and c.flights.cabin == "business", "business"),
+        reads(SetFlightPreferences, lambda c: c.cabin == "business", "business"),
     ),
     Case(
         "nonstop flights only",
-        prefers(lambda c: c.flights is not None and c.flights.max_stops == "nonstop", "nonstop"),
+        reads(SetFlightPreferences, lambda c: c.max_stops == "nonstop", "nonstop"),
     ),
     Case(
         "keep hotels under 150 dollars a night",
-        prefers(
-            lambda c: (
-                c.lodging is not None
-                and c.lodging.nightly_budget is not None
-                and c.lodging.nightly_budget.amount == Decimal(150)
-            ),
+        reads(
+            SetLodgingPreferences,
+            lambda c: c.nightly_budget is not None and c.nightly_budget.amount == Decimal(150),
             "150 a night",
         ),
     ),
     Case(
         "we're into museums too",
-        prefers(
-            lambda c: (
-                c.activities is not None and set(c.activities.interests or []) == {"food", "museum"}
-            ),
+        reads(
+            SetActivityPreferences,
+            lambda c: set(c.interests or []) == {"food", "museum"},
             "food and museum",
         ),
     ),

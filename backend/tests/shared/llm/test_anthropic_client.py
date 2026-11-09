@@ -8,7 +8,7 @@ import httpx2
 import pytest
 from pydantic import JsonValue
 
-from shared.llm.anthropic_client import AnthropicClient, strict_schema
+from shared.llm.anthropic_client import AnthropicClient, SchemaSize, schema_size, strict_schema
 from shared.llm.types import LLMChunk, LLMError, LLMMessage, LLMToolCall, ToolSpec
 from tests.json_path import at, json_object, obj, text
 
@@ -218,6 +218,40 @@ def test_strict_schema_closes_nested_objects_but_not_field_names() -> None:
     assert at(strict, "properties", "type") == {"type": "string"}
     assert at(strict, "properties", "stay", "additionalProperties") is False
     assert at(strict, "properties", "stops", "items", "additionalProperties") is False
+
+
+def test_schema_size_counts_optional_and_union_fields_at_every_depth() -> None:
+    schema: dict[str, JsonValue] = {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+            "status": {"type": "string"},
+            # Optional, and a field named "properties" is a field, not a keyword.
+            "properties": {"type": "string"},
+            "note": {"type": ["string", "null"]},
+            "commands": {
+                "type": "array",
+                "items": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "required": ["type"],
+                            "properties": {"type": {"type": "string"}, "a": {"type": "string"}},
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "b": {"anyOf": [{"type": "string"}, {"type": "integer"}]}
+                            },
+                        },
+                    ]
+                },
+            },
+        },
+    }
+
+    # Optional: properties, note, commands, a, b. Unions: note, commands (its items), b.
+    assert schema_size(schema) == SchemaSize(optional=5, unions=3)
 
 
 # ---------------------------------------------------------------------------

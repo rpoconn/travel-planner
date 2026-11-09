@@ -5,10 +5,24 @@ from datetime import date
 import pytest
 from pydantic import JsonValue
 
-from features.planning.extractor import MAX_ATTEMPTS, Extraction, extract, extraction_schema
+from features.planning.extractor import (
+    COMMAND_SCHEMA,
+    MAX_ATTEMPTS,
+    PICK_SCHEMA,
+    Extraction,
+    extract,
+    extraction_schema,
+)
 from features.planning.schemas import DateRange, DatesAnswer
+from features.planning.slots import SLOTS
 from features.plans.schemas import SlotName
 from shared.domain import Travelers
+from shared.llm.anthropic_client import (
+    MAX_OPTIONAL_FIELDS,
+    MAX_UNION_FIELDS,
+    schema_size,
+    strict_schema,
+)
 from shared.llm.fake import FakeLLM, json_reply
 from shared.llm.types import LLMError
 from tests.features.plans.builders import snapshot
@@ -130,3 +144,23 @@ def test_the_schema_wraps_the_slots_value_model() -> None:
 def test_a_pick_slot_has_no_extraction_schema() -> None:
     with pytest.raises(ValueError, match="pick slot"):
         extraction_schema(SlotName.FLIGHT_OUTBOUND)
+
+
+def _schemas() -> list[tuple[str, dict[str, JsonValue]]]:
+    slots = [
+        (f"slot {slot}", extraction_schema(slot))
+        for slot, spec in SLOTS.items()
+        if spec.value_model is not None
+    ]
+    return [("pick", PICK_SCHEMA), ("command", COMMAND_SCHEMA), *slots]
+
+
+@pytest.mark.parametrize(("name", "schema"), _schemas(), ids=[name for name, _ in _schemas()])
+def test_every_schema_fits_claudes_structured_output_limits(
+    name: str, schema: dict[str, JsonValue]
+) -> None:
+    # Over these, Claude rejects the request before the model reads it.
+    size = schema_size(strict_schema(schema))
+
+    assert size.optional <= MAX_OPTIONAL_FIELDS, f"{name}: {size.optional} optional fields"
+    assert size.unions <= MAX_UNION_FIELDS, f"{name}: {size.unions} union fields"

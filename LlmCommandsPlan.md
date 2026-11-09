@@ -295,7 +295,8 @@ Carried over from the planning flow, plus a few for writes:
 
 ## 10. Phases
 
-Progress: every phase (0 to 4) done.
+Progress: every phase (0 to 4) done, and the command reader eval run against Claude
+(see "After phase 4").
 
 Each phase lands green (`ruff`, `mypy`, `pytest`, frontend `lint` / `typecheck` / `test`),
 with a check-in after each.
@@ -457,7 +458,30 @@ stages legitimately through a shared `reach` helper.
   options lists new stays, a new preference searches again, both search once, a done
   stage is turned down, offline), the reader and offline tests, and eight new cases in
   `test_commands_eval.py` (cases can now name the pending question). **The eval was not
-  run** (billed calls).
+  run** (billed calls); see "After phase 4" for when it was.
+
+**After phase 4: the first live run** (2026-11-09)
+
+Running `test_commands_eval.py` against Claude (`claude-sonnet-5-5`) found two problems
+the offline tests and Ollama couldn't, since neither limits or orders a schema:
+
+- Claude rejected the command schema before the model read it: 40 optional fields, where
+  structured outputs allow 24 (and 16 unions) across the whole schema. It was already 27
+  after phase 3, so the command reader had never worked with Claude. `set_basics` and
+  `set_preferences` became one command per field set: `set_dates`, `set_travelers`,
+  `set_destination`, `set_origin`, `set_budget`, and `set_flight_preferences`,
+  `set_lodging_preferences`, `set_activity_preferences`. A budget's currency and the
+  number of children are required, and a place in a command is only a name, country and
+  airport code (no address or coordinates). Down to 21. They still check and write as
+  before: the basics through `parse_answer` / `apply_answer`, the preferences merged over
+  the stored ones.
+- With the schema accepted, `set_destination`, `set_origin` and `set_budget` could never
+  be chosen: they inherited their fields, so their `type` came last, and Claude writes
+  keys in schema order. `BasicsCommand` now declares `type` first.
+- Both are tested: `shared.llm.anthropic_client.schema_size` counts a schema against the
+  limits, a test holds the command, pick and every slot schema to them, and another checks
+  every command's `type` comes first.
+- The eval, with a destination case added: 33/33.
 
 
 - `set_preferences`, `redo_search` (dismiss the slot's open offer; `offers.close_offer

@@ -7,10 +7,12 @@ turns each one into the write that already exists for it and runs that write's r
 
 - `remove_item` / `update_item` → a `chat.tools` change (route, overnight, timezone,
   budget). A removal cancels the item rather than deleting it, so it can come back.
-- `set_basics` → `answers.parse_answer` / `apply_answer`, as the slot's form.
-- `set_preferences` → the fields given, over the stored preferences, checked by the
-  preference model and written with `plans_service.update_preferences`. The version moves
-  on, so choices on show for that stage are searched for again.
+- `set_dates` / `set_travelers` / `set_destination` / `set_origin` / `set_budget` →
+  `answers.parse_answer` / `apply_answer`, as the slot's form.
+- `set_flight_preferences` / `set_lodging_preferences` / `set_activity_preferences` → the
+  fields given, over the stored preferences, checked by the preference model and written
+  with `plans_service.update_preferences`. The version moves on, so choices on show for
+  that stage are searched for again.
 - `change_stage` → `plans.stages.apply_stage_change` / `plans_service.set_stage`.
 - `redo_search` → nothing to write: it checks that the search is the one behind the
   pending choices (`engine.refresh_search`), and the turn then runs it again the way
@@ -43,18 +45,21 @@ from features.planning.engine import refresh_search
 from features.planning.schemas import (
     BASICS_FIELDS,
     MAX_COMMANDS,
-    PREFERENCE_FIELDS,
     AppliedChange,
+    BasicName,
+    BasicsChange,
+    BasicsCommand,
     ChangesRecord,
     ChangeStage,
     Command,
     CommandName,
+    PreferencesChange,
+    PreferencesCommand,
+    PreferenceSection,
     RedoSearch,
     RejectedChange,
     RemoveItem,
     SearchName,
-    SetBasics,
-    SetPreferences,
     UpdateItem,
 )
 from features.planning.slots import SLOTS
@@ -74,7 +79,7 @@ from shared.validation import summarize_validation_error
 logger = logging.getLogger(__name__)
 
 # How each basic is named in a change's summary ("Dates: … → …").
-_BASICS_LABELS: dict[str, str] = {
+_BASICS_LABELS: dict[BasicName, str] = {
     "dates": "Dates",
     "travelers": "Travelers",
     "destination": "Destination",
@@ -84,12 +89,12 @@ _BASICS_LABELS: dict[str, str] = {
 
 # How each kind of preferences is named in a change's summary, and the stored model the
 # fields given are merged into.
-_PREFERENCE_LABELS: dict[str, str] = {
+_PREFERENCE_LABELS: dict[PreferenceSection, str] = {
     "flights": "Flight preferences",
     "lodging": "Lodging preferences",
     "activities": "Activity preferences",
 }
-_PREFERENCE_MODELS: dict[str, type[BaseModel]] = {
+_PREFERENCE_MODELS: dict[PreferenceSection, type[BaseModel]] = {
     "flights": FlightPreferences,
     "lodging": LodgingPreferences,
     "activities": ActivityPreferences,
@@ -179,10 +184,10 @@ def _asked(command: Command, items: Sequence[ItineraryItem]) -> str:
             return f"Remove {_item_label(items, command.item)}"
         case UpdateItem():
             return f"Change {_item_label(items, command.item)}"
-        case SetBasics():
-            return f"Change the {_BASICS_LABELS[_basics_field(command)].lower()}"
-        case SetPreferences():
-            return f"Change the {_PREFERENCE_LABELS[_preferences_field(command)].lower()}"
+        case BasicsCommand():
+            return f"Change the {_BASICS_LABELS[command.basic].lower()}"
+        case PreferencesCommand():
+            return f"Change the {_PREFERENCE_LABELS[command.section].lower()}"
         case RedoSearch():
             return f"Look for other {_SEARCHES[command.search][1]}"
         case ChangeStage():
@@ -233,15 +238,10 @@ def _update(command: UpdateItem, items: Sequence[ItineraryItem]) -> _ItemStep:
     )
 
 
-def _basics_field(command: SetBasics) -> str:
-    # The model validator guarantees exactly one.
-    return next(name for name in BASICS_FIELDS if getattr(command, name) is not None)
-
-
-def _set_basics(command: SetBasics, plan: PlanSnapshot, today: date) -> _BasicsStep:
-    field = _basics_field(command)
+def _set_basics(command: BasicsChange, plan: PlanSnapshot, today: date) -> _BasicsStep:
+    field = command.basic
     slot = BASICS_FIELDS[field]
-    value = getattr(command, field).model_dump(mode="json")
+    value = command.model_dump(mode="json", exclude={"type"}, exclude_none=True)
     # Travelers is its own slot value; the other basics are wrapped in their field name.
     try:
         answer = parse_answer(slot, value if field == "travelers" else {field: value}, today)
@@ -255,14 +255,11 @@ def _set_basics(command: SetBasics, plan: PlanSnapshot, today: date) -> _BasicsS
     return _BasicsStep(name=command.type, asked=_asked(command, ()), done=done, answer=answer)
 
 
-def _preferences_field(command: SetPreferences) -> str:
-    # The model validator guarantees exactly one.
-    return next(name for name in PREFERENCE_FIELDS if getattr(command, name) is not None)
-
-
-def _set_preferences(command: SetPreferences, plan: PlanSnapshot) -> _PreferencesStep:
-    field = _preferences_field(command)
-    edits: dict[str, JsonValue] = getattr(command, field).model_dump(mode="json", exclude_none=True)
+def _set_preferences(command: PreferencesChange, plan: PlanSnapshot) -> _PreferencesStep:
+    field = command.section
+    edits: dict[str, JsonValue] = command.model_dump(
+        mode="json", exclude={"type"}, exclude_none=True
+    )
     if not edits:
         raise CommandError("No changes were given")
     stops = edits.get("max_stops")
@@ -328,9 +325,9 @@ def _resolve(
             return _remove(command, items)
         case UpdateItem():
             return _update(command, items)
-        case SetBasics():
+        case BasicsCommand():
             return _set_basics(command, plan, today)
-        case SetPreferences():
+        case PreferencesCommand():
             return _set_preferences(command, plan)
         case ChangeStage():
             return _change_stage(command, plan)
