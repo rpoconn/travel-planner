@@ -43,7 +43,6 @@ export function ItemCard({ entry, warnings = [], onSelect }: ItemCardProps) {
     const { item } = entry
     const meta = ITEM_TYPE_META[item.type]
     const Icon = meta.icon
-    const cancelled = item.status === 'cancelled'
     const direction = item.type === 'flight' ? item.direction : null
     const leg = item.type === 'flight' ? flightLeg(entry) : 'whole'
 
@@ -67,7 +66,6 @@ export function ItemCard({ entry, warnings = [], onSelect }: ItemCardProps) {
                 meta.border,
                 // Proposed (not yet confirmed) items get a dashed outline; the accent edge stays solid.
                 item.status === 'proposed' && 'border-dashed [border-left-style:solid]',
-                cancelled && 'opacity-60',
             )}
             onClick={() => {
                 onSelect(item)
@@ -90,18 +88,14 @@ export function ItemCard({ entry, warnings = [], onSelect }: ItemCardProps) {
                 )}
             </div>
 
-            <p className={cn('mt-1 line-clamp-2 text-sm font-medium', cancelled && 'line-through')}>
-                {item.title}
-            </p>
+            <p className="mt-1 line-clamp-2 text-sm font-medium">{item.title}</p>
             {detailLine(item) && (
                 <p className="text-muted-foreground mt-0.5 truncate text-xs">{detailLine(item)}</p>
             )}
 
             <div className="mt-2 flex flex-wrap items-center gap-1.5 empty:hidden">
                 {item.status !== 'proposed' && (
-                    <Badge variant={cancelled ? 'destructive' : 'secondary'}>
-                        {humanize(item.status)}
-                    </Badge>
+                    <Badge variant="secondary">{humanize(item.status)}</Badge>
                 )}
                 {item.cost && (
                     <span className="text-muted-foreground text-xs">{formatCost(item.cost)}</span>

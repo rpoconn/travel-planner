@@ -17,7 +17,6 @@ from features.itinerary.schemas import (
     ActivityCategory,
     Gap,
     ItemNotes,
-    ItemStatus,
     ItemTitle,
     LodgingKind,
 )
@@ -329,7 +328,8 @@ class _Command(BaseModel):
 
 class ItemEdits(_Command):
     """The fields a command may change on an item. Costs, places and airports come from
-    searches, so they aren't here."""
+    searches, so they aren't here. Taking an item off the trip is `RemoveItem`, so there
+    is no cancelled status to set."""
 
     title: ItemTitle | None = None
     start: datetime | None = Field(
@@ -339,11 +339,11 @@ class ItemEdits(_Command):
         default=None, description="Local wall-clock end in the item's (end) timezone"
     )
     notes: ItemNotes | None = None
-    status: ItemStatus | None = None
+    status: Literal["proposed", "confirmed"] | None = None
 
 
 class RemoveItem(_Command):
-    """Take an item off the trip. It is cancelled, not deleted, so it can come back."""
+    """Take an item off the trip: it is deleted, with the transfers to and from it."""
 
     type: Literal["remove_item"] = "remove_item"
     item: ItemRef

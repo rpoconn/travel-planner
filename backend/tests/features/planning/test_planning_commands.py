@@ -126,9 +126,9 @@ async def test_removing_the_only_stay_goes_back_to_lodging(
     changes = (await messages(client, headers, plan_id))[1]
     assert isinstance(changes.payload, ChangesRecord)
     assert [change.name for change in changes.payload.applied] == ["remove_item"]
-    # Cancelled, not deleted.
-    statuses = [item.status for item in await _items(client, headers, plan_id)]
-    assert statuses == ["cancelled", "proposed"]
+    # Deleted, not cancelled.
+    titles = [item.title for item in await _items(client, headers, plan_id)]
+    assert titles == ["Dinner in"]
     # The prompt showed the numbered itinerary.
     (request,) = fake_llm.requests
     assert "1. lodging “Friend's flat”" in request.messages[0].content

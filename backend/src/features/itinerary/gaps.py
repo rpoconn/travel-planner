@@ -1,4 +1,5 @@
-"""Gap finder: every change of place on a trip, home to home, that no transfer covers.
+"""Gap finder: every change of place on a trip, home to home, that no transfer covers, and
+the transfers that only bridge to one item (`connecting_transfers`).
 
 Pure functions over validated schemas (no database). The whole trip is one sequence of
 "stops" (where the traveller is, and when), so a 23:30 landing is compared with the next
@@ -205,6 +206,34 @@ def find_gaps(items: Sequence[ItineraryItem], origin: Place | None) -> list[Gap]
         seen.add(pair)
         gaps.append(_gap(prev, nxt))
     return gaps
+
+
+def connecting_transfers(item_id: UUID, items: Sequence[ItineraryItem]) -> list[TransferItem]:
+    """The transfers that are only there for item `item_id`, so they go when it does: the
+    ride straight before it that ends where it is, and the ride straight after it that
+    starts there. For a stay that is the ride at check-in and the ride at check-out;
+    outings from it keep theirs. A transfer brings no others along. Cancelled items are
+    ignored."""
+    current = active(items)
+    if any(isinstance(item, TransferItem) for item in current if item.id == item_id):
+        return []
+    stops = _stops(current)
+    own = [index for index, stop in enumerate(stops) if stop.item_id == item_id]
+    if not own:
+        return []
+    # A stay's midnight stops sit between its check-in and check-out, so the first and
+    # last of its stops are the two edges.
+    first, last = own[0], own[-1]
+    ride_ids: set[UUID | None] = set()
+    if first > 0:
+        before = stops[first - 1]
+        if before.is_transfer and same_place(before.end_place, stops[first].start_place):
+            ride_ids.add(before.item_id)
+    if last + 1 < len(stops):
+        after = stops[last + 1]
+        if after.is_transfer and same_place(after.start_place, stops[last].end_place):
+            ride_ids.add(after.item_id)
+    return [item for item in current if isinstance(item, TransferItem) and item.id in ride_ids]
 
 
 def home_label(home: Place) -> str:

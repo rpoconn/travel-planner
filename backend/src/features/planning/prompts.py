@@ -124,8 +124,6 @@ def item_line(number: int, item: ItineraryItem) -> str:
         f"{_time(item.start)} to {_time(item.end)} ({zone})",
         where,
     ]
-    if item.status == "cancelled":
-        parts.append("removed")
     return " | ".join(parts)
 
 

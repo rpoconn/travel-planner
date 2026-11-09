@@ -6,7 +6,7 @@ preferences: its items, in time order, are 1 "Friend's flat" (May 1-8) and 2 "Di
 (May 2).
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -18,7 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.chat.tools import ToolContext
 from features.itinerary import service as itinerary_service
-from features.itinerary.schemas import ActivityItemCreate, ItemStatus, ItemType, ItineraryItem
+from features.itinerary.schemas import (
+    ActivityItemCreate,
+    ItemStatus,
+    ItemType,
+    ItineraryItem,
+    TransferItemCreate,
+)
 from features.planning import service as planning_service
 from features.planning.commands import check_and_apply, describe_changes
 from features.planning.schemas import (
@@ -96,20 +102,55 @@ def _stage(action: str, stage: str | None = None) -> dict[str, JsonValue]:
     return {"type": "change_stage", "action": action, "stage": stage}
 
 
-async def _add_activity(ctx: ToolContext, title: str, day: int, status: ItemStatus) -> None:
-    """An 80 USD activity, added past the rules (as if it was there before the budget)."""
+TRAM = Place(name="Tram 28 stop", city="Lisbon")
+
+
+async def _add_activity(
+    ctx: ToolContext, title: str, day: int, status: ItemStatus, place: Place | None = None
+) -> None:
+    """An 80 USD activity, 10:00-12:00, added past the rules (as if it was there before the
+    budget). At the flat unless `place` says otherwise."""
     data = ActivityItemCreate(
         type=ItemType.ACTIVITY,
         title=title,
         start=datetime(2027, 5, day, 10),
         end=datetime(2027, 5, day, 12),
         timezone=LISBON_TZ,
-        place=Place.model_validate(FLAT),
+        place=place or Place.model_validate(FLAT),
         category="tour",
         status=status,
         cost=Cost(amount=Decimal(80), currency="USD"),
     )
     await itinerary_service.add_item(ctx.session, ctx.user_id, ctx.plan_id, data)
+
+
+async def _add_taxi(
+    ctx: ToolContext, title: str, start: datetime, from_place: Place, to_place: Place
+) -> None:
+    """A half-hour taxi."""
+    data = TransferItemCreate(
+        type=ItemType.TRANSFER,
+        title=title,
+        start=start,
+        end=start + timedelta(minutes=30),
+        timezone=LISBON_TZ,
+        mode="taxi",
+        from_place=from_place,
+        to_place=to_place,
+    )
+    await itinerary_service.add_item(ctx.session, ctx.user_id, ctx.plan_id, data)
+
+
+async def _add_tram_tour(ctx: ToolContext) -> None:
+    """A tour on May 3 away from the flat, with a taxi there and back: items 3-5."""
+    flat = Place.model_validate(FLAT)
+    await _add_activity(ctx, "Tram tour", 3, "proposed", place=TRAM)
+    await _add_taxi(ctx, "Taxi there", datetime(2027, 5, 3, 9, 30), flat, TRAM)
+    await _add_taxi(ctx, "Taxi back", datetime(2027, 5, 3, 12), TRAM, flat)
+
+
+async def _titles(ctx: ToolContext) -> list[str]:
+    return [item.title for item in (await _plan(ctx)).items]
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +165,7 @@ async def _add_activity(ctx: ToolContext, title: str, day: int, status: ItemStat
         {"type": "remove_item", "item": 0},  # numbers start at 1
         {"type": "remove_item", "item": "a1b2"},  # never an id
         _update(1, cost={"amount": 10}),  # costs come from searches
+        _update(1, status="cancelled"),  # taking an item off is remove_item
         # One basic per command.
         {"type": "set_dates", "start": "2027-05-03", "end": "2027-05-10", "amount": 1},
         {"type": "set_dates"},
@@ -146,7 +188,7 @@ def test_a_command_outside_the_vocabulary_is_malformed(command: dict[str, JsonVa
 # ---------------------------------------------------------------------------
 
 
-async def test_removing_an_item_cancels_it(ctx: ToolContext) -> None:
+async def test_removing_an_item_deletes_it(ctx: ToolContext) -> None:
     version = (await _plan(ctx)).version
     dinner = await _item(ctx, DINNER_REF)
 
@@ -159,26 +201,58 @@ async def test_removing_an_item_cancels_it(ctx: ToolContext) -> None:
     )
     assert describe_changes(record) == "Removed “Dinner in”."
     plan = await _plan(ctx)
-    assert (await _item(ctx, DINNER_REF)).status == "cancelled"
+    assert [item.title for item in plan.items] == ["Friend's flat"]
     assert plan.version > version
 
 
-async def test_a_removed_item_can_be_restored(ctx: ToolContext) -> None:
-    await _run(ctx, _remove(DINNER_REF))
+async def test_removing_an_item_takes_the_rides_to_and_from_it(ctx: ToolContext) -> None:
+    await _add_tram_tour(ctx)
+    assert await _titles(ctx) == [
+        "Friend's flat",
+        "Dinner in",
+        "Taxi there",
+        "Tram tour",
+        "Taxi back",
+    ]
 
-    record = await _run(ctx, _update(DINNER_REF, status="proposed"))
+    record = await _run(ctx, _remove(4))
 
-    assert [change.summary for change in record.applied] == ["Changed “Dinner in”: status"]
-    assert (await _item(ctx, DINNER_REF)).status == "proposed"
+    assert describe_changes(record) == "Removed “Tram tour” and “Taxi there”, “Taxi back”."
+    assert await _titles(ctx) == ["Friend's flat", "Dinner in"]
 
 
-async def test_removing_a_removed_item_is_rejected(ctx: ToolContext) -> None:
-    await _run(ctx, _remove(DINNER_REF))
+async def test_removing_a_ride_that_goes_with_an_earlier_removal(ctx: ToolContext) -> None:
+    await _add_tram_tour(ctx)
 
-    record = await _run(ctx, _remove(DINNER_REF))
+    # "Remove the tour and the taxi there."
+    record = await _run(ctx, _remove(4), _remove(3))
+
+    assert [change.summary for change in record.applied] == [
+        "Removed “Tram tour” and “Taxi there”, “Taxi back”",
+        "Removed “Taxi there”",
+    ]
+    assert await _titles(ctx) == ["Friend's flat", "Dinner in"]
+
+
+async def test_a_ride_changed_first_stays_when_its_item_goes(ctx: ToolContext) -> None:
+    await _add_tram_tour(ctx)
+
+    record = await _run(ctx, _update(5, title="Taxi home"), _remove(4))
+
+    assert [change.summary for change in record.applied] == [
+        "Changed “Taxi back”: title",
+        "Removed “Tram tour” and “Taxi there”",
+    ]
+    assert await _titles(ctx) == ["Friend's flat", "Dinner in", "Taxi home"]
+
+
+async def test_a_cancelled_item_is_not_in_the_list(ctx: ToolContext) -> None:
+    await _add_activity(ctx, "Fado night", 4, "cancelled")
+
+    record = await _run(ctx, _remove(3))
 
     assert record.rejected == [
-        RejectedChange(summary="Remove “Dinner in”", reason="“Dinner in” is already removed")
+        RejectedChange(summary="Remove item 3", reason="There's no item 3 in the list")
     ]
 
 
@@ -255,14 +329,14 @@ async def test_every_rejected_command_is_reported(ctx: ToolContext) -> None:
 async def test_commands_are_checked_with_the_earlier_ones_staged(ctx: ToolContext) -> None:
     patch = PlanUpdate(budget=Money(amount=Decimal(100), currency="USD"))
     await plans_service.update_plan(ctx.session, ctx.user_id, ctx.plan_id, patch)
+    # Both together are 160 USD, over the 100 USD budget, so confirming one is turned down...
     await _add_activity(ctx, "Tram tour", 3, "proposed")
-    await _add_activity(ctx, "Fado night", 4, "cancelled")
+    await _add_activity(ctx, "Fado night", 4, "proposed")
     tour, fado = 3, 4
 
-    # Both together would be 160 USD, over the 100 USD budget...
-    alone = await _run(ctx, _update(fado, status="proposed"))
-    # ...but not with the tour removed first.
-    swapped = await _run(ctx, _remove(tour), _update(fado, status="proposed"))
+    alone = await _run(ctx, _update(fado, status="confirmed"))
+    # ...but not with the other removed first.
+    swapped = await _run(ctx, _remove(tour), _update(fado, status="confirmed"))
 
     assert alone.applied == [] and "budget" in alone.rejected[0].reason
     assert [change.summary for change in swapped.applied] == [

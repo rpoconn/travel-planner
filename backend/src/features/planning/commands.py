@@ -6,7 +6,8 @@ number in the itinerary list (`numbered_items`) and at a basic by its field. Thi
 turns each one into the write that already exists for it and runs that write's rules:
 
 - `remove_item` / `update_item` → a `chat.tools` change (route, overnight, timezone,
-  budget). A removal cancels the item rather than deleting it, so it can come back.
+  budget). A removal deletes the item, and with it the transfers that were only there to
+  get to it or away from it (`itinerary.gaps.connecting_transfers`).
 - `set_dates` / `set_travelers` / `set_destination` / `set_origin` / `set_budget` →
   `answers.parse_answer` / `apply_answer`, as the slot's form.
 - `set_flight_preferences` / `set_lodging_preferences` / `set_activity_preferences` → the
@@ -25,6 +26,7 @@ here: free text reaches this module only as commands the reader filled in.
 
 import logging
 from collections.abc import Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from datetime import date
 from uuid import UUID
@@ -33,7 +35,8 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from features.chat import tools
 from features.chat.schemas import ProposedChange
-from features.itinerary.schemas import ItineraryItem
+from features.itinerary.gaps import connecting_transfers
+from features.itinerary.schemas import ItineraryItem, active
 from features.planning.answers import (
     AnswerError,
     apply_answer,
@@ -121,9 +124,9 @@ class CommandError(ValueError):
 
 
 def numbered_items(plan: PlanSnapshot) -> list[ItineraryItem]:
-    """The items as a command numbers them, from 1: the itinerary in time order, cancelled
-    ones included so they can be restored. The prompt that shows the list uses this too."""
-    return list(plan.items)
+    """The items as a command numbers them, from 1: the itinerary in time order, as the
+    timeline shows it (no cancelled items). The prompt that shows the list uses this too."""
+    return active(plan.items)
 
 
 def _item(items: Sequence[ItineraryItem], ref: int) -> ItineraryItem:
@@ -154,6 +157,16 @@ class _Step:
 class _ItemStep(_Step):
     item_id: UUID
     change: ProposedChange
+    # Transfers removed along with the item, each with its removal.
+    along: tuple[tuple[UUID, ProposedChange], ...] = ()
+
+    @property
+    def changes(self) -> tuple[ProposedChange, ...]:
+        return (self.change, *(change for _, change in self.along))
+
+    @property
+    def item_ids(self) -> tuple[UUID, ...]:
+        return (self.item_id, *(item_id for item_id, _ in self.along))
 
 
 @dataclass(frozen=True)
@@ -207,17 +220,32 @@ def _item_change(item_id: UUID, changes: dict[str, JsonValue], summary: str) -> 
     )
 
 
-def _remove(command: RemoveItem, items: Sequence[ItineraryItem]) -> _ItemStep:
+def _removal(item: ItineraryItem) -> ProposedChange:
+    return ProposedChange(
+        call_id=f"command-{item.id}",
+        name="remove_item",
+        arguments={"item_id": str(item.id)},
+        summary=f"Remove “{item.title}”",
+    )
+
+
+def _remove(
+    command: RemoveItem, items: Sequence[ItineraryItem], keep: AbstractSet[UUID]
+) -> _ItemStep:
+    """Delete the item and the transfers to and from it, except those in `keep` (changed
+    or removed by an earlier command)."""
     item = _item(items, command.item)
-    if item.status == "cancelled":
-        raise CommandError(f"“{item.title}” is already removed")
-    asked = f"Remove “{item.title}”"
+    along = [ride for ride in connecting_transfers(item.id, items) if ride.id not in keep]
+    done = f"Removed “{item.title}”"
+    if along:
+        done += " and " + ", ".join(f"“{ride.title}”" for ride in along)
     return _ItemStep(
         name=command.type,
-        asked=asked,
-        done=f"Removed “{item.title}”",
+        asked=f"Remove “{item.title}”",
+        done=done,
         item_id=item.id,
-        change=_item_change(item.id, {"status": "cancelled"}, asked),
+        change=_removal(item),
+        along=tuple((ride.id, _removal(ride)) for ride in along),
     )
 
 
@@ -318,11 +346,15 @@ def _change_stage(command: ChangeStage, plan: PlanSnapshot) -> _StageStep:
 
 
 def _resolve(
-    command: Command, items: Sequence[ItineraryItem], plan: PlanSnapshot, today: date
+    command: Command,
+    items: Sequence[ItineraryItem],
+    plan: PlanSnapshot,
+    today: date,
+    touched: AbstractSet[UUID],
 ) -> _Step:
     match command:
         case RemoveItem():
-            return _remove(command, items)
+            return _remove(command, items, touched)
         case UpdateItem():
             return _update(command, items)
         case BasicsCommand():
@@ -358,20 +390,28 @@ async def _check(
     checked = _Checked(steps=[], rejected=[])
     staged: list[ProposedChange] = []
     touched: set[UUID] = set()
+    removed: set[UUID] = set()  # by an earlier removal, as one of its transfers
     at = plan  # the plan as the stage and preference changes so far leave it
     for command in commands:
         try:
-            step = _resolve(command, items, at, ctx.today)
-            if isinstance(step, _ItemStep):
+            step = _resolve(command, items, at, ctx.today, touched)
+            if isinstance(step, _ItemStep) and step.item_id in removed:
+                # "Remove dinner and the taxi there": the taxi is already going.
+                if not isinstance(command, RemoveItem):
+                    raise CommandError("It's removed along with another item")
+                step = _Step(name=step.name, asked=step.asked, done=step.done)
+            elif isinstance(step, _ItemStep):
                 # A second edit would be checked against the item as stored, not as the
                 # first edit leaves it, so both have to come as one.
                 if step.item_id in touched:
                     raise CommandError("Change each item in one command")
-                outcome = await tools.check_change(replace(ctx, staged=tuple(staged)), step.change)
-                if not outcome.ok:
-                    raise CommandError(outcome.summary)
-                staged.append(step.change)
-                touched.add(step.item_id)
+                for change in step.changes:
+                    outcome = await tools.check_change(replace(ctx, staged=tuple(staged)), change)
+                    if not outcome.ok:
+                        raise CommandError(outcome.summary)
+                    staged.append(change)
+                touched.update(step.item_ids)
+                removed.update(step.item_ids[1:])
             elif isinstance(step, _StageStep):
                 at = at.model_copy(
                     update={"stage": step.stage, "flights_skipped": step.flights_skipped}
@@ -393,9 +433,10 @@ async def _check(
 async def _write(ctx: tools.ToolContext, plan: PlanSnapshot, step: _Step) -> None:
     """Write one checked command; `CommandError` when the plan changed since the check."""
     if isinstance(step, _ItemStep):
-        outcome = await tools.apply_change(ctx, step.change)
-        if not outcome.ok:
-            raise CommandError(outcome.summary)
+        for change in step.changes:
+            outcome = await tools.apply_change(ctx, change)
+            if not outcome.ok:
+                raise CommandError(outcome.summary)
     elif isinstance(step, _BasicsStep):
         try:
             await apply_answer(ctx.session, ctx.user_id, plan, step.answer)

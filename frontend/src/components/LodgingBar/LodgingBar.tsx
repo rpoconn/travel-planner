@@ -35,7 +35,6 @@ export function LodgingBar({ item, warnings = [], style, onSelect }: LodgingBarP
             className={cn(
                 'border-lodging/60 bg-lodging/18 hover:bg-lodging/28 mx-1 my-1 flex min-w-0 items-center gap-1.5 rounded-full border px-3 text-left text-xs transition-colors',
                 item.status === 'proposed' && 'border-dashed',
-                item.status === 'cancelled' && 'line-through opacity-60',
             )}
             onClick={() => {
                 onSelect(item)

@@ -4,8 +4,8 @@ from datetime import datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from features.itinerary.gaps import find_gaps
-from features.itinerary.schemas import FlightItem, Gap
+from features.itinerary.gaps import connecting_transfers, find_gaps
+from features.itinerary.schemas import FlightItem, Gap, ItineraryItem
 from tests.features.itinerary.factories import (
     HOME,
     LA_TZ,
@@ -206,3 +206,49 @@ def test_a_ride_elsewhere_after_check_in_does_not_move_the_check_in() -> None:
     taxi = transfer("2027-05-02T19:00", "2027-05-02T19:30", from_place=OKURA, to_place=TSUKIJI)
 
     assert _pairs(find_gaps([out, stay, taxi], None)) == [(out.id, stay.id)]
+
+
+# ---------------------------------------------------------------------------
+# Transfers that go with an item
+# ---------------------------------------------------------------------------
+
+
+def test_the_rides_to_and_from_an_outing_go_with_it() -> None:
+    stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
+    there = transfer("2027-05-04T09:30", "2027-05-04T10:00", from_place=OKURA, to_place=SENSOJI)
+    temple = activity("2027-05-04T10:00", "2027-05-04T12:00", place=SENSOJI)
+    back = transfer("2027-05-04T12:00", "2027-05-04T12:30", from_place=SENSOJI, to_place=OKURA)
+
+    rides = connecting_transfers(temple.id, [stay, there, temple, back])
+
+    assert [ride.id for ride in rides] == [there.id, back.id]
+
+
+def test_a_stay_takes_only_its_check_in_and_check_out_rides() -> None:
+    out = flight("2027-05-01T11:00", "2027-05-02T18:00")
+    stay = lodging("2027-05-02T15:00", "2027-05-06T11:00")
+    arrival = transfer("2027-05-02T18:30", "2027-05-02T19:30", from_place=NRT, to_place=OKURA)
+    there = transfer("2027-05-04T09:30", "2027-05-04T10:00", from_place=OKURA, to_place=SENSOJI)
+    temple = activity("2027-05-04T10:00", "2027-05-04T12:00", place=SENSOJI)
+    back = transfer("2027-05-04T12:00", "2027-05-04T12:30", from_place=SENSOJI, to_place=OKURA)
+    departure = transfer("2027-05-06T08:00", "2027-05-06T09:00", from_place=OKURA, to_place=NRT)
+    items: list[ItineraryItem] = [out, stay, arrival, there, temple, back, departure]
+
+    rides = connecting_transfers(stay.id, items)
+
+    assert [ride.id for ride in rides] == [arrival.id, departure.id]
+
+
+def test_a_ride_to_somewhere_else_stays() -> None:
+    temple = activity("2027-05-04T10:00", "2027-05-04T12:00", place=SENSOJI)
+    onward = transfer("2027-05-04T12:00", "2027-05-04T12:30", from_place=OKURA, to_place=TSUKIJI)
+
+    assert connecting_transfers(temple.id, [temple, onward]) == []
+
+
+def test_removing_a_transfer_takes_no_others() -> None:
+    out = flight("2027-05-01T11:00", "2027-05-02T18:00")
+    train = transfer("2027-05-02T18:30", "2027-05-02T19:30", from_place=NRT, to_place=SENSOJI)
+    taxi = transfer("2027-05-02T19:30", "2027-05-02T19:45", from_place=SENSOJI, to_place=OKURA)
+
+    assert connecting_transfers(train.id, [out, train, taxi]) == []

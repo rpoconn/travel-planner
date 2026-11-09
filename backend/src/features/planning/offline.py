@@ -11,7 +11,7 @@ Playwright suite), so free text works with no model.
   "go back to <stage>", "skip flights", "show me other <hotels / flights / things to do /
   options>", "make the hotel <class>". The command reader (`extractor.COMMAND_SCHEMA`)
   then turns it into a command, finding the item in the numbered itinerary its prompt
-  shows: the first one not removed whose title has the words ("the hotel" or "the stay"
+  shows: the first one whose title has the words ("the hotel" or "the stay"
   is the first stay). "Other options" are the current stage's, as the prompt names it.
 - Question requests (`prompts.QA_INTRO`), and anything else, get a fixed answer; a
   structured request for an unknown schema is "unrelated", which fails closed to a nudge.
@@ -151,9 +151,8 @@ def _is_pick_schema(schema: dict[str, JsonValue]) -> bool:
 # Commands
 # ---------------------------------------------------------------------------
 
-# A line of the numbered itinerary (`prompts.item_line`): number, type, title, and whether
-# it was removed.
-_ITEM_LINE = re.compile(r"^(\d+)\. (\w+) “(.*?)”.*?( \| removed)?$", re.MULTILINE)
+# A line of the numbered itinerary (`prompts.item_line`): number, type and title.
+_ITEM_LINE = re.compile(r"^(\d+)\. (\w+) “(.*?)”", re.MULTILINE)
 _STAY_WORDS = ("hotel", "stay")
 # The stage the command prompt says the plan is at (`prompts.command_messages`).
 _PLAN_AT = re.compile(r"The plan is at (\w+)\.")
@@ -179,10 +178,8 @@ def is_edit(content: str) -> bool:
 
 
 def _item_number(words: str, prompt: str) -> int | None:
-    """The first item in the prompt's list, not removed, that `words` names."""
-    for number, kind, title, removed in _ITEM_LINE.findall(prompt):
-        if removed:
-            continue
+    """The first item in the prompt's list that `words` names."""
+    for number, kind, title in _ITEM_LINE.findall(prompt):
         # "the hotel" means a stay, not the "Hotel dinner".
         names = kind == "lodging" if words in _STAY_WORDS else words in title.casefold()
         if names:

@@ -48,7 +48,6 @@ export function TransferConnector(props: TransferConnectorProps) {
                 className={cn(
                     'bg-transfer/12 hover:bg-transfer/20 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors',
                     item.status === 'proposed' && 'border-dashed',
-                    item.status === 'cancelled' && 'line-through opacity-60',
                 )}
                 onClick={() => {
                     onSelect(item)

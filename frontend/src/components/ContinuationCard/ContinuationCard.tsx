@@ -44,7 +44,6 @@ export function ContinuationCard({ entry, arriving, warnings, onSelect }: Contin
             className={cn(
                 'bg-muted/40 w-full rounded-xl border border-l-4 border-dashed [border-left-style:solid] px-3 py-2 text-left transition-shadow hover:shadow-md',
                 meta.border,
-                item.status === 'cancelled' && 'opacity-60',
             )}
             onClick={() => {
                 onSelect(item)

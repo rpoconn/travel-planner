@@ -187,12 +187,6 @@ def test_an_item_line_shows_local_times_zones_and_places() -> None:
     )
 
 
-def test_a_removed_item_is_marked() -> None:
-    flight = return_flight().model_copy(update={"status": "cancelled"})
-
-    assert item_line(1, flight).endswith(" | removed")
-
-
 def test_the_prompt_numbers_the_itinerary_and_names_the_pending_question() -> None:
     plan = snapshot(complete_trip())
     history = [

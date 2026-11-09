@@ -196,15 +196,15 @@ def test_multi_day_lodging_is_one_span_not_daily_cards() -> None:
     ]
 
 
-def test_cancelled_items_are_shown_but_ignored_by_warnings() -> None:
+def test_cancelled_items_are_left_off_and_ignored_by_warnings() -> None:
     cancelled = lodging("2027-05-01T15:00", "2027-05-03T11:00", status="cancelled")
     clash = activity("2027-05-01T15:00", "2027-05-01T16:00", status="cancelled")
     museum = activity("2027-05-01T15:30", "2027-05-01T17:00", place=TSUKIJI)
 
     timeline = _timeline([cancelled, clash, museum], end_date=date(2027, 5, 3))
 
-    assert len(timeline.lodging) == 1
-    assert len(timeline.days[0].entries) == 2
+    assert timeline.lodging == []
+    assert [entry.item.id for entry in timeline.days[0].entries] == [museum.id]
     assert _warnings(timeline, IssueCode.UNCOVERED_NIGHT) == [date(2027, 5, 1), date(2027, 5, 2)]
     assert _warnings(timeline, IssueCode.OVERLAP) == []
 

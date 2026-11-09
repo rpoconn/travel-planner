@@ -5,6 +5,7 @@ from datetime import date
 
 from pydantic import JsonValue
 
+from features.planning.commands import numbered_items
 from features.planning.extractor import COMMAND_SCHEMA, PICK_SCHEMA, extraction_schema
 from features.planning.offline import (
     OFFLINE_ANSWER,
@@ -30,7 +31,7 @@ def _command_prompt(cancelled: int | None = None, stage: PlanStage = PlanStage.B
     if cancelled is not None:
         items[cancelled - 1] = items[cancelled - 1].model_copy(update={"status": "cancelled"})
     plan = snapshot(items, stage=stage)
-    return command_messages("", plan, plan.items, TODAY)[0].content
+    return command_messages("", plan, numbered_items(plan), TODAY)[0].content
 
 
 def _request(slot: SlotName, content: str) -> FakeRequest:
@@ -114,7 +115,7 @@ def test_remove_finds_the_item_in_the_numbered_list() -> None:
     ]
 
 
-def test_a_removed_item_is_not_found_again() -> None:
+def test_a_cancelled_item_is_left_out_of_the_list() -> None:
     reply = command_reply("remove the hotel", _command_prompt(cancelled=4))
 
     assert reply == {"status": "unrelated", "commands": []}
