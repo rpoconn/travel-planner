@@ -2,19 +2,22 @@ import type { Issue, PlanStage, TravelPlan } from '@/api/types.gen'
 import { STAGE_META, stageIndex } from '@/lib/stages'
 
 // Pure helpers for IssuesPanel: which of the planner's issues to list, and which of them a
-// "Go to" button can send the user back to fix.
+// "Go to" button can send the user back to fix (those of earlier stages; the current stage's
+// are listed without one, as the planner is already there).
 
 // ----- listing -----
 
 /**
- * The issues worth listing: every warning (an overlap, a cost over a limit), and anything
- * missing from a stage the plan has already passed (a hotel removed since). The current
- * stage's own checklist is left out: the planner is already asking about it.
+ * The issues worth listing: every warning (an overlap, a cost over a limit) and everything
+ * the trip is missing in the stages reached so far. That includes the current stage's own
+ * checklist: a removed ride sends the plan back to ground transport, so the ride it now lacks
+ * is the current stage's. The basics stage is the exception, since its checklist only repeats
+ * the form a new trip opens with.
  */
 export function visibleIssues(plan: TravelPlan): Issue[] {
-    const current = stageIndex(plan.stage)
     return plan.assessment.issues.filter(
-        (issue) => issue.severity === 'warning' || stageIndex(issue.stage) < current,
+        (issue) =>
+            issue.severity === 'warning' || issue.stage !== 'basics' || plan.stage !== 'basics',
     )
 }
 

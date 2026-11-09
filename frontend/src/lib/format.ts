@@ -42,6 +42,19 @@ export function formatDateRange(start?: string | null, end?: string | null): str
     return null
 }
 
+/** The parts of a trip (a plan or its summary) that say where and when it is. */
+interface TripWhereWhen {
+    destination?: Place | null
+    start_date?: string | null
+    end_date?: string | null
+}
+
+/** "Tokyo · May 1 – May 8", with whichever part is known; null when neither is. */
+export function formatTripWhereWhen(trip: TripWhereWhen): string | null {
+    const parts = [trip.destination?.name, formatDateRange(trip.start_date, trip.end_date)]
+    return parts.filter(Boolean).join(' · ') || null
+}
+
 /** "Narita International Airport (NRT)". */
 export function placeLabel(place: Place): string {
     return place.iata ? `${place.name} (${place.iata})` : place.name

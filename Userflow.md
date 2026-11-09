@@ -283,8 +283,10 @@ Each candidate carries the plan changes picking it makes (`add_flight`, `add_lod
   place, whatever the stage. When the change happened outside a turn (the items API), the
   stage bar shows **Back to Lodging** and the next turn does it.
 - **Skip flights** marks the flights stage skipped and moves on to lodging.
-- The issues flyout at the end of the stepper lists blocking issues and timeline warnings,
-  each with **Go to** the stage that fixes it.
+- The issues flyout at the end of the stepper lists timeline warnings and what the trip is
+  missing in the stages reached so far, the current stage included (a ride removed since),
+  but not the basics while their form is open. An issue from an earlier stage has **Go to**
+  the stage that fixes it.
 
 ## 7. What the user sees
 

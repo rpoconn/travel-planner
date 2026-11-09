@@ -26,7 +26,7 @@ export function StageStepper({ plan, disabled = false }: StageStepperProps) {
     return (
         <nav
             aria-label="Planning stages"
-            className="flex min-w-0 flex-1 flex-col gap-1 px-6 py-2.5"
+            className="flex min-w-0 flex-1 flex-col gap-1 px-4 py-1.5"
         >
             <ol className="flex items-center gap-4 overflow-x-auto">
                 {STAGES.map((stage, index) => (

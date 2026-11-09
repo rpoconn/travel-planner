@@ -25,7 +25,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { errorMessage } from '@/lib/apiError'
-import { formatDateRange } from '@/lib/format'
+import { formatTripWhereWhen } from '@/lib/format'
 import { STAGE_META } from '@/lib/stages'
 import { cn } from '@/lib/utils'
 
@@ -35,13 +35,6 @@ interface PlansSidebarProps {
     selectedPlanId?: string | undefined
     onSelectPlan: (planId: string) => void
     onPlanDeleted: (planId: string) => void
-}
-
-// ----- helpers -----
-
-function planSubtitle(plan: PlanSummary): string {
-    const parts = [plan.destination?.name, formatDateRange(plan.start_date, plan.end_date)]
-    return parts.filter(Boolean).join(' · ') || 'No dates yet'
 }
 
 export function PlansSidebar({ selectedPlanId, onSelectPlan, onPlanDeleted }: PlansSidebarProps) {
@@ -213,7 +206,7 @@ export function PlansSidebar({ selectedPlanId, onSelectPlan, onPlanDeleted }: Pl
                                                     {STAGE_META[plan.stage].label}
                                                 </Badge>
                                                 <span className="truncate">
-                                                    {planSubtitle(plan)}
+                                                    {formatTripWhereWhen(plan) ?? 'No dates yet'}
                                                 </span>
                                             </span>
                                         </button>

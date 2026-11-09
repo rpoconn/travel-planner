@@ -25,7 +25,7 @@ export function ChangesCard({ record }: ChangesCardProps) {
         <section
             aria-label={title}
             data-role="assistant"
-            className="bg-card flex max-w-[85%] flex-col gap-1.5 rounded-2xl rounded-bl-md border px-4 py-3 text-sm shadow-xs"
+            className="bg-card flex w-fit max-w-[85%] flex-col gap-1 rounded-2xl rounded-bl-md border px-3 py-2 text-sm leading-snug shadow-xs"
         >
             <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
                 {title}

@@ -114,6 +114,37 @@ describe('WorkspacePage', () => {
         })
     })
 
+    it('hides the trips panel once the trip is worked in', async () => {
+        vi.spyOn(sdk, 'getPlan').mockResolvedValue(sdkOk(planAsking(ASK_DESTINATION)))
+        await renderWithRouter(<WorkspacePage planId={travelPlan().id} />)
+        const trips = screen.getByRole('navigation', { name: 'Trips' })
+        expect(trips.closest('aside')).not.toHaveAttribute('inert')
+
+        const chat = screen.getByRole('region', { name: 'Chat' })
+        await userEvent.click(await within(chat).findByRole('textbox', { name: 'Message' }))
+
+        expect(trips.closest('aside')).toHaveAttribute('inert')
+        expect(screen.getByRole('button', { name: 'Show trips' })).toHaveAttribute(
+            'aria-expanded',
+            'false',
+        )
+    })
+
+    it('reopens the trips panel from the header, and leaves it open after that', async () => {
+        vi.spyOn(sdk, 'getPlan').mockResolvedValue(sdkOk(planAsking(ASK_DESTINATION)))
+        await renderWithRouter(<WorkspacePage planId={travelPlan().id} />)
+        const trips = screen.getByRole('navigation', { name: 'Trips' })
+        const chat = screen.getByRole('region', { name: 'Chat' })
+        const message = await within(chat).findByRole('textbox', { name: 'Message' })
+        await userEvent.click(message)
+
+        await userEvent.click(screen.getByRole('button', { name: 'Show trips' }))
+        await userEvent.type(message, 'hello')
+
+        expect(trips.closest('aside')).not.toHaveAttribute('inert')
+        expect(screen.getByRole('button', { name: 'Hide trips' })).toBeInTheDocument()
+    })
+
     it('signs out', async () => {
         await renderWithRouter(<WorkspacePage />)
 

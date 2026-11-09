@@ -27,7 +27,6 @@ describe('ItineraryTimeline', () => {
         const days = await screen.findAllByRole('region', { name: /^Day \d/ })
         expect(days).toHaveLength(5)
         expect(days[0]).toHaveTextContent('Outbound')
-        expect(screen.getByText('5 days · 4 items')).toBeInTheDocument()
 
         // Check-in mid day 2 (index 1) → check-out mid day 5 (index 4) on the half-column grid.
         const stay = screen.getByRole('button', { name: 'Hotel Okura, 3 nights' })

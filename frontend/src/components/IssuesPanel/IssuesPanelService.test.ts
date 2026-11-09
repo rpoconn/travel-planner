@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import type { PlanStage } from '@/api/types.gen'
 import { issue, planAssessment, travelPlan } from '@/test/fixtures'
 
 import {
@@ -22,15 +23,25 @@ const OVERLAP = issue({
     message: 'Senso-ji overlaps Tsukiji Market',
 })
 
-function planAt(stage: 'ground' | 'review', issues = [NO_HOTEL, NO_RIDE, OVERLAP]) {
+const NO_DATES = issue({ code: 'missing_dates', stage: 'basics', message: 'trip dates' })
+
+function planAt(stage: PlanStage, issues = [NO_HOTEL, NO_RIDE, OVERLAP]) {
     return travelPlan({ stage, assessment: planAssessment({ stage, issues }) })
 }
 
 // ----- tests -----
 
 describe('visibleIssues', () => {
-    it("leaves out the current stage's own checklist", () => {
-        expect(visibleIssues(planAt('ground'))).toEqual([NO_HOTEL, OVERLAP])
+    it("lists the current stage's own checklist, such as a ride removed since", () => {
+        expect(visibleIssues(planAt('ground'))).toEqual([NO_HOTEL, NO_RIDE, OVERLAP])
+    })
+
+    it("leaves out the basics' checklist while the basics form is asking for it", () => {
+        expect(visibleIssues(planAt('basics', [NO_DATES, OVERLAP]))).toEqual([OVERLAP])
+    })
+
+    it('lists a missing basic once the plan is past the basics', () => {
+        expect(visibleIssues(planAt('flights', [NO_DATES]))).toEqual([NO_DATES])
     })
 
     it('lists everything at review', () => {

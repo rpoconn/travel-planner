@@ -188,9 +188,9 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
                 role="log"
                 aria-label="Conversation"
                 aria-busy={turn?.status === 'streaming'}
-                className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-4 *:shrink-0"
+                className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3 *:shrink-0"
             >
-                <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 *:shrink-0">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 *:shrink-0">
                     {messagesQuery.isPending ? (
                         <p className="text-muted-foreground text-sm">Loading conversation…</p>
                     ) : messagesQuery.isError ? (
@@ -271,7 +271,7 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
                 </div>
             </div>
 
-            <div className="flex flex-col gap-2 px-4 pt-2 pb-4">
+            <div className="flex flex-col gap-2 px-4 pt-1.5 pb-3">
                 {sendError && (
                     <p role="alert" className="text-destructive px-2 text-sm">
                         {sendError}

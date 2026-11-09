@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatCost, formatDateRange, formatMoney, placeLabel, placeLocality } from './format'
+import {
+    formatCost,
+    formatDateRange,
+    formatMoney,
+    formatTripWhereWhen,
+    placeLabel,
+    placeLocality,
+} from './format'
 
 const monthDay = (year: number, month: number, day: number) =>
     new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
@@ -22,6 +29,26 @@ describe('formatDateRange', () => {
 
     it('returns null without dates', () => {
         expect(formatDateRange(null, undefined)).toBeNull()
+    })
+})
+
+describe('formatTripWhereWhen', () => {
+    const dates = { start_date: '2027-05-01', end_date: '2027-05-08' }
+    const range = `${monthDay(2027, 5, 1)} – ${monthDay(2027, 5, 8)}`
+
+    it('joins the destination and the dates', () => {
+        expect(formatTripWhereWhen({ destination: { name: 'Tokyo' }, ...dates })).toBe(
+            `Tokyo · ${range}`,
+        )
+    })
+
+    it('gives whichever part is known', () => {
+        expect(formatTripWhereWhen({ destination: { name: 'Tokyo' } })).toBe('Tokyo')
+        expect(formatTripWhereWhen({ destination: null, ...dates })).toBe(range)
+    })
+
+    it('returns null when neither is known', () => {
+        expect(formatTripWhereWhen({ destination: null, start_date: null })).toBeNull()
     })
 })
 

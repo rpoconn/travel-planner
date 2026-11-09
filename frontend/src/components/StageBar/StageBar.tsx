@@ -35,7 +35,7 @@ export function StageBar({ plan, disabled = false, onContinue }: StageBarProps) 
     return (
         <section
             aria-label="Stage controls"
-            className="bg-card flex flex-col gap-1 rounded-xl border px-4 py-3"
+            className="bg-card flex flex-col gap-1 rounded-xl border px-3 py-2"
         >
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                 <div className="min-w-0 flex-1 text-xs">

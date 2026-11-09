@@ -53,6 +53,9 @@ export async function setHome(page: Page, city: string, iata = 'PHL'): Promise<v
 
 /** Create a trip from the sidebar and give it `title` (New trip opens an inline rename). */
 export async function createTrip(page: Page, title: string): Promise<void> {
+    // The trips panel hides once a trip is worked in; bring it back for the New trip button.
+    const showTrips = page.getByRole('button', { name: 'Show trips' })
+    if (await showTrips.isVisible()) await showTrips.click()
     await page.getByRole('button', { name: 'New trip' }).click()
     const nameInput = page.getByRole('textbox', { name: 'Trip name' })
     await nameInput.fill(title)

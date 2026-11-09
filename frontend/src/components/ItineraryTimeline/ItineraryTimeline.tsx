@@ -5,7 +5,6 @@ import { getTimelineOptions } from '@/api/@tanstack/react-query.gen'
 import { EmptyTimeline } from '@/components/EmptyTimeline/EmptyTimeline'
 import { ItemDetailSheet } from '@/components/ItemDetailSheet/ItemDetailSheet'
 import { TimelineGrid } from '@/components/TimelineGrid/TimelineGrid'
-import { TimelineHeader } from '@/components/TimelineHeader/TimelineHeader'
 import { errorMessage } from '@/lib/apiError'
 import type { ItineraryItem } from '@/lib/itemMeta'
 import { findTimelineItem } from '@/lib/timeline'
@@ -15,6 +14,7 @@ import { findTimelineItem } from '@/lib/timeline'
 // timeline view model; plan_updated events refetch it. Clicking an item opens its details, with
 // a button to remove it (the planner runs the removal as a turn in the chat). The planner's issues
 // live in the stage bar (IssuesPanel); per-day and per-item warnings still mark the cards here.
+// The panel has no title bar: the day and item counts are in the page's top bar (TripSummary).
 
 // ----- types -----
 
@@ -67,7 +67,6 @@ export function ItineraryTimeline({
     const data = timelineQuery.data
     return (
         <div className="flex h-full flex-col">
-            <TimelineHeader timeline={data} />
             {data.days.length === 0 ? (
                 <EmptyTimeline />
             ) : (

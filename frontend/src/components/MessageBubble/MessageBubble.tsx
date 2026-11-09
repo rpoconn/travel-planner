@@ -34,7 +34,7 @@ export function MessageBubble({
     if (role === 'user') {
         return (
             <div className="flex justify-end" data-role="user">
-                <p className="bg-primary text-primary-foreground max-w-[85%] rounded-2xl rounded-br-md px-4 py-2 text-sm whitespace-pre-wrap">
+                <p className="bg-primary text-primary-foreground max-w-[85%] rounded-2xl rounded-br-md px-3 py-1.5 text-sm leading-snug whitespace-pre-wrap">
                     {content}
                 </p>
             </div>
@@ -64,7 +64,7 @@ export function MessageBubble({
         return (
             <div
                 data-role="system"
-                className="border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-xl border px-3 py-2 text-sm"
+                className="border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-xl border px-3 py-1.5 text-sm leading-snug"
             >
                 <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
                 <p className="whitespace-pre-wrap">{content}</p>
@@ -83,7 +83,7 @@ export function MessageBubble({
                 // A nudge steers free text back to the planner's pending question.
                 aria-label="Back to the question"
                 data-role="assistant"
-                className="border-terracotta/40 bg-accent/60 text-accent-foreground flex max-w-[85%] items-start gap-3 rounded-2xl border border-dashed px-4 py-3 text-sm"
+                className="border-terracotta/40 bg-accent/60 text-accent-foreground flex w-fit max-w-[85%] items-start gap-2 rounded-2xl border border-dashed px-3 py-2 text-sm leading-snug"
             >
                 <Compass className="text-terracotta mt-0.5 size-4 shrink-0" aria-hidden />
                 <p className="whitespace-pre-wrap">
@@ -95,9 +95,9 @@ export function MessageBubble({
 
     const waiting = streaming && !content
     return (
-        <div className="flex max-w-[85%] flex-col gap-2" data-role="assistant">
+        <div className="flex w-fit max-w-[85%] flex-col gap-2" data-role="assistant">
             {(content || waiting) && (
-                <div className="bg-card rounded-2xl rounded-bl-md border px-4 py-2 text-sm shadow-xs">
+                <div className="bg-card rounded-2xl rounded-bl-md border px-3 py-1.5 text-sm leading-snug shadow-xs">
                     {waiting ? (
                         <TypingDots />
                     ) : (

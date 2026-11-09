@@ -51,6 +51,21 @@ describe('IssuesPanel', () => {
         ])
     })
 
+    it("lists the current stage's missing ride, with nowhere to go to", async () => {
+        const noRide = issue({ stage: 'ground', message: 'a transfer from Tower Bridge to hotel' })
+        const plan = travelPlan({
+            stage: 'ground',
+            assessment: planAssessment({ stage: 'ground', issues: [noRide] }),
+        })
+        const { user } = renderPanel(plan)
+
+        await user.click(screen.getByRole('button', { name: '1 thing to check' }))
+
+        const flyout = screen.getByRole('dialog', { name: 'Things to check' })
+        expect(flyout).toHaveTextContent('Missing a transfer from Tower Bridge to hotel')
+        expect(within(flyout).queryByRole('button', { name: /^Go to/ })).not.toBeInTheDocument()
+    })
+
     it('goes back to the stage that needs fixing', async () => {
         const changeStage = vi
             .spyOn(sdk, 'changeStage')

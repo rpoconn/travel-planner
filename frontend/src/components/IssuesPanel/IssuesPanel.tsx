@@ -17,10 +17,10 @@ import {
     visibleIssues,
 } from './IssuesPanelService'
 
-// What the planner found wrong with the trip: things missing from stages already passed
+// What the planner found wrong with the trip: things missing from the stages reached so far
 // (blocking) and the timeline's warnings. A blocking issue from an earlier stage gets a "Go
 // to {stage}" button, which moves the plan back there (`go_to`) so the planner asks for it
-// again. Shown as "N things to check" at the end of the stage bar (a flyout), and `inline`
+// again; one from the current stage is only listed. Shown as "N things to check" at the end of the stage bar (a flyout), and `inline`
 // on the review stage, where an empty list is the good news.
 
 // ----- types -----
