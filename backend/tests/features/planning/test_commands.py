@@ -106,15 +106,20 @@ TRAM = Place(name="Tram 28 stop", city="Lisbon")
 
 
 async def _add_activity(
-    ctx: ToolContext, title: str, day: int, status: ItemStatus, place: Place | None = None
+    ctx: ToolContext,
+    title: str,
+    day: int,
+    status: ItemStatus,
+    place: Place | None = None,
+    hours: tuple[int, int] = (10, 12),
 ) -> None:
-    """An 80 USD activity, 10:00-12:00, added past the rules (as if it was there before the
-    budget). At the flat unless `place` says otherwise."""
+    """An 80 USD activity, 10:00-12:00 unless `hours` says otherwise, added past the rules
+    (as if it was there before the budget). At the flat unless `place` says otherwise."""
     data = ActivityItemCreate(
         type=ItemType.ACTIVITY,
         title=title,
-        start=datetime(2027, 5, day, 10),
-        end=datetime(2027, 5, day, 12),
+        start=datetime(2027, 5, day, hours[0]),
+        end=datetime(2027, 5, day, hours[1]),
         timezone=LISBON_TZ,
         place=place or Place.model_validate(FLAT),
         category="tour",
@@ -244,6 +249,62 @@ async def test_a_ride_changed_first_stays_when_its_item_goes(ctx: ToolContext) -
         "Removed “Tram tour” and “Taxi there”",
     ]
     assert await _titles(ctx) == ["Friend's flat", "Dinner in", "Taxi home"]
+
+
+async def test_removing_a_stop_in_the_middle_says_which_ride_is_missing(
+    ctx: ToolContext,
+) -> None:
+    # Flat → museum → taxi → lunch → flat: the taxi goes with the museum, so nothing gets
+    # from the flat to lunch any more. The flat → market ride the next day was already
+    # missing; this one is missing as well.
+    lunch_spot = Place(name="Time Out Market", city="Lisbon")
+    await _add_activity(ctx, "Museum", 3, "proposed", place=TRAM)
+    await _add_taxi(ctx, "Taxi to lunch", datetime(2027, 5, 3, 12), TRAM, lunch_spot)
+    await _add_activity(ctx, "Lunch", 3, "proposed", place=lunch_spot, hours=(13, 14))
+    await _add_activity(ctx, "Market", 4, "proposed", place=lunch_spot)
+    assert await _titles(ctx) == [
+        "Friend's flat",
+        "Dinner in",
+        "Museum",
+        "Taxi to lunch",
+        "Lunch",
+        "Market",
+    ]
+
+    record = await _run(ctx, _remove(3))
+
+    assert record.left_open == [
+        "Nothing gets you from Friend's flat to Time Out Market now. I'll look for a ride"
+    ]
+    assert describe_changes(record) == (
+        "Removed “Museum” and “Taxi to lunch”. Nothing gets you from Friend's flat to "
+        "Time Out Market now. I'll look for a ride."
+    )
+
+
+async def test_a_ride_missing_before_the_edit_is_not_named_again(ctx: ToolContext) -> None:
+    await _add_tram_tour(ctx)
+
+    # Both taxis go with the tour, so the trip is back to flat and dinner: nothing new.
+    record = await _run(ctx, _remove(4))
+
+    assert record.left_open == []
+
+
+async def test_a_ride_left_missing_before_ground_transport_waits_for_it(
+    ctx: ToolContext,
+) -> None:
+    await _add_tram_tour(ctx)
+    await plans_service.set_stage(
+        ctx.session, ctx.user_id, ctx.plan_id, PlanStage.ACTIVITIES, False
+    )
+
+    record = await _run(ctx, _remove(3))
+
+    assert record.left_open == [
+        "Nothing gets you from Friend's flat to Tram 28 stop now. I'll look for a ride at "
+        "ground transport"
+    ]
 
 
 async def test_a_cancelled_item_is_not_in_the_list(ctx: ToolContext) -> None:

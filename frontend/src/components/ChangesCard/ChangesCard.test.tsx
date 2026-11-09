@@ -14,6 +14,7 @@ describe('ChangesCard', () => {
                         { name: 'change_stage', summary: 'Back to lodging', item_id: null },
                     ],
                     rejected: [],
+                    left_open: [],
                     clarification: null,
                 }}
             />,
@@ -25,6 +26,38 @@ describe('ChangesCard', () => {
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
         ).toEqual(['Removed “Riverside Hotel”', 'Back to lodging'])
+    })
+
+    it('names a ride the change left missing, after what it changed', () => {
+        render(
+            <ChangesCard
+                record={{
+                    type: 'changes',
+                    applied: [
+                        {
+                            name: 'remove_item',
+                            summary: 'Removed “Museum” and “Taxi to lunch”',
+                            item_id: 'a',
+                        },
+                    ],
+                    rejected: [],
+                    left_open: [
+                        "Nothing gets you from Friend's flat to Time Out Market now. I'll look for a ride",
+                    ],
+                    clarification: null,
+                }}
+            />,
+        )
+
+        const card = screen.getByRole('region', { name: 'Trip updated' })
+        expect(
+            within(card)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual([
+            'Removed “Museum” and “Taxi to lunch”',
+            "Nothing gets you from Friend's flat to Time Out Market now. I'll look for a ride.",
+        ])
     })
 
     it('shows a change the rules turned down with the reason', () => {
@@ -39,6 +72,7 @@ describe('ChangesCard', () => {
                             reason: 'that is during the flight home',
                         },
                     ],
+                    left_open: [],
                     clarification: null,
                 }}
             />,

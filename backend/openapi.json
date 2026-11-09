@@ -2463,6 +2463,13 @@
             "type": "array",
             "title": "Rejected"
           },
+          "left_open": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Left Open"
+          },
           "clarification": {
             "anyOf": [
               {
@@ -2480,6 +2487,7 @@
           "type",
           "applied",
           "rejected",
+          "left_open",
           "clarification"
         ],
         "title": "ChangesRecord",

@@ -23,11 +23,15 @@ from shared.hotels.types import HotelOption
 from shared.llm.fake import FakeLLM, json_reply
 from tests.features.planning.planning_http import (
     BASICS,
+    FLAT,
+    LISBON_TZ,
+    add_item,
     answer,
     asking,
     create_plan,
     done,
     messages,
+    move_to,
     reach,
     say,
     stored,
@@ -345,6 +349,78 @@ async def test_other_options_for_a_stay_already_picked_are_turned_down(
         ),
         ("expected_input", "What do you like to do?"),
     ]
+
+
+async def test_a_ride_left_missing_is_named_and_ground_transport_takes_it_up(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
+) -> None:
+    # A finished trip: driven there and back, with a tram tour and a taxi each way.
+    plan_id = await _plan_at(app, client, headers, PlanStage.GROUND)
+    home: dict[str, JsonValue] = {"name": "Philadelphia"}
+    tram: dict[str, JsonValue] = {"name": "Tram 28 stop", "city": "Lisbon"}
+
+    async def ride(
+        title: str,
+        start: str,
+        end: str,
+        mode: str,
+        from_place: dict[str, JsonValue],
+        to_place: dict[str, JsonValue],
+    ) -> None:
+        await add_item(
+            client,
+            headers,
+            plan_id,
+            type="transfer",
+            title=title,
+            start=start,
+            end=end,
+            timezone=LISBON_TZ,
+            mode=mode,
+            from_place=from_place,
+            to_place=to_place,
+        )
+
+    await ride("Drive there", "2027-05-01T13:00", "2027-05-01T15:00", "own_car", home, FLAT)
+    await ride("Taxi there", "2027-05-03T09:30", "2027-05-03T10:00", "taxi", FLAT, tram)
+    await add_item(
+        client,
+        headers,
+        plan_id,
+        type="activity",
+        title="Tram tour",
+        start="2027-05-03T10:00",
+        end="2027-05-03T12:00",
+        timezone=LISBON_TZ,
+        place=tram,
+        category="tour",
+    )
+    await ride("Taxi back", "2027-05-03T12:00", "2027-05-03T12:30", "taxi", tram, FLAT)
+    await ride("Drive home", "2027-05-08T11:00", "2027-05-08T13:00", "own_car", FLAT, home)
+    await move_to(app, plan_id, PlanStage.REVIEW, flights_skipped=True)
+    taxi_back = 6
+    fake_llm.queue(json_reply(_commands(_remove(taxi_back))))
+
+    events = await say(client, headers, plan_id, "remove the taxi back")
+
+    assert stored(events)[1:3] == [
+        (
+            "changes",
+            "Removed “Taxi back”. Nothing gets you from Tram 28 stop to Friend's flat now. "
+            "I'll look for a ride.",
+        ),
+        (
+            "stage",
+            "Back to ground transport: the trip still needs a transfer from Tram 28 stop "
+            "to Friend's flat.",
+        ),
+    ]
+    assert done(events).plan.stage == PlanStage.GROUND
+    # ...and offers rides for that very gap.
+    assert stored(events)[3] == ("choices", "How do you want to get there?")
+    gap = _choices(events).gap
+    assert gap is not None
+    assert (gap.from_place.name, gap.to_place.name) == ("Tram 28 stop", "Friend's flat")
 
 
 # ---------------------------------------------------------------------------

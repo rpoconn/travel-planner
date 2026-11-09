@@ -1,11 +1,12 @@
-import { Check, X } from 'lucide-react'
+import { Check, TriangleAlert, X } from 'lucide-react'
 
 import type { ChangesRecord } from '@/api/types.gen'
 
 import { changesTitle } from './ChangesCardService'
 
 // What a typed edit did ("remove the hotel"): one line per change written, with a check
-// mark, and one per change the rules turned down, with the reason. There is nothing to
+// mark, one per ride the edit left missing, with a warning, and one per change the rules
+// turned down, with the reason. There is nothing to
 // approve here: the user's words were the approval, and the timeline already shows the
 // result.
 
@@ -34,6 +35,15 @@ export function ChangesCard({ record }: ChangesCardProps) {
                     <li key={`applied-${String(index)}`} className="flex items-start gap-2">
                         <Check className="text-primary mt-0.5 size-4 shrink-0" aria-hidden />
                         <span>{change.summary}</span>
+                    </li>
+                ))}
+                {record.left_open.map((note, index) => (
+                    <li key={`left-open-${String(index)}`} className="flex items-start gap-2">
+                        <TriangleAlert
+                            className="text-warning mt-0.5 size-4 shrink-0"
+                            aria-hidden
+                        />
+                        <span>{note}.</span>
                     </li>
                 ))}
                 {record.rejected.map((change, index) => (

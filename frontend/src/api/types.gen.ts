@@ -400,6 +400,10 @@ export type ChangesRecord = {
      */
     rejected: Array<RejectedChange>;
     /**
+     * Left Open
+     */
+    left_open: Array<string>;
+    /**
      * Clarification
      */
     clarification: string | null;

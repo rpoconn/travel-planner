@@ -99,6 +99,7 @@ describe('PlanningPanel', () => {
                         { name: 'remove_item', summary: 'Removed “Riverside Hotel”', item_id: 'a' },
                     ],
                     rejected: [],
+                    left_open: [],
                     clarification: null,
                 },
             }),

@@ -6,7 +6,13 @@ import { changesTitle, listsChanges } from './ChangesCardService'
 
 // ----- setup -----
 
-const NONE: ChangesRecord = { type: 'changes', applied: [], rejected: [], clarification: null }
+const NONE: ChangesRecord = {
+    type: 'changes',
+    applied: [],
+    rejected: [],
+    left_open: [],
+    clarification: null,
+}
 const REMOVED: ChangesRecord = {
     ...NONE,
     applied: [{ name: 'remove_item', summary: 'Removed “Riverside Hotel”', item_id: 'item-1' }],

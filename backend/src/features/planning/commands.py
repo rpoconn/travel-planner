@@ -19,12 +19,16 @@ turns each one into the write that already exists for it and runs that write's r
   pending choices (`engine.refresh_search`), and the turn then runs it again the way
   "More options" does, leaving out what it already offered.
 
+Once written, any change of place the edit left without a ride (the plan's gaps, as the
+ground stage counts them) is named in the outcome, so the user hears it then and there.
+
 Every command is checked, with the earlier ones staged, before any is written; one that
 breaks a rule means nothing is written, and the outcome says which rule. No model calls
 here: free text reaches this module only as commands the reader filled in.
 """
 
 import logging
+from collections import Counter
 from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
@@ -35,8 +39,9 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from features.chat import tools
 from features.chat.schemas import ProposedChange
-from features.itinerary.gaps import connecting_transfers
-from features.itinerary.schemas import ItineraryItem, active
+from features.itinerary import service as itinerary_service
+from features.itinerary.gaps import connecting_transfers, describe_place
+from features.itinerary.schemas import Gap, ItineraryItem, active
 from features.planning.answers import (
     AnswerError,
     apply_answer,
@@ -480,7 +485,40 @@ async def check_and_apply(
         item_id = step.item_id if isinstance(step, _ItemStep) else None
         applied.append(AppliedChange(name=step.name, summary=step.done, item_id=item_id))
     logger.info("Plan %s: applied %s", plan.id, ", ".join(step.name for step in checked.steps))
-    return ChangesRecord(applied=applied)
+    return ChangesRecord(applied=applied, left_open=await _left_open(ctx, plan))
+
+
+# ---------------------------------------------------------------------------
+# Rides left missing
+# ---------------------------------------------------------------------------
+
+
+def _route(gap: Gap) -> tuple[str, str]:
+    return (
+        describe_place(gap.from_place, gap.after_item_id),
+        describe_place(gap.to_place, gap.before_item_id),
+    )
+
+
+async def _left_open(ctx: tools.ToolContext, before: PlanSnapshot) -> list[str]:
+    """Each change of place without a ride now that wasn't one before the commands, in
+    words. Compared by places, counted: the ids around a gap change when items go, and
+    so can its day (the flat goes, so the ride from home is due at dinner instead), but
+    a route missing more often than before is new."""
+    after = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
+    known = Counter(_route(gap) for gap in before.gaps)
+    # The ground stage searches for rides; before it, they wait until it comes.
+    when = "" if after.stage in (PlanStage.GROUND, PlanStage.REVIEW) else " at ground transport"
+    notes: list[str] = []
+    for gap in after.gaps:
+        route = _route(gap)
+        if known[route] > 0:
+            known[route] -= 1
+            continue
+        notes.append(
+            f"Nothing gets you from {route[0]} to {route[1]} now. I'll look for a ride{when}"
+        )
+    return notes
 
 
 # ---------------------------------------------------------------------------
@@ -489,8 +527,10 @@ async def check_and_apply(
 
 
 def describe_changes(record: ChangesRecord) -> str:
-    """The outcome as one transcript message: what was changed, then what wasn't and why."""
+    """The outcome as one transcript message: what was changed, any rides that left
+    missing, then what wasn't changed and why."""
     lines = [f"{change.summary}." for change in record.applied]
+    lines += [f"{note}." for note in record.left_open]
     lines += [
         f"Couldn't {change.summary[0].lower()}{change.summary[1:]}: {change.reason}."
         for change in record.rejected

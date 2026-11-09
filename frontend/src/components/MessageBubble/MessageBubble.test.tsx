@@ -72,6 +72,7 @@ describe('MessageBubble', () => {
                         { name: 'remove_item', summary: 'Removed “Riverside Hotel”', item_id: 'a' },
                     ],
                     rejected: [],
+                    left_open: [],
                     clarification: null,
                 }}
             />,
@@ -88,7 +89,13 @@ describe('MessageBubble', () => {
                 role="assistant"
                 kind="changes"
                 content="Which one: the flat or the dinner?"
-                payload={{ type: 'changes', applied: [], rejected: [], clarification: 'x' }}
+                payload={{
+                    type: 'changes',
+                    applied: [],
+                    rejected: [],
+                    left_open: [],
+                    clarification: 'x',
+                }}
             />,
         )
 
