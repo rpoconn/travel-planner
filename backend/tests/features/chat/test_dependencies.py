@@ -18,7 +18,7 @@ def _settings(**overrides: str | SecretStr | None) -> Settings:
 @pytest.mark.parametrize(
     ("provider", "client_type", "model"),
     [
-        ("anthropic", AnthropicClient, "claude-sonnet-5-5"),
+        ("anthropic", AnthropicClient, "claude-haiku-5-5"),
         ("ollama", OllamaClient, "qwen3:8b"),
         ("fake", FakeLLM, "fake"),
     ],
@@ -36,9 +36,9 @@ async def test_provider_selects_client_and_model(
 
 
 def test_anthropic_model_comes_from_settings() -> None:
-    settings = _settings(llm_provider="anthropic", anthropic_model="claude-haiku-5-5")
+    settings = _settings(llm_provider="anthropic", anthropic_model="claude-sonnet-5-5")
 
-    assert settings.llm_model == "claude-haiku-5-5"
+    assert settings.llm_model == "claude-sonnet-5-5"
 
 
 def test_missing_anthropic_key_warns_but_still_builds(caplog: pytest.LogCaptureFixture) -> None:

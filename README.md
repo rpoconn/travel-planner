@@ -41,7 +41,7 @@ flowchart LR
 
     SDK -- "REST (JSON, bearer JWT)" --> Auth & Plans & Itinerary
     SDK -- "POST /plans/{id}/planning/…<br/>server-sent events" --> Planning
-    LLM --> Claude[("Claude API<br/>claude-sonnet-5-5")]
+    LLM --> Claude[("Claude API<br/>claude-haiku-5-5")]
     LLM -. "LLM_PROVIDER=ollama" .-> Ollama[("Ollama<br/>qwen3:8b")]
     Providers --> SerpApi[(SerpApi)]
     API --> DB[("SQLite<br/>Alembic migrations")]
@@ -255,7 +255,7 @@ The model is picked in `.env`; nothing else changes. Restart the backend after e
 
 ```bash
 LLM_PROVIDER=anthropic              # Claude (default); needs ANTHROPIC_API_KEY
-ANTHROPIC_MODEL=claude-sonnet-5-5   # or claude-opus-5-5, claude-haiku-5-5, ...
+ANTHROPIC_MODEL=claude-haiku-5-5    # or claude-sonnet-5-5, claude-opus-5-5, ...
 
 LLM_PROVIDER=ollama                 # a local model instead
 OLLAMA_MODEL=qwen3:8b               # or: ./scripts/dev.sh --model llama3.1:8b

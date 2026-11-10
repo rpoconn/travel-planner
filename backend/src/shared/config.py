@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     llm_provider: Literal["anthropic", "ollama", "fake"] = "anthropic"
     # Claude. Without a key the app still starts; planning turns then say the key is missing.
     anthropic_api_key: SecretStr | None = None
-    anthropic_model: str = "claude-sonnet-5-5"
+    anthropic_model: str = "claude-haiku-5-5"
     # Room for adaptive thinking plus the reply (thinking tokens count against this cap).
     anthropic_max_tokens: int = Field(default=16000, ge=256)
     # Re-run requests that Claude's safety classifiers decline on a fallback model.
