@@ -12,7 +12,6 @@ from features.itinerary.schemas import Gap, ItineraryItem, TimelineWarning
 from features.planning.engine import (
     evaluate,
     next_action,
-    night_ranges,
     offer_fits,
     refresh_search,
 )
@@ -516,16 +515,6 @@ def test_timeline_warnings_become_warning_issues_on_their_items_stage() -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def test_night_ranges_join_consecutive_nights() -> None:
-    nights = [date(2027, 5, 3), date(2027, 5, 1), date(2027, 5, 2), date(2027, 5, 5)]
-
-    assert night_ranges(nights) == [
-        NightRange(check_in=date(2027, 5, 1), check_out=date(2027, 5, 4)),
-        NightRange(check_in=date(2027, 5, 5), check_out=date(2027, 5, 6)),
-    ]
-    assert night_ranges([]) == []
 
 
 def test_offer_fits_needs_the_same_stage() -> None:

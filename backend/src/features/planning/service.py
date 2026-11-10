@@ -1,4 +1,5 @@
-"""The plan as the API returns it: the itinerary snapshot plus the engine's assessment.
+"""The plan as the API returns it: the itinerary snapshot plus the validation engine's
+problems and the planning engine's assessment.
 
 Routers call this rather than `itinerary.service.snapshot`, which stays free of planning
 imports so `itinerary` and `plans` never depend on `planning`.
@@ -13,6 +14,7 @@ from features.itinerary.timeline import build_timeline
 from features.planning import offers
 from features.planning.engine import evaluate
 from features.planning.schemas import TravelPlan
+from features.planning.validation import is_complete, validate
 from features.plans import service as plans_service
 from features.plans.models import Plan
 
@@ -33,7 +35,15 @@ async def snapshot(session: AsyncSession, plan: Plan) -> TravelPlan:
     )
     offer = await offers.current_offer(session, plan.id)
     assessment = evaluate(base, offer, timeline.warnings)
-    return TravelPlan.model_validate({**dict(base), "assessment": assessment})
+    problems = validate(base, timeline.warnings)
+    return TravelPlan.model_validate(
+        {
+            **dict(base),
+            "assessment": assessment,
+            "problems": problems,
+            "complete": is_complete(problems),
+        }
+    )
 
 
 async def get_plan_snapshot(session: AsyncSession, user_id: UUID, plan_id: UUID) -> TravelPlan:

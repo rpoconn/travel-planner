@@ -1770,6 +1770,51 @@ export type PlanningTokenEvent = {
 };
 
 /**
+ * Problem
+ *
+ * One thing wrong with the plan. A plan with no blocking problem is complete.
+ */
+export type Problem = {
+    /**
+     * Id
+     */
+    id: string;
+    code: IssueCode;
+    /**
+     * Severity
+     */
+    severity: 'blocking' | 'warning';
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Date
+     */
+    date: string | null;
+    /**
+     * Item Ids
+     */
+    item_ids: Array<string>;
+    gap: Gap | null;
+    nights: NightRange | null;
+    fix: ProblemFix;
+};
+
+/**
+ * ProblemFix
+ *
+ * How a problem is usually fixed. A hint for whoever drives the plan, not a rule.
+ */
+export type ProblemFix = {
+    /**
+     * How
+     */
+    how: 'ask' | 'search' | 'edit';
+    slot: SlotName | null;
+};
+
+/**
  * RegisterRequest
  */
 export type RegisterRequest = {
@@ -2334,8 +2379,9 @@ export type TransferItemPatch = {
 /**
  * TravelPlan
  *
- * The full plan as the API returns it: details, items, stage checklists, gaps, and
- * the planning engine's assessment (built by `planning.service.snapshot`).
+ * The full plan as the API returns it: details, items, stage checklists, gaps, the
+ * validation engine's problems and the planning engine's assessment (built by
+ * `planning.service.snapshot`).
  */
 export type TravelPlan = {
     /**
@@ -2405,6 +2451,14 @@ export type TravelPlan = {
      */
     gaps: Array<Gap>;
     assessment: PlanAssessment;
+    /**
+     * Problems
+     */
+    problems: Array<Problem>;
+    /**
+     * Complete
+     */
+    complete: boolean;
 };
 
 /**
@@ -2527,8 +2581,9 @@ export type StageStatusWritable = {
 /**
  * TravelPlan
  *
- * The full plan as the API returns it: details, items, stage checklists, gaps, and
- * the planning engine's assessment (built by `planning.service.snapshot`).
+ * The full plan as the API returns it: details, items, stage checklists, gaps, the
+ * validation engine's problems and the planning engine's assessment (built by
+ * `planning.service.snapshot`).
  */
 export type TravelPlanWritable = {
     /**
@@ -2598,6 +2653,14 @@ export type TravelPlanWritable = {
      */
     gaps: Array<Gap>;
     assessment: PlanAssessment;
+    /**
+     * Problems
+     */
+    problems: Array<Problem>;
+    /**
+     * Complete
+     */
+    complete: boolean;
 };
 
 export type GetHealthData = {

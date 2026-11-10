@@ -135,6 +135,25 @@ async def test_finished_basics_advance(
     assert assessment["issues"] == []
 
 
+async def test_every_plan_response_lists_its_problems(
+    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
+) -> None:
+    """The basics are in and the plan is still at basics; the problems don't wait for the
+    stages to be reached."""
+    response = await client.get(f"/plans/{plan.id}", headers=headers)
+
+    body = response.json()
+    assert [problem["id"] for problem in body["problems"]] == [
+        "missing_outbound",
+        "missing_return",
+        "uncovered_night:2027-05-01",
+        "no_activities",
+    ]
+    assert body["problems"][2]["nights"] == {"check_in": "2027-05-01", "check_out": "2027-05-04"}
+    assert body["problems"][2]["fix"] == {"how": "search", "slot": "lodging_stay"}
+    assert body["complete"] is False
+
+
 async def test_stage_checklists_are_typed(
     client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:

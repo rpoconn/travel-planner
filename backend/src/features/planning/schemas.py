@@ -24,12 +24,13 @@ from features.plans.schemas import (
     DepartWindow,
     HotelClass,
     Issue,
+    IssueSeverity,
     PlanSnapshot,
     PlanStage,
     ShortAnswer,
     SlotName,
 )
-from shared.domain import Money, Place
+from shared.domain import IssueCode, Money, Place
 from shared.flights.types import FlightCabin
 
 # ---------------------------------------------------------------------------
@@ -253,6 +254,41 @@ class PlanAssessment(BaseModel):
     issues: list[Issue]
     next_action: NextAction
     can_advance: bool  # the current stage's checklist is complete
+
+
+# ---------------------------------------------------------------------------
+# Problems: what the validation engine reports (`planning.validation.validate`)
+# ---------------------------------------------------------------------------
+
+
+class ProblemFix(BaseModel):
+    """How a problem is usually fixed. A hint for whoever drives the plan, not a rule."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    # ask: the user answers input slot `slot`; search: candidates for pick slot `slot` are
+    # searched for and picked from; edit: the items the problem names are changed or removed.
+    how: Literal["ask", "search", "edit"]
+    slot: SlotName | None = None
+
+
+class Problem(BaseModel):
+    """One thing wrong with the plan. A plan with no blocking problem is complete."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    # Names the problem while the plan doesn't change: "missing_return",
+    # "uncovered_night:2027-05-02", "missing_transfer:<item before>:<item after>".
+    id: str
+    code: IssueCode
+    severity: IssueSeverity
+    message: str  # for people, e.g. "a place to stay May 2 to May 5"
+    # `dt.date`: a field named `date` would shadow the type in later annotations.
+    date: dt.date | None = None
+    item_ids: list[UUID] = Field(default_factory=list)
+    gap: Gap | None = None  # missing_transfer: the change of place to bridge
+    nights: NightRange | None = None  # uncovered_night: the run of nights one stay covers
+    fix: ProblemFix
 
 
 # ---------------------------------------------------------------------------
@@ -627,7 +663,12 @@ MessagePayload = Annotated[
 
 
 class TravelPlan(PlanSnapshot):
-    """The full plan as the API returns it: details, items, stage checklists, gaps, and
-    the planning engine's assessment (built by `planning.service.snapshot`)."""
+    """The full plan as the API returns it: details, items, stage checklists, gaps, the
+    validation engine's problems and the planning engine's assessment (built by
+    `planning.service.snapshot`)."""
 
     assessment: PlanAssessment
+    # Everything wrong with the plan, whatever stage it is at: blocking problems, then
+    # warnings (`planning.validation.validate`).
+    problems: list[Problem]
+    complete: bool  # no blocking problem is left

@@ -53,7 +53,7 @@ from features.planning.answers import (
     describe_value,
     parse_answer,
 )
-from features.planning.engine import night_ranges, range_label, refresh_search
+from features.planning.engine import refresh_search
 from features.planning.schemas import (
     BASICS_FIELDS,
     MAX_COMMANDS,
@@ -75,6 +75,7 @@ from features.planning.schemas import (
     UpdateItem,
 )
 from features.planning.slots import SLOTS
+from features.planning.validation import night_ranges, range_label
 from features.plans import service as plans_service
 from features.plans.schemas import (
     STAGES,

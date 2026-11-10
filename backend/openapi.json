@@ -5302,6 +5302,116 @@
         "title": "PlanningTokenEvent",
         "description": "Part of the assistant's streamed answer to a question; the stored message follows."
       },
+      "Problem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "code": {
+            "$ref": "#/components/schemas/IssueCode"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "blocking",
+              "warning"
+            ],
+            "title": "Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "item_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Item Ids"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Gap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NightRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fix": {
+            "$ref": "#/components/schemas/ProblemFix"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "severity",
+          "message",
+          "date",
+          "item_ids",
+          "gap",
+          "nights",
+          "fix"
+        ],
+        "title": "Problem",
+        "description": "One thing wrong with the plan. A plan with no blocking problem is complete."
+      },
+      "ProblemFix": {
+        "properties": {
+          "how": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "search",
+              "edit"
+            ],
+            "title": "How"
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "how",
+          "slot"
+        ],
+        "title": "ProblemFix",
+        "description": "How a problem is usually fixed. A hint for whoever drives the plan, not a rule."
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -6594,6 +6704,17 @@
           },
           "assessment": {
             "$ref": "#/components/schemas/PlanAssessment"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/Problem"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete"
           }
         },
         "type": "object",
@@ -6619,10 +6740,12 @@
           "items",
           "stages",
           "gaps",
-          "assessment"
+          "assessment",
+          "problems",
+          "complete"
         ],
         "title": "TravelPlan",
-        "description": "The full plan as the API returns it: details, items, stage checklists, gaps, and\nthe planning engine's assessment (built by `planning.service.snapshot`)."
+        "description": "The full plan as the API returns it: details, items, stage checklists, gaps, the\nvalidation engine's problems and the planning engine's assessment (built by\n`planning.service.snapshot`)."
       },
       "Travelers": {
         "properties": {

@@ -23,7 +23,6 @@ uncovered), since a stage can only be left once its checklist is empty.
 """
 
 from collections.abc import Sequence
-from datetime import date, timedelta
 
 from features.itinerary.gaps import describe_place
 from features.itinerary.schemas import Gap, ItemType, TimelineWarning
@@ -40,6 +39,7 @@ from features.planning.schemas import (
     RunSearch,
 )
 from features.planning.slots import FIX_SLOT, SLOT_ORDER, SLOTS, STAGE_SLOTS, SlotSpec
+from features.planning.validation import CHECKLIST_WARNINGS, night_ranges, range_label
 from features.plans.schemas import (
     STAGES,
     Issue,
@@ -54,10 +54,6 @@ from shared.domain import IssueCode
 # Issues
 # ---------------------------------------------------------------------------
 
-# Timeline warnings that don't become warning issues: the lodging and ground checklists
-# already report them as blocking issues.
-_CHECKLIST_WARNINGS = frozenset({IssueCode.UNCOVERED_NIGHT, IssueCode.MISSING_TRANSFER})
-
 # The stage whose items a warning is about, by the type of its first item.
 _ITEM_STAGES: dict[ItemType, PlanStage] = {
     ItemType.FLIGHT: PlanStage.FLIGHTS,
@@ -68,7 +64,7 @@ _ITEM_STAGES: dict[ItemType, PlanStage] = {
 
 
 def _warning_issue(warning: TimelineWarning, plan: PlanSnapshot) -> Issue | None:
-    if warning.kind in _CHECKLIST_WARNINGS:
+    if warning.kind in CHECKLIST_WARNINGS:
         return None
     types = {item.id: item.type for item in plan.items}
     first = next((types[i] for i in warning.item_ids if i in types), None)
@@ -135,24 +131,6 @@ def offer_fits(
         and offer.gap == gap
         and offer.nights == nights
     )
-
-
-def night_ranges(nights: Sequence[date]) -> list[NightRange]:
-    """Runs of consecutive nights, each as one stay (check out the morning after)."""
-    ranges: list[NightRange] = []
-    for night in sorted(nights):
-        if ranges and ranges[-1].check_out == night:
-            ranges[-1] = NightRange(check_in=ranges[-1].check_in, check_out=night + timedelta(1))
-        else:
-            ranges.append(NightRange(check_in=night, check_out=night + timedelta(1)))
-    return ranges
-
-
-def range_label(nights: NightRange) -> str:
-    check_in, check_out = nights.check_in, nights.check_out
-    if check_out - check_in == timedelta(days=1):
-        return f"the night of {check_in:%b} {check_in.day}"
-    return f"{check_in:%b} {check_in.day} to {check_out:%b} {check_out.day}"
 
 
 def _search_label(slot: SlotName, gap: Gap | None, nights: NightRange | None) -> str:
