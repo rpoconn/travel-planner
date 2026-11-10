@@ -1,5 +1,6 @@
 import {
     continuePlanning,
+    decidePlanningProposal,
     removePlanItem,
     sendPlanningMessage,
     submitPlanningInput,
@@ -17,7 +18,8 @@ import { errorMessage } from '@/lib/apiError'
 import { clearSession } from '@/lib/auth'
 
 // Streaming a planning turn over the generated SDK's SSE client: a form answer or pick, free
-// text, an item's Remove button, or continue. hey-api types each stream item as `unknown` (it ignores OpenAPI 3.2
+// text, an item's Remove button, a suggestion's Approve / Reject, or continue. hey-api types
+// each stream item as `unknown` (it ignores OpenAPI 3.2
 // `itemSchema`), so the event union is rebuilt here from the generated event types and
 // every item is narrowed on its `type` tag.
 
@@ -155,7 +157,7 @@ export function streamPlanningInput(
     )
 }
 
-/** Send free text to the planner: read as the pending form's answer, or a question. */
+/** Send free text to the planner: an answer, a pick, a change to make, or a question. */
 export function streamPlanningChat(
     planId: string,
     content: string,
@@ -171,7 +173,7 @@ export function streamPlanningChat(
 
 /**
  * Take an item off the trip (its Remove button): the rides to and from it go too, and the
- * planner says what the trip now needs and asks how to fix it.
+ * planner says what the trip now needs and carries on from there.
  */
 export function streamPlanningRemove(
     planId: string,
@@ -186,21 +188,54 @@ export function streamPlanningRemove(
     )
 }
 
+/** A suggestion card's two buttons. */
+export type ProposalDecision = 'approve' | 'reject'
+
+/**
+ * Approve or reject the suggestion the plan is waiting on. Approving makes its changes;
+ * either way the planner carries on from there.
+ */
+export function streamPlanningDecision(
+    planId: string,
+    proposalId: string,
+    decision: ProposalDecision,
+    { signal }: StreamOptions = {},
+): AsyncGenerator<PlanningEvent, void, undefined> {
+    return streamEvents(
+        (options) =>
+            decidePlanningProposal({
+                path: { plan_id: planId, proposal_id: proposalId },
+                body: { decision },
+                ...options,
+            }),
+        signal,
+        parsePlanningEvent,
+    )
+}
+
 interface ContinueOptions extends StreamOptions {
     /** Search the pending choices again for other options ("More options"). */
     refresh?: boolean
+    /** The problem to work on first ("Fix this"). */
+    problemId?: string
 }
 
 /**
- * Let the planner act with no input: move on, run or retry a search, re-ask the form; or,
- * with `refresh`, look for other options than the pending choices.
+ * Let the planner act with no input: carry on, or try again after a failure. With
+ * `problemId` it works on that problem first; with `refresh` it looks for other options than
+ * the pending choices.
  */
 export function streamPlanningContinue(
     planId: string,
-    { signal, refresh = false }: ContinueOptions = {},
+    { signal, refresh = false, problemId }: ContinueOptions = {},
 ): AsyncGenerator<PlanningEvent, void, undefined> {
     return streamEvents(
-        (options) => continuePlanning({ path: { plan_id: planId }, body: { refresh }, ...options }),
+        (options) =>
+            continuePlanning({
+                path: { plan_id: planId },
+                body: { refresh, problem_id: problemId ?? null },
+                ...options,
+            }),
         signal,
         parsePlanningEvent,
     )

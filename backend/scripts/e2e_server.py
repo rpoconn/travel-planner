@@ -47,6 +47,9 @@ def main() -> None:
             "LOG_LEVEL": "WARNING",
             # Every E2E test registers a user from 127.0.0.1; keep the per-IP limit out of it.
             "AUTH_RATE_LIMIT_PER_MINUTE": "0",
+            # Every form, pick and button is a planning turn, and a test clicks through a
+            # whole trip in seconds.
+            "CHAT_RATE_LIMIT_PER_MINUTE": "0",
         }
     )
     logging.basicConfig(level=logging.WARNING)

@@ -755,6 +755,8 @@ class SuggestedChange(BaseModel):
 class ReviewProposal(BaseModel):
     """Show the pending proposal's changes with Approve and Reject."""
 
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
     type: Literal["review_proposal"] = "review_proposal"
     proposal_id: UUID
     prompt: str  # the proposal's reason

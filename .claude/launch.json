@@ -12,6 +12,21 @@
             "runtimeExecutable": "npm",
             "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
             "port": 5173
+        },
+        {
+            "name": "backend-offline",
+            "runtimeExecutable": "uv",
+            "runtimeArgs": ["--directory", "backend", "run", "python", "scripts/e2e_server.py", "--port", "8765"],
+            "port": 8765
+        },
+        {
+            "name": "frontend-offline",
+            "runtimeExecutable": "node",
+            "runtimeArgs": [
+                "-e",
+                "process.env.VITE_API_URL='http://localhost:8765';require('child_process').spawn('npm',['--prefix','frontend','run','dev','--','--port','5174','--strictPort'],{stdio:'inherit',shell:true})"
+            ],
+            "port": 5174
         }
     ]
 }

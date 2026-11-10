@@ -13,6 +13,8 @@ import type {
     PlanningMessage,
     PlanStage,
     PlanSummary,
+    Problem,
+    ReviewProposal,
     StageStatus,
     Timeline,
     TimelineEntry,
@@ -472,11 +474,12 @@ export const ASK_FLIGHT_PREFERENCES: AskInput = {
     prefill: {},
 }
 
-/** A plan in `stage` whose engine asks `action` next. */
+/** A plan waiting on `action`'s form. */
 export function planAsking(action: AskInput, overrides: Partial<TravelPlan> = {}): TravelPlan {
     return travelPlan({
         stage: action.stage,
         assessment: planAssessment({ stage: action.stage, next_action: action }),
+        pending: action,
         ...overrides,
     })
 }
@@ -580,11 +583,67 @@ export const OFFER_TRANSFERS: OfferChoice = {
     can_refresh: false,
 }
 
-/** A plan in `stage` whose engine shows `action`'s choices next. */
+/** A plan waiting on a pick from `action`'s choices. */
 export function planChoosing(action: OfferChoice, overrides: Partial<TravelPlan> = {}): TravelPlan {
     return travelPlan({
         stage: action.stage,
         assessment: planAssessment({ stage: action.stage, next_action: action }),
+        pending: action,
         ...overrides,
     })
+}
+
+/** Something the trip is missing; by default a place to stay, fixed by a search. */
+export function problem(overrides: Partial<Problem> = {}): Problem {
+    return {
+        id: 'uncovered_night:2027-05-03',
+        code: 'uncovered_night',
+        severity: 'blocking',
+        message: 'a place to stay the night of May 3',
+        date: '2027-05-03',
+        item_ids: [],
+        gap: null,
+        nights: { check_in: '2027-05-03', check_out: '2027-05-04' },
+        fix: { how: 'search', slot: 'lodging_stay' },
+        ...overrides,
+    }
+}
+
+/** A warning from the timeline: listed, but nothing to fix. */
+export const OVERLAP: Problem = problem({
+    id: 'overlap:2027-05-02',
+    code: 'overlap',
+    severity: 'warning',
+    message: 'Senso-ji overlaps Tsukiji Market',
+    date: '2027-05-02',
+    nights: null,
+    fix: { how: 'edit', slot: null },
+})
+
+/** A suggestion of the planner's own: drop a dinner, add a tour a search found. */
+export const SUGGESTION: ReviewProposal = {
+    type: 'review_proposal',
+    proposal_id: 'cccccccc-0000-0000-0000-000000000001',
+    prompt: 'A quieter second day.',
+    changes: [
+        { name: 'remove_item', summary: 'Remove “Dinner at Ramiro”', candidate: null },
+        {
+            name: 'add_candidate',
+            summary: 'Add “Tram tour”',
+            candidate: candidate({
+                title: 'Tram tour',
+                subtitle: 'Mon May 3 10:00 to 12:00',
+                details: ['2h'],
+                price: { amount: '40', currency: 'USD' },
+            }),
+        },
+    ],
+}
+
+/** A plan waiting on a decision about `proposal`. */
+export function planReviewing(
+    proposal: ReviewProposal = SUGGESTION,
+    overrides: Partial<TravelPlan> = {},
+): TravelPlan {
+    return travelPlan({ pending: proposal, ...overrides })
 }

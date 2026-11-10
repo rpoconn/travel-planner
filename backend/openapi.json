@@ -1204,7 +1204,7 @@
           "planning"
         ],
         "summary": "Submit Input",
-        "description": "Answer (or skip) the pending form, or pick from the pending choices. No model call:\nthe answer or pick is stored, the plan updated, and the planner moves on (running the\nnext search, if any), streaming `PlanningEvent`s that end in `done`.",
+        "description": "Answer (or skip) the pending form, or pick from the open choices. The answer or\npick is stored and written at once; then the planner decides what is next, streaming\n`PlanningEvent`s that end in `done`.",
         "operationId": "submitPlanningInput",
         "security": [
           {
@@ -1346,6 +1346,16 @@
             },
             "description": "Conflict"
           },
+          "429": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "422": {
             "content": {
               "text/event-stream": {
@@ -1365,7 +1375,7 @@
           "planning"
         ],
         "summary": "Send Message",
-        "description": "Free text. While a form is pending it is read as that form's answer, and while\nchoices are pending as a pick (or answered as a question, or nudged back to the\nquestion); otherwise it is a question about the trip.",
+        "description": "Free text: an answer in the user's own words, a pick, a change to make, or a\nquestion. The planner reads it and writes only what it asks for.",
         "operationId": "sendPlanningMessage",
         "security": [
           {
@@ -1478,6 +1488,16 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "429": {
             "content": {
               "text/event-stream": {
@@ -1507,7 +1527,7 @@
           "planning"
         ],
         "summary": "Remove Item",
-        "description": "Take an item off the trip, as a typed \"remove \u2026\" would: no model call. The item goes\nwith the rides to and from it, the planner says what the trip now needs and how to fix\nit, and then asks for it (going back to that stage if need be), streaming\n`PlanningEvent`s that end in `done`.",
+        "description": "Take an item off the trip, as a typed \"remove \u2026\" would. The item goes at once, with\nthe rides to and from it; then the planner decides what the trip needs next, streaming\n`PlanningEvent`s that end in `done`.",
         "operationId": "removePlanItem",
         "security": [
           {
@@ -1620,6 +1640,188 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/planning/proposals/{proposal_id}/decision": {
+      "post": {
+        "tags": [
+          "planning"
+        ],
+        "summary": "Decide Proposal",
+        "description": "Approve or reject the suggestion the plan is waiting on. Approving checks its\nchanges again and writes them all or nothing; either way the planner then carries on,\nstreaming `PlanningEvent`s that end in `done`.",
+        "operationId": "decidePlanningProposal",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/PlanningStatusEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningTokenEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningMessageEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningPlanEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningDoneEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        ],
+                        "discriminator": {
+                          "propertyName": "type",
+                          "mapping": {
+                            "status": "#/components/schemas/PlanningStatusEvent",
+                            "token": "#/components/schemas/PlanningTokenEvent",
+                            "message": "#/components/schemas/PlanningMessageEvent",
+                            "plan_updated": "#/components/schemas/PlanningPlanEvent",
+                            "done": "#/components/schemas/PlanningDoneEvent",
+                            "error": "#/components/schemas/PlanningErrorEvent"
+                          }
+                        },
+                        "title": "Streamitem Decideplanningproposal"
+                      }
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1639,7 +1841,7 @@
           "planning"
         ],
         "summary": "Continue Planning",
-        "description": "Let the planner act with no new input: move on from a finished stage, run (or retry)\na search, or show the pending form again. With `refresh` (\"More options\"), search the\npending choices again for ones not offered yet.",
+        "description": "Let the planner act with no new input: start a new plan, or try again after a\nfailure. With `problem_id` (\"Fix this\"), it works on that problem first. With `refresh`\n(\"More options\"), the open choices are searched again for ones not offered yet.",
         "operationId": "continuePlanning",
         "security": [
           {
@@ -2676,11 +2878,23 @@
             "type": "boolean",
             "title": "Refresh",
             "default": false
+          },
+          "problem_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
           }
         },
         "type": "object",
         "title": "ContinueRequest",
-        "description": "`POST /plans/{id}/planning/continue`. With `refresh`, the pending choices are\nsearched again for other options (\"More options\"); without it (or with no body) the\nplanner just carries on."
+        "description": "`POST /plans/{id}/planning/continue`. With `refresh`, the pending choices are\nsearched again for other options (\"More options\"). With `problem_id`, the planner works\non that problem first (\"Fix this\"). With neither (or no body) it just carries on."
       },
       "Cost-Input": {
         "properties": {
@@ -5084,7 +5298,7 @@
           "plan"
         ],
         "title": "PlanningDoneEvent",
-        "description": "The turn finished; `plan` (with its assessment) is what the UI shows next."
+        "description": "The turn finished; `plan` (with its problems and what it waits on) is what the UI\nshows next."
       },
       "PlanningErrorEvent": {
         "properties": {
@@ -5224,7 +5438,7 @@
           "message"
         ],
         "title": "PlanningMessageEvent",
-        "description": "A message was stored: the user's input, the assistant's reply or nudge, the next\nform or choices, a stage divider. Clients append it to the transcript."
+        "description": "A message was stored: the user's input, the planner's reply or nudge, the next form\nor choices, what a change did. Clients append it to the transcript."
       },
       "PlanningPlanEvent": {
         "properties": {
@@ -5244,7 +5458,7 @@
           "plan"
         ],
         "title": "PlanningPlanEvent",
-        "description": "The plan changed (an answer, a pick, a stage move)."
+        "description": "The plan changed (an answer, a pick, an edit)."
       },
       "PlanningStatusEvent": {
         "properties": {
@@ -5265,7 +5479,7 @@
           "text"
         ],
         "title": "PlanningStatusEvent",
-        "description": "Something slow is running, e.g. \"Finding flights out\u2026\". Not stored."
+        "description": "Something slow is running, e.g. \"Finding flights out\u2026\". Not stored. Text streamed\nbefore it (`token` events) was the planner thinking aloud: clients drop it."
       },
       "PlanningText": {
         "properties": {
@@ -5302,7 +5516,7 @@
           "text"
         ],
         "title": "PlanningTokenEvent",
-        "description": "Part of the assistant's streamed answer to a question; the stored message follows."
+        "description": "Part of the planner's streamed reply. When the reply turns out to be its answer, the\nstored message follows; when it goes on to use a tool, a `status` or `message` event\nfollows instead and the text is dropped."
       },
       "Problem": {
         "properties": {
@@ -5414,6 +5628,24 @@
         "title": "ProblemFix",
         "description": "How a problem is usually fixed. A hint for whoever drives the plan, not a rule."
       },
+      "ProposalDecision": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "ProposalDecision",
+        "description": "`POST /plans/{id}/planning/proposals/{proposal_id}/decision`: the suggestion card's\nApprove or Reject."
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -5511,6 +5743,7 @@
         },
         "type": "object",
         "required": [
+          "type",
           "proposal_id",
           "prompt",
           "changes"

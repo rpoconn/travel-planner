@@ -21,12 +21,10 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { errorMessage } from '@/lib/apiError'
 import { formatTripWhereWhen } from '@/lib/format'
-import { STAGE_META } from '@/lib/stages'
 import { cn } from '@/lib/utils'
 
 // ----- types -----
@@ -197,17 +195,8 @@ export function PlansSidebar({ selectedPlanId, onSelectPlan, onPlanDeleted }: Pl
                                             <span className="block truncate text-sm font-medium">
                                                 {plan.title}
                                             </span>
-                                            <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                                                <Badge
-                                                    variant="secondary"
-                                                    data-testid="plan-stage"
-                                                    className="h-4 px-1.5 text-[0.65rem]"
-                                                >
-                                                    {STAGE_META[plan.stage].label}
-                                                </Badge>
-                                                <span className="truncate">
-                                                    {formatTripWhereWhen(plan) ?? 'No dates yet'}
-                                                </span>
+                                            <span className="text-muted-foreground block truncate text-xs">
+                                                {formatTripWhereWhen(plan) ?? 'No dates yet'}
                                             </span>
                                         </button>
                                         <div className="absolute top-1/2 right-1 flex -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">

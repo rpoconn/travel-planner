@@ -13,8 +13,10 @@ from features.planning import offers, service
 from features.planning.schemas import Candidate, CandidateChange, OfferChoice, TravelPlan
 from features.plans import service as plans_service
 from features.plans.schemas import PlanStage, SlotName
+from shared.llm.fake import FakeLLM
 from tests.conftest import RegisterUser
-from tests.features.planning.planning_http import create_plan, post
+from tests.features.planning.planning_http import BASICS, LISBON, create_plan, messages, post
+from tests.features.planning.scripts import ask
 
 TRIP: dict[str, JsonValue] = {
     "title": "Tokyo in May",
@@ -183,11 +185,34 @@ async def test_the_snapshot_shows_a_current_offer(session: AsyncSession, plan: T
     assert [c.id for c in action.candidates] == ["c1", "c2"]
 
 
+async def test_a_new_plan_opens_on_the_first_thing_only_the_user_can_give(
+    client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
+) -> None:
+    response = await client.post("/plans", json={"destination": LISBON}, headers=headers)
+
+    pending = response.json()["pending"]
+    assert (pending["type"], pending["slot"]) == ("ask_input", "dates")
+    assert pending["prompt"] == "When are you going?"
+    # Nothing was stored and the model wasn't asked: the form is worked out on each read.
+    assert await messages(client, headers, response.json()["id"]) == []
+    assert fake_llm.requests == []
+
+
+async def test_a_new_plan_with_its_basics_waits_on_nothing(
+    client: AsyncClient, headers: dict[str, str]
+) -> None:
+    plan_id = await create_plan(client, headers, **BASICS)
+
+    # What it needs next (flights, a stay) is the planner's to look for.
+    assert (await client.get(f"/plans/{plan_id}", headers=headers)).json()["pending"] is None
+
+
 async def test_the_plan_waits_on_the_form_its_transcript_ends_on(
-    client: AsyncClient, headers: dict[str, str], session: AsyncSession
+    client: AsyncClient, headers: dict[str, str], session: AsyncSession, fake_llm: FakeLLM
 ) -> None:
     # A new plan's first turn asks where to go.
     plan_id = await create_plan(client, headers)
+    fake_llm.queue(ask("Where to?", "destination"))
     await post(client, headers, plan_id, "continue")
 
     response = await client.get(f"/plans/{plan_id}", headers=headers)

@@ -29,8 +29,8 @@ is stored for approval (`planning.proposals`).
 
 Once written, what the edit left to fix is named in the outcome with how to fix it, so the
 user hears it then and there: a flight, a stay or the activities the plan no longer has,
-or else any change of place left without a ride (the plan's gaps, as the ground stage
-counts them). The engine then asks for the fix (`turn._drive`).
+or else any change of place left without a ride (the plan's gaps). The planner then
+takes it from there (`agent.loop`).
 
 An item's Remove button comes here too, as a `remove_item` command (`removal`).
 
@@ -92,7 +92,6 @@ from features.planning.slots import SLOTS
 from features.planning.validation import night_ranges, range_label
 from features.plans import service as plans_service
 from features.plans.schemas import (
-    STAGES,
     ActivityPreferences,
     FlightPreferences,
     Issue,
@@ -696,30 +695,18 @@ def _route(gap: Gap) -> tuple[str, str]:
     )
 
 
-def _new(before: Sequence[Issue], after: Sequence[Issue]) -> list[Issue]:
-    """The issues in `after` that `before` didn't have, counted by what they say."""
-    known = Counter((issue.code, issue.message) for issue in before)
-    opened: list[Issue] = []
-    for issue in after:
-        key = (issue.code, issue.message)
-        if known[key] > 0:
-            known[key] -= 1
-        else:
-            opened.append(issue)
-    return opened
+def _opened(before: Sequence[Issue], after: Sequence[Issue]) -> list[Issue]:
+    """The issues in `after` of a kind `before` had none of: what the edit took away. More
+    of something the trip already lacked (other nights without a stay, once the dates
+    move) isn't news, and the problems list shows it anyway."""
+    had = {issue.code for issue in before}
+    return [issue for issue in after if issue.code not in had]
 
 
-def _checklist(plan: PlanSnapshot, reached: PlanStage) -> list[Issue]:
-    """The blocking issues an edit can open and the user is asked to fix (flights, stays,
-    activities), in stages up to `reached`. A later stage asks for its own anyway."""
-    upto = STAGES[: STAGES.index(reached) + 1]
-    return [
-        issue
-        for status in plan.stages
-        if status.stage in upto
-        for issue in status.issues
-        if issue.code in _FIXES
-    ]
+def _checklist(plan: PlanSnapshot) -> list[Issue]:
+    """The blocking issues an edit can open and the user is asked to fix: flights, stays
+    and activities."""
+    return [issue for status in plan.stages for issue in status.issues if issue.code in _FIXES]
 
 
 def _issue_notes(opened: Sequence[Issue]) -> list[str]:
@@ -744,22 +731,19 @@ async def _left_open(ctx: tools.ToolContext, before: PlanSnapshot) -> list[str]:
     Rides are compared by places, counted: the ids around a gap change when items go, and
     so can its day (the flat goes, so the ride from home is due at dinner instead), but a
     route missing more often than before is new. They aren't named when a flight or stay
-    is missing too: replacing it moves the rides, and the ground stage finds them then."""
+    is missing too: replacing it moves the rides, and they are found again then."""
     after = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
-    opened = _new(_checklist(before, after.stage), _checklist(after, after.stage))
+    opened = _opened(_checklist(before), _checklist(after))
     if opened:
         return _issue_notes(opened)
     known = Counter(_route(gap) for gap in before.gaps)
-    # The ground stage searches for rides; before it, they wait until it comes.
-    at_ground = after.stage in (PlanStage.GROUND, PlanStage.REVIEW)
-    fix = _RIDE_FIX if at_ground else "I'll look for a ride at ground transport"
     notes: list[str] = []
     for gap in after.gaps:
         route = _route(gap)
         if known[route] > 0:
             known[route] -= 1
             continue
-        notes.append(f"Nothing gets you from {route[0]} to {route[1]} now. {fix}")
+        notes.append(f"Nothing gets you from {route[0]} to {route[1]} now. {_RIDE_FIX}")
     return notes
 
 

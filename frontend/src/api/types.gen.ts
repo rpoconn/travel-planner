@@ -446,14 +446,18 @@ export type Complete = {
  * ContinueRequest
  *
  * `POST /plans/{id}/planning/continue`. With `refresh`, the pending choices are
- * searched again for other options ("More options"); without it (or with no body) the
- * planner just carries on.
+ * searched again for other options ("More options"). With `problem_id`, the planner works
+ * on that problem first ("Fix this"). With neither (or no body) it just carries on.
  */
 export type ContinueRequest = {
     /**
      * Refresh
      */
     refresh?: boolean;
+    /**
+     * Problem Id
+     */
+    problem_id?: string | null;
 };
 
 /**
@@ -1626,7 +1630,8 @@ export type PlanUpdate = {
 /**
  * PlanningDoneEvent
  *
- * The turn finished; `plan` (with its assessment) is what the UI shows next.
+ * The turn finished; `plan` (with its problems and what it waits on) is what the UI
+ * shows next.
  */
 export type PlanningDoneEvent = {
     /**
@@ -1701,8 +1706,8 @@ export type PlanningMessage = {
 /**
  * PlanningMessageEvent
  *
- * A message was stored: the user's input, the assistant's reply or nudge, the next
- * form or choices, a stage divider. Clients append it to the transcript.
+ * A message was stored: the user's input, the planner's reply or nudge, the next form
+ * or choices, what a change did. Clients append it to the transcript.
  */
 export type PlanningMessageEvent = {
     /**
@@ -1715,7 +1720,7 @@ export type PlanningMessageEvent = {
 /**
  * PlanningPlanEvent
  *
- * The plan changed (an answer, a pick, a stage move).
+ * The plan changed (an answer, a pick, an edit).
  */
 export type PlanningPlanEvent = {
     /**
@@ -1728,7 +1733,8 @@ export type PlanningPlanEvent = {
 /**
  * PlanningStatusEvent
  *
- * Something slow is running, e.g. "Finding flights out…". Not stored.
+ * Something slow is running, e.g. "Finding flights out…". Not stored. Text streamed
+ * before it (`token` events) was the planner thinking aloud: clients drop it.
  */
 export type PlanningStatusEvent = {
     /**
@@ -1756,7 +1762,9 @@ export type PlanningText = {
 /**
  * PlanningTokenEvent
  *
- * Part of the assistant's streamed answer to a question; the stored message follows.
+ * Part of the planner's streamed reply. When the reply turns out to be its answer, the
+ * stored message follows; when it goes on to use a tool, a `status` or `message` event
+ * follows instead and the text is dropped.
  */
 export type PlanningTokenEvent = {
     /**
@@ -1812,6 +1820,19 @@ export type ProblemFix = {
      */
     how: 'ask' | 'search' | 'edit';
     slot: SlotName | null;
+};
+
+/**
+ * ProposalDecision
+ *
+ * `POST /plans/{id}/planning/proposals/{proposal_id}/decision`: the suggestion card's
+ * Approve or Reject.
+ */
+export type ProposalDecision = {
+    /**
+     * Decision
+     */
+    decision: 'approve' | 'reject';
 };
 
 /**
@@ -1877,7 +1898,7 @@ export type ReviewProposal = {
     /**
      * Type
      */
-    type?: 'review_proposal';
+    type: 'review_proposal';
     /**
      * Proposal Id
      */
@@ -2592,7 +2613,8 @@ export type ValidationError = {
 /**
  * PlanningDoneEvent
  *
- * The turn finished; `plan` (with its assessment) is what the UI shows next.
+ * The turn finished; `plan` (with its problems and what it waits on) is what the UI
+ * shows next.
  */
 export type PlanningDoneEventWritable = {
     /**
@@ -2605,7 +2627,7 @@ export type PlanningDoneEventWritable = {
 /**
  * PlanningPlanEvent
  *
- * The plan changed (an answer, a pick, a stage move).
+ * The plan changed (an answer, a pick, an edit).
  */
 export type PlanningPlanEventWritable = {
     /**
@@ -3392,6 +3414,10 @@ export type SubmitPlanningInputErrors = {
      * Unprocessable Content
      */
     422: ErrorResponse;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
 };
 
 export type SubmitPlanningInputError = SubmitPlanningInputErrors[keyof SubmitPlanningInputErrors];
@@ -3424,6 +3450,10 @@ export type SendPlanningMessageErrors = {
      * Not Found
      */
     404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
     /**
      * Validation Error
      */
@@ -3465,14 +3495,70 @@ export type RemovePlanItemErrors = {
      */
     404: ErrorResponse;
     /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
 };
 
 export type RemovePlanItemError = RemovePlanItemErrors[keyof RemovePlanItemErrors];
 
 export type RemovePlanItemResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type DecidePlanningProposalData = {
+    body: ProposalDecision;
+    path: {
+        /**
+         * Plan Id
+         */
+        plan_id: string;
+        /**
+         * Proposal Id
+         */
+        proposal_id: string;
+    };
+    query?: never;
+    url: '/plans/{plan_id}/planning/proposals/{proposal_id}/decision';
+};
+
+export type DecidePlanningProposalErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorResponse;
+};
+
+export type DecidePlanningProposalError = DecidePlanningProposalErrors[keyof DecidePlanningProposalErrors];
+
+export type DecidePlanningProposalResponses = {
     /**
      * Successful Response
      */

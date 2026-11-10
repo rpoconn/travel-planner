@@ -5,6 +5,7 @@ Routers call this rather than `itinerary.service.snapshot`, which stays free of 
 imports so `itinerary` and `plans` never depend on `planning`.
 """
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,18 +16,41 @@ from features.itinerary import service as itinerary_service
 from features.itinerary.timeline import build_timeline
 from features.planning import offers, proposals
 from features.planning.engine import evaluate
-from features.planning.pending import AskedForm, pending_interaction
-from features.planning.schemas import AskInput, TravelPlan
+from features.planning.pending import AskedForm, ask_input, pending_interaction
+from features.planning.schemas import AskInput, Problem, TravelPlan
 from features.planning.validation import is_complete, validate
 from features.plans import service as plans_service
 from features.plans.models import Plan
+from features.plans.schemas import PlanSnapshot
 
 
-async def _asked_form(session: AsyncSession, plan_id: UUID) -> AskedForm | None:
+def opening_form(plan: PlanSnapshot, problems: Sequence[Problem]) -> AskedForm | None:
+    """What a plan nobody has said anything in yet waits on: the form of the first thing it
+    is missing that only the user can give (where to, when). A new trip opens on a question
+    without a model call; the planner takes over from the first answer."""
+    slot = next(
+        (
+            problem.fix.slot
+            for problem in problems
+            if problem.severity == "blocking" and problem.fix.how == "ask"
+        ),
+        None,
+    )
+    if slot is None:
+        return None
+    return AskedForm(form=ask_input(slot, plan), at=plan.created_at)
+
+
+async def _asked_form(
+    session: AsyncSession, plan: PlanSnapshot, problems: Sequence[Problem]
+) -> AskedForm | None:
     """The form the transcript ends on, if it ends on one. A stored failure notice after it
-    doesn't answer it, so the form still stands."""
-    last = await chat_service.latest_message(session, plan_id, skipping=(MessageKind.ERROR,))
-    if last is None or last.kind != MessageKind.EXPECTED_INPUT or last.payload is None:
+    doesn't answer it, so the form still stands. An empty transcript opens on a form of its
+    own (`opening_form`)."""
+    last = await chat_service.latest_message(session, plan.id, skipping=(MessageKind.ERROR,))
+    if last is None:
+        return opening_form(plan, problems)
+    if last.kind != MessageKind.EXPECTED_INPUT or last.payload is None:
         return None
     return AskedForm(form=AskInput.model_validate(last.payload), at=last.created_at)
 
@@ -50,7 +74,7 @@ async def snapshot(session: AsyncSession, plan: Plan) -> TravelPlan:
     problems = validate(base, timeline.warnings)
     pending = pending_interaction(
         base,
-        asked=await _asked_form(session, plan.id),
+        asked=await _asked_form(session, base, problems),
         offer=offer,
         proposal=await proposals.current_proposal(session, plan.id),
     )

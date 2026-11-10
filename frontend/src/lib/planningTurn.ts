@@ -12,9 +12,13 @@ export interface PlanningTurn {
     pendingText: string | null
     /** Messages stored during the turn, in order. */
     messages: PlanningMessage[]
-    /** The streamed answer to a question so far; cleared once it is stored. */
+    /**
+     * The planner's streamed reply so far. Cleared once it is stored as its answer, and
+     * dropped when the planner goes on to use a tool instead (a `status` event): that text
+     * was it thinking aloud.
+     */
     streamingText: string
-    /** What the planner is doing, e.g. "Find flights out…"; cleared by the next message. */
+    /** What the planner is doing, e.g. "Finding flights out…"; cleared by the next message. */
     activity: string | null
     status: 'streaming' | 'done' | 'error'
     error: string | null
@@ -40,7 +44,7 @@ export function startPlanningTurn(pendingText: string | null = null): PlanningTu
 export function applyPlanningEvent(turn: PlanningTurn, event: PlanningEvent): PlanningTurn {
     switch (event.type) {
         case 'status':
-            return { ...turn, activity: event.text }
+            return { ...turn, activity: event.text, streamingText: '' }
         case 'token':
             return { ...turn, streamingText: turn.streamingText + event.text }
         case 'message': {

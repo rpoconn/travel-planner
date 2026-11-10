@@ -1,28 +1,30 @@
-"""The planning routes over HTTP: forms, free text and continue, for the basics stage and the
-move on to flights (the flights stage itself is in `test_planning_flights`). The model is a
-strict `FakeLLM`: a test that reaches it unscripted fails."""
+"""The planning routes over HTTP: forms, free text and continue, the checks that run before a
+stream opens, and how a turn that fails is reported. The model is a strict `FakeLLM`
+scripted with tool calls (`scripts`): a test that reaches it unscripted fails.
+
+Picks are in `test_planning_picks`, suggestions in `test_planning_decisions`, the Remove
+button in `test_planning_removals`.
+"""
+
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 from pydantic import JsonValue
 
+from features.planning.agent.context import FormView
 from features.planning.events import (
-    PlanningDoneEvent,
     PlanningErrorEvent,
-    PlanningMessageEvent,
-    PlanningPlanEvent,
-    PlanningStatusEvent,
     PlanningTokenEvent,
 )
-from features.planning.extractor import extraction_schema
 from features.planning.schemas import AskInput
-from features.plans.schemas import PlanStage, SlotName
-from shared.flights.fake import FakeFlightProvider
-from shared.flights.types import FlightSearchError
-from shared.llm.fake import FakeLLM, json_reply, text
-from shared.llm.types import LLMError
+from features.planning.turn import GENERIC_FAILURE
+from features.plans.schemas import SlotName
+from shared.llm.fake import FakeLLM, FakeRequest, text
+from shared.llm.types import LLMError, LLMMessage
 from tests.conftest import RegisterUser
+from tests.features.planning.agent_helpers import brief_of, tools_of
 from tests.features.planning.planning_http import (
     BASICS,
     LISBON,
@@ -32,28 +34,48 @@ from tests.features.planning.planning_http import (
     create_plan,
     done,
     messages,
-    move_to,
     post,
     say,
+    status_of,
     stored,
 )
+from tests.features.planning.scripts import apply, ask
+
+ASK_DESTINATION = ask("Where are you going?", "destination")
+ASK_DATES = ask("When are you going?", "dates")
+SET_LISBON: dict[str, JsonValue] = {
+    "type": "set_destination",
+    "name": "Lisbon",
+    "country": "Portugal",
+}
+
+
+async def _asked(
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan_id: str,
+    fake_llm: FakeLLM,
+    reply: LLMMessage = ASK_DESTINATION,
+) -> None:
+    """Start the plan: the planner asks its first question."""
+    fake_llm.queue(reply)
+    await post(client, headers, plan_id, "continue")
+
 
 # ---------------------------------------------------------------------------
 # Forms
 # ---------------------------------------------------------------------------
 
 
-async def test_a_form_answer_is_stored_and_the_next_question_asked(
-    client: AsyncClient, headers: dict[str, str], plan_id: str
+async def test_a_form_answer_is_written_then_the_planner_carries_on(
+    client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
 ) -> None:
+    await _asked(client, headers, plan_id, fake_llm)
+    fake_llm.queue(ASK_DATES)
+
     events = await answer(client, headers, plan_id, "destination", {"destination": LISBON})
 
-    assert [type(e) for e in events] == [
-        PlanningMessageEvent,
-        PlanningPlanEvent,
-        PlanningMessageEvent,
-        PlanningDoneEvent,
-    ]
+    assert [event.type for event in events] == ["message", "plan_updated", "message", "done"]
     assert stored(events) == [
         ("input", "Lisbon, Portugal"),
         ("expected_input", "When are you going?"),
@@ -62,14 +84,24 @@ async def test_a_form_answer_is_stored_and_the_next_question_asked(
     assert plan.destination is not None and plan.destination.name == "Lisbon"
     assert plan.title == "Trip to Lisbon"
     assert asking(events) == "dates"
+    # The planner is asked once the answer is written, with it in the conversation.
+    brief = brief_of(fake_llm.requests[-1])
+    assert brief.said is None
+    assert (brief.conversation[-1].who, brief.conversation[-1].text) == (
+        "user",
+        "Lisbon, Portugal",
+    )
+    assert brief.plan.trip.destination == "Lisbon, Portugal"
 
 
 async def test_the_transcript_keeps_each_messages_payload(
-    client: AsyncClient, headers: dict[str, str], plan_id: str
+    client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
 ) -> None:
+    await _asked(client, headers, plan_id, fake_llm)
+    fake_llm.queue(ASK_DATES)
     await answer(client, headers, plan_id, "destination", {"destination": LISBON})
 
-    reply, asked = await messages(client, headers, plan_id)
+    _, reply, asked = await messages(client, headers, plan_id)
 
     assert (reply.role, reply.kind) == ("user", "input")
     assert reply.payload is not None
@@ -87,45 +119,28 @@ async def test_the_transcript_keeps_each_messages_payload(
     assert asked.payload.fields[0].kind == "date_range"
 
 
-async def test_finishing_basics_moves_on_to_flights(
-    client: AsyncClient, headers: dict[str, str], plan_id: str
+async def test_an_optional_question_can_be_skipped(
+    client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
-    await answer(client, headers, plan_id, "destination", {"destination": LISBON})
-    await answer(client, headers, plan_id, "dates", {"dates": MAY})
-    await answer(client, headers, plan_id, "travelers", {"adults": 2, "children": 1})
-    await answer(client, headers, plan_id, "origin", {"origin": {"name": "Philadelphia"}})
+    plan_id = await create_plan(client, headers, **BASICS)
+    await _asked(client, headers, plan_id, fake_llm, ask("A budget for the trip?", "budget"))
+    fake_llm.queue(text("No budget it is."))
 
     events = await post(client, headers, plan_id, "inputs", {"type": "skip", "slot": "budget"})
 
-    assert stored(events) == [
-        ("input", "Skip"),
-        ("stage", "Basics done. Next up: flights."),
-        ("expected_input", "How do you like to fly?"),
-    ]
-    stage = next(
-        e for e in events if isinstance(e, PlanningMessageEvent) and e.message.kind == "stage"
-    )
-    assert stage.message.role == "system"
-    assert stage.message.payload is not None
-    assert stage.message.payload.model_dump() == {
-        "type": "stage",
-        "from_stage": "basics",
-        "to_stage": "flights",
-    }
-    plan = done(events).plan
-    assert plan.stage == "flights"
-    assert plan.preferences.declined == ["budget"]
-    assert asking(events) == "flight_preferences"
-    # The transcript is in the order the messages were stored.
-    kinds = [m.kind for m in await messages(client, headers, plan_id)]
-    assert kinds[-3:] == ["input", "stage", "expected_input"]
+    assert stored(events) == [("input", "Skip"), ("message", "No budget it is.")]
+    assert done(events).plan.preferences.declined == ["budget"]
+    assert brief_of(fake_llm.requests[-1]).plan.trip.declined == [SlotName.BUDGET]
 
 
 async def test_preferences_are_stored_on_the_plan(
-    client: AsyncClient, headers: dict[str, str]
+    client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
-    plan_id = await create_plan(client, headers, **BASICS, budget={"amount": 5000})
-    await post(client, headers, plan_id, "continue")  # basics are done: on to flights
+    plan_id = await create_plan(client, headers, **BASICS)
+    await _asked(
+        client, headers, plan_id, fake_llm, ask("How do you like to fly?", "flight_preferences")
+    )
+    fake_llm.queue(text("Noted."))
 
     events = await answer(
         client, headers, plan_id, "flight_preferences", {"cabin": "business", "max_stops": 0}
@@ -139,16 +154,16 @@ async def test_preferences_are_stored_on_the_plan(
 
 
 async def test_answering_a_question_not_being_asked_is_a_conflict(
-    client: AsyncClient, headers: dict[str, str], plan_id: str
+    client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
 ) -> None:
-    response = await client.post(
-        f"/plans/{plan_id}/planning/inputs",
-        json={"type": "answer", "slot": "dates", "value": {"dates": MAY}},
-        headers=headers,
-    )
+    dates: dict[str, JsonValue] = {"type": "answer", "slot": "dates", "value": {"dates": MAY}}
 
-    assert response.status_code == 409
-    assert await messages(client, headers, plan_id) == []
+    # Nothing has been asked yet.
+    assert (await status_of(client, headers, plan_id, "inputs", dates))[0] == 409
+
+    await _asked(client, headers, plan_id, fake_llm)  # the destination, not the dates
+    assert (await status_of(client, headers, plan_id, "inputs", dates))[0] == 409
+    assert len(await messages(client, headers, plan_id)) == 1
 
 
 @pytest.mark.parametrize(
@@ -165,14 +180,14 @@ async def test_an_answer_that_does_not_fit_is_rejected(
     client: AsyncClient,
     headers: dict[str, str],
     plan_id: str,
+    fake_llm: FakeLLM,
     body: dict[str, JsonValue],
     detail: str,
 ) -> None:
-    response = await client.post(f"/plans/{plan_id}/planning/inputs", json=body, headers=headers)
+    await _asked(client, headers, plan_id, fake_llm)
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == detail
-    assert await messages(client, headers, plan_id) == []
+    assert await status_of(client, headers, plan_id, "inputs", body) == (422, detail)
+    assert len(await messages(client, headers, plan_id)) == 1
 
 
 async def test_another_users_plan_is_not_found(
@@ -196,120 +211,85 @@ async def test_another_users_plan_is_not_found(
 # ---------------------------------------------------------------------------
 
 
-async def test_free_text_is_extracted_into_the_pending_slot(
+async def test_free_text_goes_to_the_planner_with_the_form_it_was_typed_under(
     client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
 ) -> None:
-    fake_llm.queue(json_reply({"status": "answered", "value": {"destination": LISBON}}))
+    await _asked(client, headers, plan_id, fake_llm)
+    fake_llm.queue(apply("Lisbon", SET_LISBON), ASK_DATES)
 
-    events = await say(client, headers, plan_id, "Thinking Lisbon this spring")
+    events = await say(client, headers, plan_id, "Lisbon, I think")
 
     assert stored(events) == [
-        ("message", "Thinking Lisbon this spring"),
-        ("message", "Got it: Lisbon, Portugal."),
+        ("message", "Lisbon, I think"),
+        ("changes", "Destination: Lisbon, Portugal."),
         ("expected_input", "When are you going?"),
     ]
-    (request,) = fake_llm.requests
-    assert request.format == extraction_schema(SlotName.DESTINATION)
-    assert request.think is False
-    assert asking(events) == "dates"
-
-
-async def test_unrelated_text_gets_the_slots_nudge_and_changes_nothing(
-    client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
-) -> None:
-    fake_llm.queue(json_reply({"status": "unrelated", "value": None}))
-
-    events = await say(client, headers, plan_id, "Write me a poem about cheese")
-
-    assert stored(events) == [
-        ("message", "Write me a poem about cheese"),
-        ("nudge", "Let's start with where you're going: a city, region or country."),
-    ]
-    assert done(events).plan.version == 1
-    assert asking(events) == "destination"
-
-
-async def test_a_question_is_answered_then_the_slot_asked_again(
-    client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
-) -> None:
-    await post(client, headers, plan_id, "continue")  # shows "Where are you going?"
-    fake_llm.queue(
-        json_reply({"status": "question", "value": None}),
-        text("Lisbon is lovely in May."),
+    assert done(events).plan.title == "Trip to Lisbon"
+    request = fake_llm.requests[1]
+    brief = brief_of(request)
+    assert brief.said == "Lisbon, I think"
+    assert brief.plan.pending == FormView(
+        slot=SlotName.DESTINATION, question="Where are you going?"
     )
-
-    events = await say(client, headers, plan_id, "Is Lisbon nice in May?")
-
-    tokens = "".join(e.text for e in events if isinstance(e, PlanningTokenEvent))
-    assert tokens == "Lisbon is lovely in May."
-    assert stored(events) == [
-        ("message", "Is Lisbon nice in May?"),
-        ("message", "Lisbon is lovely in May."),
-        ("expected_input", "Where are you going?"),
-    ]
-    question = fake_llm.requests[1]
-    assert question.streamed and 'waiting for an answer to: "Where are you going?"' in (
-        question.messages[0].content
-    )
+    # Only a typed turn may write what the text asks for.
+    assert "apply_user_changes" in tools_of(request)
+    assert "apply_user_changes" not in tools_of(fake_llm.requests[0])
 
 
-async def test_an_extracted_answer_that_does_not_fit_is_explained(
+async def test_a_question_is_answered_and_nothing_changes(
     client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
-    plan_id = await create_plan(client, headers, destination=LISBON)
-    backwards: dict[str, JsonValue] = {"dates": {"start": "2027-05-08", "end": "2027-05-01"}}
-    fake_llm.queue(json_reply({"status": "answered", "value": backwards}))
-
-    events = await say(client, headers, plan_id, "the 8th to the 1st")
-
-    assert stored(events)[1:] == [
-        ("nudge", "That doesn't work: The trip has to end on or after the day it starts."),
-        ("expected_input", "When are you going?"),
-    ]
-    assert done(events).plan.start_date is None
-
-
-async def test_with_nothing_to_answer_text_is_a_question_and_nothing_runs(
-    app: FastAPI,
-    client: AsyncClient,
-    headers: dict[str, str],
-    fake_llm: FakeLLM,
-    fake_flights: FakeFlightProvider,
-) -> None:
     plan_id = await create_plan(client, headers, **BASICS)
-    await move_to(app, plan_id, PlanStage.FLIGHTS)
-    # The search fails, so a search (Retry) is what's pending.
-    fake_flights.queue(FlightSearchError("Flight search is down"))
-    await answer(client, headers, plan_id, "flight_preferences", {"cabin": "economy"})
-    # With nothing pending the command reader reads the text first: not an edit.
-    fake_llm.queue(
-        json_reply({"status": "question", "commands": []}),
-        text("Mornings are usually quieter."),
-    )
+    fake_llm.queue(text("May is mild and dry."))
 
-    events = await say(client, headers, plan_id, "When do flights leave?")
+    events = await say(client, headers, plan_id, "What's Lisbon like in May?")
 
+    tokens = [event.text for event in events if isinstance(event, PlanningTokenEvent)]
+    assert "".join(tokens) == "May is mild and dry."
     assert stored(events) == [
-        ("message", "When do flights leave?"),
-        ("message", "Mornings are usually quieter."),
+        ("message", "What's Lisbon like in May?"),
+        ("message", "May is mild and dry."),
     ]
-    assert not any(isinstance(e, PlanningStatusEvent) for e in events)
-    assert done(events).plan.assessment.next_action.type == "run_search"
+    plan = done(events).plan
+    assert plan.version == 1 and plan.pending is None
 
 
-async def test_a_model_failure_is_stored_as_an_error(
+# ---------------------------------------------------------------------------
+# Failures
+# ---------------------------------------------------------------------------
+
+
+async def test_a_model_failure_is_stored_and_continue_tries_again(
     client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
 ) -> None:
-    fake_llm.queue(LLMError("Could not reach Ollama"))
+    fake_llm.queue(LLMError("Could not reach the model"))
 
     events = await say(client, headers, plan_id, "Lisbon")
 
     error = events[-1]
     assert isinstance(error, PlanningErrorEvent)
-    assert error.detail == "Could not reach Ollama"
+    assert error.detail == "Could not reach the model"
     assert error.message is not None and error.message.kind == "error"
     kinds = [(m.role, m.kind) for m in await messages(client, headers, plan_id)]
     assert kinds == [("user", "message"), ("system", "error")]
+
+    fake_llm.queue(ASK_DESTINATION)
+    events = await post(client, headers, plan_id, "continue")
+
+    assert stored(events) == [("expected_input", "Where are you going?")]
+    # The failure notice isn't part of the conversation the planner reads.
+    assert [line.text for line in brief_of(fake_llm.requests[-1]).conversation] == ["Lisbon"]
+
+
+async def test_an_unexpected_failure_is_reported_without_its_details(
+    client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
+) -> None:
+    # Nothing is scripted, so the fake raises a plain RuntimeError.
+    events = await post(client, headers, plan_id, "continue")
+
+    error = events[-1]
+    assert isinstance(error, PlanningErrorEvent)
+    assert error.detail == GENERIC_FAILURE
 
 
 # ---------------------------------------------------------------------------
@@ -317,44 +297,76 @@ async def test_a_model_failure_is_stored_as_an_error(
 # ---------------------------------------------------------------------------
 
 
-async def test_continue_shows_the_pending_question_once(
-    client: AsyncClient, headers: dict[str, str], plan_id: str
+async def test_continue_starts_a_new_plan(
+    client: AsyncClient, headers: dict[str, str], plan_id: str, fake_llm: FakeLLM
 ) -> None:
-    first = await post(client, headers, plan_id, "continue")
-    second = await post(client, headers, plan_id, "continue")
-
-    assert stored(first) == [("expected_input", "Where are you going?")]
-    assert stored(second) == []
-    assert len(await messages(client, headers, plan_id)) == 1
-
-
-async def test_continue_moves_on_from_a_finished_stage(
-    client: AsyncClient, headers: dict[str, str]
-) -> None:
-    plan_id = await create_plan(client, headers, **BASICS, budget={"amount": 5000})
+    fake_llm.queue(ASK_DESTINATION)
 
     events = await post(client, headers, plan_id, "continue")
 
-    assert [kind for kind, _ in stored(events)] == ["stage", "expected_input"]
-    assert done(events).plan.stage == "flights"
+    assert stored(events) == [("expected_input", "Where are you going?")]
+    assert asking(events) == "destination"
+    brief = brief_of(fake_llm.requests[0])
+    assert (brief.said, brief.focus, brief.conversation) == (None, None, [])
+    assert [problem.id for problem in brief.plan.problems][:2] == [
+        "missing_destination",
+        "missing_dates",
+    ]
 
 
-async def test_a_failed_search_leaves_retry_pending_and_continue_retries(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_flights: FakeFlightProvider
+async def test_fix_this_tells_the_planner_which_problem(
+    client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
     plan_id = await create_plan(client, headers, **BASICS)
-    await move_to(app, plan_id, PlanStage.FLIGHTS)
-    fake_flights.queue(FlightSearchError("Flight search is down"))
+    fake_llm.queue(ask("What do you like to do?", "activity_preferences"))
 
-    events = await answer(client, headers, plan_id, "flight_preferences", {"cabin": "economy"})
+    events = await post(client, headers, plan_id, "continue", {"problem_id": "no_activities"})
 
-    status = next(e for e in events if isinstance(e, PlanningStatusEvent))
-    assert status.text == "Find flights out…"
-    assert stored(events)[-1] == ("error", "Flight search is down")
-    assert done(events).plan.assessment.next_action.type == "run_search"
+    assert asking(events) == "activity_preferences"
+    assert brief_of(fake_llm.requests[0]).focus == "no_activities"
 
-    retried = await post(client, headers, plan_id, "continue")
 
-    assert stored(retried) == [("choices", "Pick your flight out.")]
-    assert done(retried).plan.assessment.next_action.type == "offer_choice"
-    assert len(fake_flights.searches) == 2
+async def test_a_problem_the_plan_no_longer_has_is_a_conflict(
+    client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
+) -> None:
+    plan_id = await create_plan(client, headers, **BASICS)
+
+    status, detail = await status_of(
+        client, headers, plan_id, "continue", {"problem_id": "missing_dates"}
+    )
+
+    assert status == 409 and "no longer" in detail
+    assert fake_llm.requests == []
+
+
+# ---------------------------------------------------------------------------
+# One turn at a time
+# ---------------------------------------------------------------------------
+
+
+async def test_a_plan_takes_one_turn_at_a_time(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], plan_id: str
+) -> None:
+    running: set[UUID] = app.state.planning_turns
+    held: list[bool] = []
+
+    def reply(request: FakeRequest) -> LLMMessage:
+        held.append(UUID(plan_id) in running)
+        return text("Hello.")
+
+    app.state.llm = FakeLLM(fallback=reply)
+
+    await post(client, headers, plan_id, "continue")
+
+    # Held while the turn streams, and let go once it is done.
+    assert held == [True]
+    assert running == set()
+
+    running.add(UUID(plan_id))  # another turn is still streaming
+    status, detail = await status_of(client, headers, plan_id, "continue")
+    assert status == 409 and "still working" in detail
+
+    # Another plan isn't held up.
+    running.add(uuid4())
+    running.discard(UUID(plan_id))
+    await post(client, headers, plan_id, "continue")

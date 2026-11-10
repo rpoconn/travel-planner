@@ -30,12 +30,21 @@ describe('planning turn reducer', () => {
         expect(turn.messages).toEqual([REPLY])
     })
 
+    it('drops text streamed before the planner used a tool', () => {
+        let turn = applyPlanningEvent(startPlanningTurn(), { type: 'token', text: 'Let me look' })
+
+        turn = applyPlanningEvent(turn, { type: 'status', text: 'Finding flights out…' })
+
+        expect(turn.streamingText).toBe('')
+        expect(turn.activity).toBe('Finding flights out…')
+    })
+
     it('shows what the planner is doing until the next message', () => {
         let turn = applyPlanningEvent(startPlanningTurn(), {
             type: 'status',
-            text: 'Find flights out…',
+            text: 'Finding flights out…',
         })
-        expect(turn.activity).toBe('Find flights out…')
+        expect(turn.activity).toBe('Finding flights out…')
 
         turn = applyPlanningEvent(turn, { type: 'message', message: REPLY })
 

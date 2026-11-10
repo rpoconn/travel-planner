@@ -3,7 +3,8 @@ to decide.
 
 Pure functions (no database, no model). Each of the three is put to the user by something
 stored: the form by the last transcript message, the choices by the open offer, the
-proposal by the pending proposal. An offer or proposal made for an earlier version of the
+proposal by the pending proposal. (A plan with an empty transcript opens on a form nothing
+stored: `planning.service` works out which.) An offer or proposal made for an earlier version of the
 plan is stale and no longer waits. When more than one still stands, the newest is the one
 the user was last asked.
 """
@@ -26,7 +27,8 @@ from features.plans.schemas import PlanSnapshot, SlotName
 
 @dataclass(frozen=True)
 class AskedForm:
-    """The form the transcript's last message showed, and when."""
+    """The form the transcript's last message showed, and when; for a plan with an empty
+    transcript, the form it opens on, as of the plan's creation."""
 
     form: AskInput
     at: datetime

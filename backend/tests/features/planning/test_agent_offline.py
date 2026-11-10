@@ -65,7 +65,7 @@ async def test_the_basics_are_asked_and_answered_in_words(
 ) -> None:
     empty = replace(offline, plan_id=UUID(await create_plan(client, headers)))
 
-    await go(empty)
+    # A new plan opens on the destination's form, and the first thing typed answers it.
     assert await _asked(empty) == SlotName.DESTINATION
 
     events = await say(empty, "Lisbon")
@@ -87,14 +87,18 @@ async def test_the_basics_are_asked_and_answered_in_words(
     assert await _asked(empty) == SlotName.FLIGHT_PREFERENCES
 
 
-async def test_an_answer_the_rules_turn_down_ends_on_why(offline: TurnContext) -> None:
+async def test_an_answer_the_rules_turn_down_is_explained_and_asked_again(
+    offline: TurnContext,
+) -> None:
     form = ask_input(SlotName.DATES, await plan_of(offline))
     await store(offline, "assistant", form.prompt, kind=MessageKind.EXPECTED_INPUT, payload=form)
 
     events = await say(offline, "Last month")
 
-    kind, content = stored(events)[-1]
+    (kind, content), again = stored(events)
     assert kind == MessageKind.MESSAGE and "can't start in the past" in content
+    # Nothing changed, so the form is put back for another try.
+    assert again == (MessageKind.EXPECTED_INPUT, "When are you going?")
 
 
 async def test_a_question_gets_the_offline_answer(offline: TurnContext) -> None:

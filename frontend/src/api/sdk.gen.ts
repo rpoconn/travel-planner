@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AddItemData, AddItemErrors, AddItemResponses, ChangeStageData, ChangeStageErrors, ChangeStageResponses, ContinuePlanningData, ContinuePlanningErrors, ContinuePlanningResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListPlanningMessagesData, ListPlanningMessagesErrors, ListPlanningMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, RemovePlanItemData, RemovePlanItemErrors, RemovePlanItemResponses, SendPlanningMessageData, SendPlanningMessageErrors, SendPlanningMessageResponses, SubmitPlanningInputData, SubmitPlanningInputErrors, SubmitPlanningInputResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdateMeData, UpdateMeErrors, UpdateMeResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
+import type { AddItemData, AddItemErrors, AddItemResponses, ChangeStageData, ChangeStageErrors, ChangeStageResponses, ContinuePlanningData, ContinuePlanningErrors, ContinuePlanningResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DecidePlanningProposalData, DecidePlanningProposalErrors, DecidePlanningProposalResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListPlanningMessagesData, ListPlanningMessagesErrors, ListPlanningMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, RemovePlanItemData, RemovePlanItemErrors, RemovePlanItemResponses, SendPlanningMessageData, SendPlanningMessageErrors, SendPlanningMessageResponses, SubmitPlanningInputData, SubmitPlanningInputErrors, SubmitPlanningInputResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdateMeData, UpdateMeErrors, UpdateMeResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -233,9 +233,9 @@ export const listPlanningMessages = <ThrowOnError extends boolean = false>(optio
 /**
  * Submit Input
  *
- * Answer (or skip) the pending form, or pick from the pending choices. No model call:
- * the answer or pick is stored, the plan updated, and the planner moves on (running the
- * next search, if any), streaming `PlanningEvent`s that end in `done`.
+ * Answer (or skip) the pending form, or pick from the open choices. The answer or
+ * pick is stored and written at once; then the planner decides what is next, streaming
+ * `PlanningEvent`s that end in `done`.
  */
 export const submitPlanningInput = <ThrowOnError extends boolean = false>(options: Options<SubmitPlanningInputData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<SubmitPlanningInputResponses>> => (options.client ?? client).sse.post<SubmitPlanningInputResponses, SubmitPlanningInputErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -250,9 +250,8 @@ export const submitPlanningInput = <ThrowOnError extends boolean = false>(option
 /**
  * Send Message
  *
- * Free text. While a form is pending it is read as that form's answer, and while
- * choices are pending as a pick (or answered as a question, or nudged back to the
- * question); otherwise it is a question about the trip.
+ * Free text: an answer in the user's own words, a pick, a change to make, or a
+ * question. The planner reads it and writes only what it asks for.
  */
 export const sendPlanningMessage = <ThrowOnError extends boolean = false>(options: Options<SendPlanningMessageData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<SendPlanningMessageResponses>> => (options.client ?? client).sse.post<SendPlanningMessageResponses, SendPlanningMessageErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -267,9 +266,8 @@ export const sendPlanningMessage = <ThrowOnError extends boolean = false>(option
 /**
  * Remove Item
  *
- * Take an item off the trip, as a typed "remove …" would: no model call. The item goes
- * with the rides to and from it, the planner says what the trip now needs and how to fix
- * it, and then asks for it (going back to that stage if need be), streaming
+ * Take an item off the trip, as a typed "remove …" would. The item goes at once, with
+ * the rides to and from it; then the planner decides what the trip needs next, streaming
  * `PlanningEvent`s that end in `done`.
  */
 export const removePlanItem = <ThrowOnError extends boolean = false>(options: Options<RemovePlanItemData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<RemovePlanItemResponses>> => (options.client ?? client).sse.post<RemovePlanItemResponses, RemovePlanItemErrors, ThrowOnError>({
@@ -283,11 +281,28 @@ export const removePlanItem = <ThrowOnError extends boolean = false>(options: Op
 });
 
 /**
+ * Decide Proposal
+ *
+ * Approve or reject the suggestion the plan is waiting on. Approving checks its
+ * changes again and writes them all or nothing; either way the planner then carries on,
+ * streaming `PlanningEvent`s that end in `done`.
+ */
+export const decidePlanningProposal = <ThrowOnError extends boolean = false>(options: Options<DecidePlanningProposalData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<DecidePlanningProposalResponses>> => (options.client ?? client).sse.post<DecidePlanningProposalResponses, DecidePlanningProposalErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/plans/{plan_id}/planning/proposals/{proposal_id}/decision',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * Continue Planning
  *
- * Let the planner act with no new input: move on from a finished stage, run (or retry)
- * a search, or show the pending form again. With `refresh` ("More options"), search the
- * pending choices again for ones not offered yet.
+ * Let the planner act with no new input: start a new plan, or try again after a
+ * failure. With `problem_id` ("Fix this"), it works on that problem first. With `refresh`
+ * ("More options"), the open choices are searched again for ones not offered yet.
  */
 export const continuePlanning = <ThrowOnError extends boolean = false>(options: Options<ContinuePlanningData, ThrowOnError, unknown>): Promise<ServerSentEventsResult<ContinuePlanningResponses>> => (options.client ?? client).sse.post<ContinuePlanningResponses, ContinuePlanningErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

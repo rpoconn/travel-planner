@@ -1,8 +1,11 @@
 """The planning flow's routes: the transcript, form answers and picks, free text, an item's
-Remove button, and "continue".
+Remove button, a suggestion's Approve / Reject, and "continue".
 
-Every check that can fail (the plan, the pending slot, the answer's shape) runs in a
+Every check that can fail (the plan, what it is waiting on, the answer's shape) runs in a
 dependency, before the event stream opens, so a failure is a plain 404 / 409 / 422.
+
+Every POST runs the planner's loop, so each calls the model: all of them are rate limited,
+and a plan takes one turn at a time (a second one while the first is streaming is a 409).
 """
 
 from collections.abc import AsyncIterator
@@ -10,7 +13,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.sse import EventSourceResponse
 
 from features.auth.dependencies import CurrentUser
@@ -26,12 +29,21 @@ from features.planning.events import (
     PlanningEvent,
     PlanningMessage,
     PlanningText,
+    ProposalDecision,
 )
 from features.planning.picks import PickError, picked_candidates
-from features.planning.schemas import AskInput, ChoicePick, OfferChoice, PlanningInput, SlotSkip
+from features.planning.schemas import (
+    AskInput,
+    ChoicePick,
+    OfferChoice,
+    PlanningInput,
+    ReviewProposal,
+    SlotSkip,
+)
 from features.planning.turn import (
     Answer,
     Continue,
+    Decide,
     Pick,
     Remove,
     Skip,
@@ -52,6 +64,9 @@ router = APIRouter(
     tags=["planning"],
     responses=error_responses(status.HTTP_401_UNAUTHORIZED, status.HTTP_404_NOT_FOUND),
 )
+
+# What every route that runs a turn can answer besides its own checks.
+_TURN_RESPONSES = error_responses(status.HTTP_409_CONFLICT, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +102,7 @@ async def get_checked_input(body: PlanningInput, plan: OwnedPlan, session: Sessi
     asked (the slot, or the open offer), 422 when the value doesn't fit the slot, a required
     slot is skipped, or the pick isn't one the offer allows."""
     snapshot = await planning_service.snapshot(session, plan)
-    action = snapshot.assessment.next_action
+    action = snapshot.pending
     if isinstance(body, ChoicePick):
         if not isinstance(action, OfferChoice) or action.offer_id != body.offer_id:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
@@ -117,17 +132,24 @@ async def get_checked_continue(
     plan: OwnedPlan, session: SessionDep, body: ContinueRequest | None = None
 ) -> Continue:
     """Continue as a turn trigger: 409 when it asks for more options and the plan isn't
-    showing choices that can be searched again."""
-    if body is None or not body.refresh:
+    showing choices that can be searched again, or names a problem the plan no longer has."""
+    if body is None or not (body.refresh or body.problem_id):
         return Continue()
     snapshot = await planning_service.snapshot(session, plan)
-    action = snapshot.assessment.next_action
-    if not isinstance(action, OfferChoice) or not action.can_refresh:
+    if body.refresh:
+        action = snapshot.pending
+        if not isinstance(action, OfferChoice) or not action.can_refresh:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="There are no choices to look for other options for.",
+            )
+        return Continue(refresh=True)
+    if all(problem.id != body.problem_id for problem in snapshot.problems):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="There are no choices to look for other options for.",
+            detail="That's no longer something the trip needs. Reload to see the latest.",
         )
-    return Continue(refresh=True)
+    return Continue(problem_id=body.problem_id)
 
 
 CheckedContinue = Annotated[Continue, Depends(get_checked_continue)]
@@ -144,6 +166,52 @@ async def get_checked_removal(body: ItemRemoval, plan: OwnedPlan, session: Sessi
 
 
 CheckedRemoval = Annotated[Remove, Depends(get_checked_removal)]
+
+
+async def get_checked_decision(
+    proposal_id: UUID, body: ProposalDecision, plan: OwnedPlan, session: SessionDep
+) -> Decide:
+    """Approve / Reject as a turn trigger: 409 unless the suggestion is the one the plan is
+    waiting on (it was decided, replaced, or the plan changed under it)."""
+    snapshot = await planning_service.snapshot(session, plan)
+    waiting = snapshot.pending
+    if not isinstance(waiting, ReviewProposal) or waiting.proposal_id != proposal_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "That suggestion isn't waiting for a decision any more. Reload to see the latest."
+            ),
+        )
+    return Decide(proposal_id=proposal_id, approve=body.decision == "approve")
+
+
+CheckedDecision = Annotated[Decide, Depends(get_checked_decision)]
+
+
+async def hold_turn(request: Request, plan: OwnedPlan) -> AsyncIterator[None]:
+    """One turn per plan at a time: 409 while another is still streaming. Two turns at once
+    would read the same plan and write over each other (and both would call the model).
+
+    Kept in memory, which fits this single-process app, as the rate limiter does."""
+    running: set[UUID] = request.app.state.planning_turns
+    # Read now: a turn that fails rolls the session back, and the row can't be read after.
+    plan_id = plan.id
+    if plan_id in running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The planner is still working on this trip. Give it a moment.",
+        )
+    running.add(plan_id)
+    try:
+        # Held until the response has been streamed: FastAPI runs a dependency's exit code
+        # after a streaming response finishes.
+        yield
+    finally:
+        running.discard(plan_id)
+
+
+# Order matters: the rate limit is checked before the plan is held.
+_TURN_GUARDS = [Depends(limit_chat_messages), Depends(hold_turn)]
 
 
 def get_turn_context(
@@ -188,12 +256,13 @@ async def list_messages(
     "/inputs",
     operation_id="submitPlanningInput",
     response_class=EventSourceResponse,
-    responses=error_responses(status.HTTP_409_CONFLICT, status.HTTP_422_UNPROCESSABLE_CONTENT),
+    responses={**_TURN_RESPONSES, **error_responses(status.HTTP_422_UNPROCESSABLE_CONTENT)},
+    dependencies=_TURN_GUARDS,
 )
 async def submit_input(trigger: CheckedInput, turn: Turn) -> AsyncIterator[PlanningEvent]:
-    """Answer (or skip) the pending form, or pick from the pending choices. No model call:
-    the answer or pick is stored, the plan updated, and the planner moves on (running the
-    next search, if any), streaming `PlanningEvent`s that end in `done`."""
+    """Answer (or skip) the pending form, or pick from the open choices. The answer or
+    pick is stored and written at once; then the planner decides what is next, streaming
+    `PlanningEvent`s that end in `done`."""
     async for event in run_turn(turn, trigger):
         yield event
 
@@ -202,13 +271,12 @@ async def submit_input(trigger: CheckedInput, turn: Turn) -> AsyncIterator[Plann
     "/chat",
     operation_id="sendPlanningMessage",
     response_class=EventSourceResponse,
-    responses=error_responses(status.HTTP_429_TOO_MANY_REQUESTS),
-    dependencies=[Depends(limit_chat_messages)],
+    responses=_TURN_RESPONSES,
+    dependencies=_TURN_GUARDS,
 )
 async def send_message(body: PlanningText, turn: Turn) -> AsyncIterator[PlanningEvent]:
-    """Free text. While a form is pending it is read as that form's answer, and while
-    choices are pending as a pick (or answered as a question, or nudged back to the
-    question); otherwise it is a question about the trip."""
+    """Free text: an answer in the user's own words, a pick, a change to make, or a
+    question. The planner reads it and writes only what it asks for."""
     async for event in run_turn(turn, Text(content=body.content)):
         yield event
 
@@ -217,12 +285,28 @@ async def send_message(body: PlanningText, turn: Turn) -> AsyncIterator[Planning
     "/removals",
     operation_id="removePlanItem",
     response_class=EventSourceResponse,
+    responses=_TURN_RESPONSES,
+    dependencies=_TURN_GUARDS,
 )
 async def remove_item(trigger: CheckedRemoval, turn: Turn) -> AsyncIterator[PlanningEvent]:
-    """Take an item off the trip, as a typed "remove …" would: no model call. The item goes
-    with the rides to and from it, the planner says what the trip now needs and how to fix
-    it, and then asks for it (going back to that stage if need be), streaming
+    """Take an item off the trip, as a typed "remove …" would. The item goes at once, with
+    the rides to and from it; then the planner decides what the trip needs next, streaming
     `PlanningEvent`s that end in `done`."""
+    async for event in run_turn(turn, trigger):
+        yield event
+
+
+@router.post(
+    "/proposals/{proposal_id}/decision",
+    operation_id="decidePlanningProposal",
+    response_class=EventSourceResponse,
+    responses=_TURN_RESPONSES,
+    dependencies=_TURN_GUARDS,
+)
+async def decide_proposal(trigger: CheckedDecision, turn: Turn) -> AsyncIterator[PlanningEvent]:
+    """Approve or reject the suggestion the plan is waiting on. Approving checks its
+    changes again and writes them all or nothing; either way the planner then carries on,
+    streaming `PlanningEvent`s that end in `done`."""
     async for event in run_turn(turn, trigger):
         yield event
 
@@ -231,12 +315,12 @@ async def remove_item(trigger: CheckedRemoval, turn: Turn) -> AsyncIterator[Plan
     "/continue",
     operation_id="continuePlanning",
     response_class=EventSourceResponse,
-    responses=error_responses(status.HTTP_409_CONFLICT, status.HTTP_429_TOO_MANY_REQUESTS),
-    dependencies=[Depends(limit_chat_messages)],
+    responses=_TURN_RESPONSES,
+    dependencies=_TURN_GUARDS,
 )
 async def continue_planning(trigger: CheckedContinue, turn: Turn) -> AsyncIterator[PlanningEvent]:
-    """Let the planner act with no new input: move on from a finished stage, run (or retry)
-    a search, or show the pending form again. With `refresh` ("More options"), search the
-    pending choices again for ones not offered yet."""
+    """Let the planner act with no new input: start a new plan, or try again after a
+    failure. With `problem_id` ("Fix this"), it works on that problem first. With `refresh`
+    ("More options"), the open choices are searched again for ones not offered yet."""
     async for event in run_turn(turn, trigger):
         yield event

@@ -87,6 +87,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Used by the activities stage's search; tests replace it with a `FakePlaceProvider`.
     app.state.places = places
 
+    # Plans with a planning turn streaming right now (`planning.router.hold_turn`).
+    app.state.planning_turns = set()
     # Read by `enforce_rate_limit`; buckets with a limit of 0 are left out (unlimited).
     app.state.rate_limiters = create_rate_limiters(
         {

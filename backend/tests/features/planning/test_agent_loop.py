@@ -8,7 +8,7 @@ import pytest
 from pydantic import JsonValue
 
 from features.chat.schemas import MessageKind
-from features.planning.agent.context import FormView, TurnBrief
+from features.planning.agent.context import FormView
 from features.planning.agent.loop import MAX_ROUNDS
 from features.planning.agent.tool_models import ToolFailure, ValidationResult
 from features.planning.agent.tools import TurnContext, store
@@ -16,23 +16,21 @@ from features.planning.events import PlanningStatusEvent, PlanningTokenEvent
 from features.planning.pending import ask_input
 from features.planning.schemas import AskInput, OfferChoice
 from features.plans.schemas import SlotName
-from shared.llm.fake import FakeLLM, FakeRequest, text, tool_calls
+from shared.llm.fake import FakeLLM, text, tool_calls
 from shared.llm.types import LLMError
-from tests.features.planning.agent_helpers import go, plan_of, say, set_preferences, stored
+from tests.features.planning.agent_helpers import (
+    brief_of,
+    go,
+    plan_of,
+    say,
+    set_preferences,
+    stored,
+    tools_of,
+)
 
 ENDING = ["ask_user", "present_choices", "suggest_changes"]
 ASK_DATES = tool_calls(("ask_user", {"question": "When are you going?", "slot": "dates"}))
 VALIDATE = tool_calls(("validate_plan", {}))
-
-
-def _tools(request: FakeRequest) -> list[str]:
-    return [tool.name for tool in request.tools]
-
-
-def _brief(request: FakeRequest) -> TurnBrief:
-    system, user = request.messages[:2]
-    assert (system.role, user.role) == ("system", "user")
-    return TurnBrief.model_validate_json(user.content)
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +47,7 @@ async def test_the_brief_holds_the_conversation_the_plan_and_the_trigger(
 
     await say(turn, "What's Lisbon like in May?")
 
-    brief = _brief(fake_llm.requests[0])
+    brief = brief_of(fake_llm.requests[0])
     assert [(line.who, line.text) for line in brief.conversation] == [
         ("planner", "Where to next?"),
         ("user", "What's Lisbon like in May?"),
@@ -67,15 +65,37 @@ async def test_typed_text_is_read_against_the_form_it_came_in_under(
     form = ask_input(SlotName.FLIGHT_PREFERENCES, await plan_of(turn))
     await store(turn, "assistant", form.prompt, kind=MessageKind.EXPECTED_INPUT, payload=form)
 
-    await say(turn, "economy")
-    await go(turn)
+    events = await say(turn, "What's the difference?")
 
-    typed, clicked = (_brief(request) for request in fake_llm.requests)
-    assert typed.plan.pending == FormView(
-        slot=SlotName.FLIGHT_PREFERENCES, question="How do you like to fly?"
+    asked = FormView(slot=SlotName.FLIGHT_PREFERENCES, question="How do you like to fly?")
+    assert brief_of(fake_llm.requests[0]).plan.pending == asked
+    # The text took the form's place at the end of the transcript, and the planner only
+    # answered: the form is put back after the answer.
+    assert stored(events) == [
+        (MessageKind.MESSAGE, "Noted."),
+        (MessageKind.EXPECTED_INPUT, "How do you like to fly?"),
+    ]
+    assert (await plan_of(turn)).pending == form
+
+    await go(turn)
+    assert brief_of(fake_llm.requests[1]).plan.pending == asked
+
+
+async def test_a_form_is_not_put_back_once_the_turn_changed_the_plan(
+    turn: TurnContext, fake_llm: FakeLLM
+) -> None:
+    form = ask_input(SlotName.FLIGHT_PREFERENCES, await plan_of(turn))
+    await store(turn, "assistant", form.prompt, kind=MessageKind.EXPECTED_INPUT, payload=form)
+    change: dict[str, JsonValue] = {"type": "set_flight_preferences", "cabin": "economy"}
+    fake_llm.queue(
+        tool_calls(("apply_user_changes", {"quote": "economy", "changes": [change]})),
+        text("Economy it is."),
     )
-    # The text took the form's place at the end of the transcript; it isn't open any more.
-    assert clicked.plan.pending is None
+
+    events = await say(turn, "Economy, please")
+
+    assert [kind for kind, _ in stored(events)] == [MessageKind.CHANGES, MessageKind.MESSAGE]
+    assert (await plan_of(turn)).pending is None
 
 
 async def test_the_problem_to_work_on_is_passed_along(turn: TurnContext, fake_llm: FakeLLM) -> None:
@@ -83,7 +103,7 @@ async def test_the_problem_to_work_on_is_passed_along(turn: TurnContext, fake_ll
 
     await go(turn, focus="no_activities")
 
-    brief = _brief(fake_llm.requests[0])
+    brief = brief_of(fake_llm.requests[0])
     assert (brief.said, brief.focus) == (None, "no_activities")
 
 
@@ -95,7 +115,7 @@ async def test_only_a_typed_turn_is_offered_a_writing_tool(
     await go(turn)
     await say(turn, "hi")
 
-    clicked, typed = (_tools(request) for request in fake_llm.requests)
+    clicked, typed = (tools_of(request) for request in fake_llm.requests)
     assert "apply_user_changes" not in clicked
     assert typed == [*clicked, "apply_user_changes"]
 
@@ -201,8 +221,8 @@ async def test_the_last_round_only_offers_what_ends_the_turn(
     events = await go(turn)
 
     assert len(fake_llm.requests) == MAX_ROUNDS
-    assert _tools(fake_llm.requests[-2])[0] == "validate_plan"
-    assert _tools(fake_llm.requests[-1]) == ENDING
+    assert tools_of(fake_llm.requests[-2])[0] == "validate_plan"
+    assert tools_of(fake_llm.requests[-1]) == ENDING
     # The model never got to the user, so a fixed message says what is left.
     assert stored(events) == [
         (

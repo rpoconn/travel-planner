@@ -49,18 +49,6 @@ describe('PlansSidebar', () => {
         )
     })
 
-    it('shows which stage each plan is in', async () => {
-        vi.spyOn(sdk, 'listPlans').mockResolvedValue(sdkOk([TOKYO, LISBON]))
-
-        renderSidebar()
-
-        await screen.findByRole('button', { name: /^Tokyo in May/ })
-        expect(screen.getAllByTestId('plan-stage').map((badge) => badge.textContent)).toEqual([
-            'Basics',
-            'Lodging',
-        ])
-    })
-
     it('shows an empty state', async () => {
         vi.spyOn(sdk, 'listPlans').mockResolvedValue(sdkOk([]))
 

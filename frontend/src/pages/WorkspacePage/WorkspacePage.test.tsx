@@ -6,16 +6,16 @@ import * as sdk from '@/api/sdk.gen'
 import { getSession, setSessionFromToken } from '@/lib/auth'
 import {
     ASK_DESTINATION,
-    issue,
     planAsking,
-    planAssessment,
     planSummary,
+    problem,
     sdkOk,
     tokenResponse,
     tokyoTimeline,
     travelPlan,
 } from '@/test/fixtures'
 import { renderWithRouter } from '@/test/render'
+import { sseResponse } from '@/test/sse'
 
 import { WorkspacePage } from './WorkspacePage'
 
@@ -62,38 +62,44 @@ describe('WorkspacePage', () => {
         expect(await within(itinerary).findAllByRole('region', { name: /^Day \d/ })).toHaveLength(5)
     })
 
-    it("lists the planner's issues in the stage bar, not the itinerary", async () => {
-        const plan = travelPlan({
-            stage: 'activities',
-            assessment: planAssessment({ stage: 'activities', issues: [issue()] }),
-        })
+    it('lists what the trip still needs above the panes, not in the itinerary', async () => {
+        const plan = travelPlan({ problems: [problem()] })
         vi.spyOn(sdk, 'getPlan').mockResolvedValue(sdkOk(plan))
 
         await renderWithRouter(<WorkspacePage planId={plan.id} />)
 
-        const trigger = await screen.findByRole('button', { name: '1 thing to check' })
+        const needs = await screen.findByRole('region', { name: 'What the trip still needs' })
+        expect(needs).toHaveTextContent('1 thing left')
+        expect(needs).toHaveTextContent('A place to stay the night of May 3')
         const itinerary = screen.getByRole('region', { name: 'Itinerary' })
-        expect(within(itinerary).queryByText('1 thing to check')).not.toBeInTheDocument()
-        await userEvent.click(trigger)
-        expect(screen.getByRole('dialog', { name: 'Things to check' })).toHaveTextContent(
-            'a place to stay the night of May 3',
-        )
-    })
-
-    it('shows the stage stepper for the selected plan and the home button', async () => {
-        vi.spyOn(sdk, 'getPlan').mockResolvedValue(sdkOk(travelPlan({ stage: 'flights' })))
-
-        await renderWithRouter(<WorkspacePage planId={travelPlan().id} />)
-
-        const stepper = await screen.findByRole('navigation', { name: 'Planning stages' })
-        expect(within(stepper).getByRole('listitem', { current: 'step' })).toHaveTextContent(
-            'Flights',
-        )
-        // Back / Skip flights are separate from the steps, in the planning panel's stage bar.
-        const controls = await screen.findByRole('region', { name: 'Stage controls' })
-        expect(within(controls).getByRole('button', { name: 'Skip flights' })).toBeEnabled()
+        expect(within(itinerary).queryByText('1 thing left')).not.toBeInTheDocument()
         // Ada has no home yet, so the header offers to set one.
         expect(screen.getByRole('button', { name: 'Set home' })).toBeInTheDocument()
+    })
+
+    it('asks the planner to fix a problem, in the chat', async () => {
+        const plan = travelPlan({ problems: [problem()] })
+        vi.spyOn(sdk, 'getPlan').mockResolvedValue(sdkOk(plan))
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(sseResponse([{ type: 'done', plan }]))
+        await renderWithRouter(<WorkspacePage planId={plan.id} />)
+        const chat = screen.getByRole('region', { name: 'Chat' })
+        await within(chat).findByRole('textbox', { name: 'Message' })
+
+        await userEvent.click(
+            screen.getByRole('button', { name: 'Fix this: a place to stay the night of May 3' }),
+        )
+
+        await waitFor(() => {
+            expect(fetchSpy).toHaveBeenCalled()
+        })
+        const request = fetchSpy.mock.calls[0]?.[0] as Request
+        expect(request.url).toBe(`http://api.test/plans/${plan.id}/planning/continue`)
+        expect(await request.json()).toEqual({
+            refresh: false,
+            problem_id: 'uncovered_night:2027-05-03',
+        })
     })
 
     it('shows an error when the plan cannot be loaded', async () => {

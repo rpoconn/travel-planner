@@ -46,10 +46,18 @@ class ItemRemoval(BaseModel):
 
 class ContinueRequest(BaseModel):
     """`POST /plans/{id}/planning/continue`. With `refresh`, the pending choices are
-    searched again for other options ("More options"); without it (or with no body) the
-    planner just carries on."""
+    searched again for other options ("More options"). With `problem_id`, the planner works
+    on that problem first ("Fix this"). With neither (or no body) it just carries on."""
 
     refresh: bool = False
+    problem_id: str | None = Field(default=None, max_length=200)
+
+
+class ProposalDecision(BaseModel):
+    """`POST /plans/{id}/planning/proposals/{proposal_id}/decision`: the suggestion card's
+    Approve or Reject."""
+
+    decision: Literal["approve", "reject"]
 
 
 # ---------------------------------------------------------------------------
@@ -63,36 +71,40 @@ class _Event(BaseModel):
 
 
 class PlanningStatusEvent(_Event):
-    """Something slow is running, e.g. "Finding flights out…". Not stored."""
+    """Something slow is running, e.g. "Finding flights out…". Not stored. Text streamed
+    before it (`token` events) was the planner thinking aloud: clients drop it."""
 
     type: Literal["status"] = "status"
     text: str
 
 
 class PlanningTokenEvent(_Event):
-    """Part of the assistant's streamed answer to a question; the stored message follows."""
+    """Part of the planner's streamed reply. When the reply turns out to be its answer, the
+    stored message follows; when it goes on to use a tool, a `status` or `message` event
+    follows instead and the text is dropped."""
 
     type: Literal["token"] = "token"
     text: str
 
 
 class PlanningMessageEvent(_Event):
-    """A message was stored: the user's input, the assistant's reply or nudge, the next
-    form or choices, a stage divider. Clients append it to the transcript."""
+    """A message was stored: the user's input, the planner's reply or nudge, the next form
+    or choices, what a change did. Clients append it to the transcript."""
 
     type: Literal["message"] = "message"
     message: PlanningMessage
 
 
 class PlanningPlanEvent(_Event):
-    """The plan changed (an answer, a pick, a stage move)."""
+    """The plan changed (an answer, a pick, an edit)."""
 
     type: Literal["plan_updated"] = "plan_updated"
     plan: TravelPlan
 
 
 class PlanningDoneEvent(_Event):
-    """The turn finished; `plan` (with its assessment) is what the UI shows next."""
+    """The turn finished; `plan` (with its problems and what it waits on) is what the UI
+    shows next."""
 
     type: Literal["done"] = "done"
     plan: TravelPlan

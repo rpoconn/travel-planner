@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowRight } from 'lucide-react'
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 
 import { getPlanQueryKey, listPlanningMessagesOptions } from '@/api/@tanstack/react-query.gen'
@@ -6,9 +7,9 @@ import type { TravelPlan } from '@/api/types.gen'
 import { ChoiceList } from '@/components/ChoiceList/ChoiceList'
 import { Composer } from '@/components/Composer/Composer'
 import { ExpectedInputPanel } from '@/components/ExpectedInputPanel/ExpectedInputPanel'
-import { IssuesPanel } from '@/components/IssuesPanel/IssuesPanel'
 import { MessageBubble } from '@/components/MessageBubble/MessageBubble'
-import { StageBar } from '@/components/StageBar/StageBar'
+import { ProposalCard } from '@/components/ProposalCard/ProposalCard'
+import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/apiError'
 import { applyPlanSnapshot } from '@/lib/planCache'
 import { applyPlanningEvent, startPlanningTurn, type PlanningTurn } from '@/lib/planningTurn'
@@ -16,21 +17,29 @@ import {
     ChatRequestError,
     streamPlanningChat,
     streamPlanningContinue,
+    streamPlanningDecision,
     streamPlanningInput,
     streamPlanningRemove,
     type PlanningEvent,
     type PlanningInputBody,
+    type ProposalDecision,
 } from '@/lib/sse'
 
-import { composerPlaceholder, mergeTranscript, visibleMessages } from './PlanningPanelService'
+import {
+    canContinue,
+    composerPlaceholder,
+    mergeTranscript,
+    visibleMessages,
+} from './PlanningPanelService'
 
-// The rules-driven planning flow: the transcript, then the planner's pending question as a
-// form (or its choices to pick from), then the stage bar, with the composer underneath for
-// free text. What comes next is
-// always `plan.assessment.next_action`, so the form and buttons follow the server.
-// Every turn (a form answer, free text, Continue) streams the messages the server stores;
-// once it ends the transcript is refetched. Mount with `key={plan.id}`. The itinerary's Remove
-// button runs its turn here too, through the `ref` handle, so its outcome lands in this transcript.
+// The conversation with the planner: the transcript, then what the plan is waiting on the
+// user for (`plan.pending`): a form, choices to pick from, or a suggestion to approve or
+// reject; with the composer underneath for free text, which works in every state. The
+// planner decides what comes next, so the form and buttons follow the server.
+// Every turn (a form answer, a pick, free text, a decision, Continue) streams the messages
+// the server stores; once it ends the transcript is refetched. Mount with `key={plan.id}`.
+// The itinerary's Remove button and the problems list's "Fix this" run their turns here too,
+// through the `ref` handle, so their outcome lands in this transcript.
 
 // ----- types -----
 
@@ -38,6 +47,8 @@ import { composerPlaceholder, mergeTranscript, visibleMessages } from './Plannin
 export interface PlanningPanelHandle {
     /** Take an item off the trip; ignored while a turn is streaming. */
     removeItem: (itemId: string) => void
+    /** Ask the planner to work on a problem next; ignored while a turn is streaming. */
+    fixProblem: (problemId: string) => void
 }
 
 interface PlanningPanelProps {
@@ -63,10 +74,10 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
     const scrollRef = useRef<HTMLDivElement>(null)
 
     const busy = turn !== null
-    const action = plan.assessment.next_action
+    const pending = plan.pending
     const transcript = visibleMessages(
         mergeTranscript(messagesQuery.data ?? [], turn?.messages ?? []),
-        action,
+        pending,
     )
 
     // ----- effects -----
@@ -109,16 +120,27 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
         await runTurn(null, (signal) => streamPlanningInput(plan.id, body, { signal }))
     }
 
-    /** The itinerary's Remove button: the planner says what the trip needs, then asks for it. */
+    /** The itinerary's Remove button: the item goes, then the planner carries on. */
     async function removeItem(itemId: string) {
         if (busy) return
         await runTurn(null, (signal) => streamPlanningRemove(plan.id, itemId, { signal }))
     }
 
-    /** Drive the planner on; with `refresh`, look for other options than the choices shown. */
-    async function continuePlanning(refresh = false) {
+    /** A suggestion card's Approve or Reject. */
+    async function decide(proposalId: string, decision: ProposalDecision) {
         if (busy) return
-        await runTurn(null, (signal) => streamPlanningContinue(plan.id, { signal, refresh }))
+        await runTurn(null, (signal) =>
+            streamPlanningDecision(plan.id, proposalId, decision, { signal }),
+        )
+    }
+
+    /**
+     * Let the planner carry on. With `refresh`, look for other options than the choices
+     * shown; with `problemId`, work on that problem first.
+     */
+    async function continuePlanning(options: { refresh?: boolean; problemId?: string } = {}) {
+        if (busy) return
+        await runTurn(null, (signal) => streamPlanningContinue(plan.id, { signal, ...options }))
     }
 
     /**
@@ -173,9 +195,10 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
     }
 
     // The parent's handle on the turns above. After them, since it calls them; recreated each
-    // render, so `removeItem` always sees whether a turn is streaming.
+    // render, so each one always sees whether a turn is streaming.
     useImperativeHandle(ref, () => ({
         removeItem: (itemId) => void removeItem(itemId),
+        fixProblem: (problemId) => void continuePlanning({ problemId }),
     }))
 
     // ----- markup -----
@@ -216,7 +239,7 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
                                 />
                             )}
                             {/* The planner at work: a streamed answer, what it's doing
-                                ("Find flights out…"), or typing dots. */}
+                                ("Finding flights out…"), or typing dots. */}
                             {turn?.status === 'streaming' && (
                                 <MessageBubble
                                     role="assistant"
@@ -225,47 +248,60 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
                                     streaming
                                 />
                             )}
-                            {action.type === 'offer_choice' && (
+                            {pending?.type === 'offer_choice' && (
                                 <ChoiceList
-                                    key={action.offer_id}
-                                    action={action}
+                                    key={pending.offer_id}
+                                    action={pending}
                                     disabled={busy}
                                     onPick={(candidateIds) =>
                                         void submitInput({
                                             type: 'pick',
-                                            offer_id: action.offer_id,
+                                            offer_id: pending.offer_id,
                                             candidate_ids: candidateIds,
                                         })
                                     }
-                                    onMore={() => void continuePlanning(true)}
+                                    onMore={() => void continuePlanning({ refresh: true })}
                                 />
                             )}
-                            {action.type === 'ask_input' && (
+                            {pending?.type === 'ask_input' && (
                                 <ExpectedInputPanel
-                                    key={action.slot}
-                                    action={action}
+                                    // The prompt too: the planner may ask the same slot again
+                                    // in other words, which is a new form.
+                                    key={`${pending.slot}:${pending.prompt}`}
+                                    action={pending}
                                     disabled={busy}
                                     onSubmit={(value) =>
                                         void submitInput({
                                             type: 'answer',
-                                            slot: action.slot,
+                                            slot: pending.slot,
                                             value,
                                         })
                                     }
                                     onSkip={() =>
-                                        void submitInput({ type: 'skip', slot: action.slot })
+                                        void submitInput({ type: 'skip', slot: pending.slot })
                                     }
                                 />
                             )}
-                            {/* At review there's nothing left to ask: what's left to fix. */}
-                            {plan.stage === 'review' && (
-                                <IssuesPanel plan={plan} inline disabled={busy} />
+                            {pending?.type === 'review_proposal' && (
+                                <ProposalCard
+                                    key={pending.proposal_id}
+                                    proposal={pending}
+                                    disabled={busy}
+                                    onDecide={(decision) =>
+                                        void decide(pending.proposal_id, decision)
+                                    }
+                                />
                             )}
-                            <StageBar
-                                plan={plan}
-                                disabled={busy}
-                                onContinue={() => void continuePlanning()}
-                            />
+                            {/* Nothing is being asked and the trip isn't done: the planner
+                                answered a question, or a turn failed. One button carries on. */}
+                            {canContinue(plan) && !busy && (
+                                <div className="flex items-center gap-3">
+                                    <Button size="sm" onClick={() => void continuePlanning()}>
+                                        <ArrowRight aria-hidden />
+                                        Continue planning
+                                    </Button>
+                                </div>
+                            )}
                         </>
                     )}
                 </div>
@@ -282,7 +318,7 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
                     onChange={setDraft}
                     onSubmit={(text) => void send(text)}
                     busy={busy}
-                    placeholder={composerPlaceholder(action)}
+                    placeholder={composerPlaceholder(pending)}
                 />
             </div>
         </div>

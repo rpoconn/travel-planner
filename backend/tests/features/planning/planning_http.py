@@ -16,6 +16,7 @@ from features.planning.events import (
     PlanningMessage,
     PlanningMessageEvent,
 )
+from features.planning.schemas import AskInput, OfferChoice
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import PlanStage
@@ -111,9 +112,39 @@ def done(events: list[PlanningEvent]) -> PlanningDoneEvent:
 
 
 def asking(events: list[PlanningEvent]) -> str | None:
-    """The slot the plan asks for once the turn is done."""
-    action = done(events).plan.assessment.next_action
-    return action.slot if action.type == "ask_input" else None
+    """The slot whose form the plan waits on once the turn is done."""
+    pending = done(events).plan.pending
+    return pending.slot if isinstance(pending, AskInput) else None
+
+
+def choices(events: list[PlanningEvent]) -> OfferChoice:
+    """The choices the plan waits on once the turn is done."""
+    pending = done(events).plan.pending
+    assert isinstance(pending, OfferChoice), pending
+    return pending
+
+
+async def pick(
+    client: AsyncClient, headers: dict[str, str], plan_id: str, offer: OfferChoice, *ids: str
+) -> list[PlanningEvent]:
+    body: dict[str, JsonValue] = {
+        "type": "pick",
+        "offer_id": str(offer.offer_id),
+        "candidate_ids": list(ids),
+    }
+    return await post(client, headers, plan_id, "inputs", body)
+
+
+async def status_of(
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan_id: str,
+    path: str,
+    body: Mapping[str, JsonValue] | None = None,
+) -> tuple[int, str]:
+    """A planning POST that is turned down before its stream opens: (status, detail)."""
+    response = await client.post(f"/plans/{plan_id}/planning/{path}", json=body, headers=headers)
+    return response.status_code, response.json()["detail"]
 
 
 async def add_item(

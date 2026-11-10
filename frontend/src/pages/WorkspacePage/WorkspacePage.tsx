@@ -13,12 +13,11 @@ import { useReducer, useRef, useState } from 'react'
 import { getPlanOptions } from '@/api/@tanstack/react-query.gen'
 import { EmptyPane } from '@/components/EmptyPane/EmptyPane'
 import { HomeSetup } from '@/components/HomeSetup/HomeSetup'
-import { IssuesPanel } from '@/components/IssuesPanel/IssuesPanel'
 import { ItineraryTimeline } from '@/components/ItineraryTimeline/ItineraryTimeline'
 import { PlanningPanel, type PlanningPanelHandle } from '@/components/PlanningPanel/PlanningPanel'
 import { PlansSidebar } from '@/components/PlansSidebar/PlansSidebar'
+import { ProblemsPanel } from '@/components/ProblemsPanel/ProblemsPanel'
 import { SplitPane } from '@/components/SplitPane/SplitPane'
-import { StageStepper } from '@/components/StageStepper/StageStepper'
 import { ThemeToggle } from '@/components/ThemeToggle/ThemeToggle'
 import { TripSummary } from '@/components/TripSummary/TripSummary'
 import { Button } from '@/components/ui/button'
@@ -33,11 +32,10 @@ import { initialTripsPanel, tripsPanelReducer, tripsToggleLabel } from './Worksp
 // WorkspacePageService); the button at the left of the header shows or hides it. The header
 // also names the selected trip (TripSummary), so the two panes need no title bars. Both panes
 // are keyed by plan id so switching trips starts them fresh
-// (and aborts a streaming turn). The stage steps span the top of the page and lock while a
-// turn streams, since the turn acts on the stage it started in. The planner's issues ("things
-// to check", with "Go to" a stage) sit at the right end of the stage bar, leaving the
-// timeline its room. An item's Remove button in the timeline runs as a turn in the planning
-// panel, so the planner's answer (what the trip needs now) shows in the chat.
+// (and aborts a streaming turn). What the trip still needs spans the top of the page ("N
+// things left", each with "Fix this"), leaving the timeline its room; its buttons lock while
+// a turn streams. "Fix this" and an item's Remove button in the timeline both run as a turn
+// in the planning panel, so the planner's answer shows in the chat.
 
 interface WorkspacePageProps {
     planId?: string
@@ -52,7 +50,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
         enabled: planId !== undefined,
     })
     const plan = planId === undefined ? undefined : planQuery.data
-    // The stage steps and issues lock while the planning panel streams a turn.
+    // The problems list locks while the planning panel streams a turn.
     const [chatBusy, setChatBusy] = useState(false)
     const panelRef = useRef<PlanningPanelHandle>(null)
     const [tripsPanel, dispatchTripsPanel] = useReducer(
@@ -129,15 +127,18 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 </div>
             </header>
 
-            {/* The planning steps span the whole page, with the planner's issues at the end. */}
+            {/* What the trip still needs spans the whole page. */}
             {plan && (
                 <div
                     className="flex items-center gap-4 border-b pr-4"
                     onClickCapture={handleTripInteraction}
                     onKeyDownCapture={handleTripInteraction}
                 >
-                    <StageStepper plan={plan} disabled={chatBusy} />
-                    <IssuesPanel key={plan.id} plan={plan} disabled={chatBusy} />
+                    <ProblemsPanel
+                        plan={plan}
+                        disabled={chatBusy}
+                        onFix={(problemId) => panelRef.current?.fixProblem(problemId)}
+                    />
                 </div>
             )}
 

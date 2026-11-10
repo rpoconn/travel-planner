@@ -10,6 +10,7 @@ import {
     parsePlanningEvent,
     streamPlanningChat,
     streamPlanningContinue,
+    streamPlanningDecision,
     streamPlanningInput,
     type PlanningEvent,
 } from './sse'
@@ -93,7 +94,7 @@ describe('planning streams', () => {
         const request = fetchSpy.mock.calls[0]?.[0] as Request
         expect(request.method).toBe('POST')
         expect(request.url).toBe(`http://api.test/plans/${PLAN_ID}/planning/continue`)
-        expect(await request.json()).toEqual({ refresh: false })
+        expect(await request.json()).toEqual({ refresh: false, problem_id: null })
     })
 
     it('POSTs continue with a refresh for more options', async () => {
@@ -102,7 +103,29 @@ describe('planning streams', () => {
         await collect(streamPlanningContinue(PLAN_ID, { refresh: true }))
 
         const request = fetchSpy.mock.calls[0]?.[0] as Request
-        expect(await request.json()).toEqual({ refresh: true })
+        expect(await request.json()).toEqual({ refresh: true, problem_id: null })
+    })
+
+    it('continues with the problem to work on', async () => {
+        const fetchSpy = mockFetch(sseResponse(PLANNING_EVENTS))
+
+        await collect(streamPlanningContinue(PLAN_ID, { problemId: 'missing_return' }))
+
+        const request = fetchSpy.mock.calls[0]?.[0] as Request
+        expect(await request.json()).toEqual({ refresh: false, problem_id: 'missing_return' })
+    })
+
+    it("posts a suggestion's decision and yields the turn's events", async () => {
+        const fetchSpy = mockFetch(sseResponse(PLANNING_EVENTS))
+
+        const events = await collect(streamPlanningDecision(PLAN_ID, 'proposal-1', 'approve'))
+
+        expect(events).toEqual(PLANNING_EVENTS)
+        const request = fetchSpy.mock.calls[0]?.[0] as Request
+        expect(request.url).toBe(
+            `http://api.test/plans/${PLAN_ID}/planning/proposals/proposal-1/decision`,
+        )
+        expect(await request.json()).toEqual({ decision: 'approve' })
     })
 
     it('reports a stale form (409) with the detail', async () => {

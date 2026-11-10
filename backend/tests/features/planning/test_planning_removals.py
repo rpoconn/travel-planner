@@ -1,7 +1,7 @@
 """An item's Remove button, over HTTP (`POST /plans/{id}/planning/removals`): the item goes
-with the rides to and from it, through the same rules as a typed "remove …", with no model
-call; the changes card says what the trip now needs and how to fix it, and the engine asks
-for it, going back to the stage that does.
+at once, with the rides to and from it, through the same rules as a typed "remove …"; the
+changes card says what the trip now needs, and then the planner decides what is next. The
+model is a strict `FakeLLM` scripted with tool calls.
 
 The plan is the Lisbon trip without flights (`planning_http.reach`): its items, in time
 order, are "Friend's flat" (May 1-8) and "Dinner in" (May 2).
@@ -15,7 +15,8 @@ from pydantic import JsonValue
 
 from features.planning.schemas import ChangesRecord, TravelPlan
 from features.plans.schemas import PlanStage
-from shared.llm.fake import FakeLLM
+from shared.llm.fake import FakeLLM, text
+from tests.features.planning.agent_helpers import brief_of
 from tests.features.planning.planning_http import (
     BASICS,
     FLAT,
@@ -30,6 +31,7 @@ from tests.features.planning.planning_http import (
     reach,
     stored,
 )
+from tests.features.planning.scripts import ask
 
 LISBON_AIRPORT: dict[str, JsonValue] = {"name": "Lisbon Airport", "iata": "LIS"}
 PHILADELPHIA_AIRPORT: dict[str, JsonValue] = {"name": "Philadelphia Airport", "iata": "PHL"}
@@ -91,11 +93,12 @@ async def _add_flight(
 # ---------------------------------------------------------------------------
 
 
-async def test_removing_the_only_stay_says_what_it_needs_and_goes_back_to_lodging(
+async def test_removing_the_only_stay_says_what_it_needs_then_the_planner_asks(
     app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
     plan_id = await _plan_at(app, client, headers, PlanStage.GROUND)
     flat = await _item_id(client, headers, plan_id, "Friend's flat")
+    fake_llm.queue(ask("What kind of place do you want to stay in?", "lodging_preferences"))
 
     events = await post(client, headers, plan_id, "removals", {"item_id": flat})
 
@@ -106,21 +109,23 @@ async def test_removing_the_only_stay_says_what_it_needs_and_goes_back_to_lodgin
             "Removed “Friend's flat”. The trip needs a place to stay May 1 to May 8 now. "
             "Pick another place to stay, or tell me what you'd like instead.",
         ),
-        ("stage", "Back to lodging: the trip still needs a place to stay the night of May 1."),
         ("expected_input", "What kind of place do you want to stay in?"),
     ]
-    assert done(events).plan.stage == PlanStage.LODGING
     assert asking(events) == "lodging_preferences"
     assert await _titles(client, headers, plan_id) == ["Dinner in"]
     changes = (await messages(client, headers, plan_id))[1]
     assert isinstance(changes.payload, ChangesRecord)
     assert [change.name for change in changes.payload.applied] == ["remove_item"]
-    # The button is the command itself: nothing for the model to read.
-    assert fake_llm.requests == []
+    # The button is the command itself: the planner is only asked once it is written.
+    [request] = fake_llm.requests
+    brief = brief_of(request)
+    assert brief.said is None
+    assert [item.title for item in brief.plan.items] == ["Dinner in"]
+    assert brief.plan.problems[0].id == "uncovered_night:2027-05-01"
 
 
-async def test_removing_a_flight_asks_for_another_or_to_skip_flights(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str]
+async def test_removing_a_flight_says_the_trip_needs_another(
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
     plan_id = await _plan_at(app, client, headers, PlanStage.GROUND)
     await _add_flight(
@@ -145,11 +150,12 @@ async def test_removing_a_flight_asks_for_another_or_to_skip_flights(
     )
     await move_to(app, plan_id, PlanStage.GROUND, flights_skipped=False)
     flight_home = await _item_id(client, headers, plan_id, "LIS → PHL")
+    fake_llm.queue(text("Shall I look for another flight home?"))
 
     events = await post(client, headers, plan_id, "removals", {"item_id": flight_home})
 
     # The rides around the flight aren't named: a new flight moves them anyway.
-    assert stored(events)[:3] == [
+    assert stored(events) == [
         ("message", "Remove “LIS → PHL”."),
         (
             "changes",
@@ -157,15 +163,13 @@ async def test_removing_a_flight_asks_for_another_or_to_skip_flights(
             "tell me what you'd like instead, or skip flights if you'll get there another "
             "way.",
         ),
-        ("stage", "Back to flights: the trip still needs a flight home."),
+        ("message", "Shall I look for another flight home?"),
     ]
-    # The flight preferences come first, as for any flight search.
-    assert done(events).plan.stage == PlanStage.FLIGHTS
-    assert asking(events) == "flight_preferences"
+    assert "missing_return" in [problem.id for problem in done(events).plan.problems]
 
 
 async def test_removing_an_item_takes_its_rides_and_names_the_one_now_missing(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str]
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
     # Flat → taxi → tram tour → taxi → flat, then lunch on from the flat: the tour goes with
     # both taxis, which is back to how it was before it; nothing new is missing.
@@ -210,6 +214,7 @@ async def test_removing_an_item_takes_its_rides_and_names_the_one_now_missing(
         to_place=FLAT,
     )
     tour = await _item_id(client, headers, plan_id, "Tram tour")
+    fake_llm.queue(text("The tour is off."))
 
     events = await post(client, headers, plan_id, "removals", {"item_id": tour})
 
@@ -221,7 +226,7 @@ async def test_removing_an_item_takes_its_rides_and_names_the_one_now_missing(
 
 
 async def test_an_item_not_on_the_plan_is_not_found(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str]
+    app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
     plan_id = await _plan_at(app, client, headers, PlanStage.GROUND)
 
@@ -231,5 +236,6 @@ async def test_an_item_not_on_the_plan_is_not_found(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "That item is no longer in this plan"
-    # Nothing was stored.
+    # Nothing was stored, and the planner wasn't asked.
     assert await messages(client, headers, plan_id) == []
+    assert fake_llm.requests == []

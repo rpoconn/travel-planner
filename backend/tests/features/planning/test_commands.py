@@ -313,30 +313,26 @@ async def test_a_ride_missing_before_the_edit_is_not_named_again(ctx: ToolContex
     assert record.left_open == []
 
 
-async def test_a_ride_left_missing_before_ground_transport_waits_for_it(
+async def test_what_an_edit_takes_away_is_named_whatever_stage_the_plan_is_at(
     ctx: ToolContext,
 ) -> None:
-    await _add_tram_tour(ctx)
-    await plans_service.set_stage(
-        ctx.session, ctx.user_id, ctx.plan_id, PlanStage.ACTIVITIES, False
-    )
-
-    record = await _run(ctx, _remove(3))
-
-    assert record.left_open == [
-        "Nothing gets you from Friend's flat to Tram 28 stop now. I'll look for a ride at "
-        "ground transport"
-    ]
-
-
-async def test_what_a_stage_not_reached_yet_asks_for_anyway_is_not_named(
-    ctx: ToolContext,
-) -> None:
-    # At lodging, the activities stage is still to come and will ask for activities itself.
-    await plans_service.set_stage(ctx.session, ctx.user_id, ctx.plan_id, PlanStage.LODGING, True)
+    await plans_service.set_stage(ctx.session, ctx.user_id, ctx.plan_id, PlanStage.BASICS, True)
 
     record = await _run(ctx, _remove(DINNER_REF))
 
+    assert record.left_open == [
+        "The trip needs at least one activity now. Pick something else to do, or tell me "
+        "what you're into"
+    ]
+
+
+async def test_more_of_what_the_trip_already_lacked_is_not_named(ctx: ToolContext) -> None:
+    # With the flat gone every night is uncovered; new dates only move which ones.
+    await _run(ctx, _remove(FLAT_REF))
+
+    record = await _run(ctx, {"type": "set_dates", "start": "2027-05-03", "end": "2027-05-12"})
+
+    assert [change.name for change in record.applied] == ["set_dates"]
     assert record.left_open == []
 
 

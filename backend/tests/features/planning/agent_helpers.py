@@ -4,6 +4,7 @@ plan up the way a turn would find it."""
 from pydantic import JsonValue
 
 from features.planning.agent import loop
+from features.planning.agent.context import TurnBrief
 from features.planning.agent.tools import (
     ToolOutcome,
     TurnContext,
@@ -23,6 +24,7 @@ from features.plans.schemas import (
     PlanPreferences,
     PlanUpdate,
 )
+from shared.llm.fake import FakeRequest
 from shared.llm.types import LLMToolCall
 
 PREFERENCES = PlanPreferences(
@@ -61,6 +63,17 @@ async def say(ctx: TurnContext, content: str) -> list[PlanningEvent]:
     """A turn the user typed: the text is stored first, as the turn does."""
     await store(ctx, "user", content)
     return [event async for event in loop.run(ctx, said=content)]
+
+
+def brief_of(request: FakeRequest) -> TurnBrief:
+    """What a request of the loop told the model: its first user message."""
+    system, user = request.messages[:2]
+    assert (system.role, user.role) == ("system", "user")
+    return TurnBrief.model_validate_json(user.content)
+
+
+def tools_of(request: FakeRequest) -> list[str]:
+    return [tool.name for tool in request.tools]
 
 
 def stored(events: list[PlanningEvent]) -> list[tuple[str, str]]:

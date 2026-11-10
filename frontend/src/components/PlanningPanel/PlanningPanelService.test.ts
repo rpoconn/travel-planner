@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
-import { ASK_DATES, ASK_DESTINATION, OFFER_FLIGHTS_OUT, planningMessage } from '@/test/fixtures'
+import {
+    ASK_DATES,
+    ASK_DESTINATION,
+    OFFER_FLIGHTS_OUT,
+    planAsking,
+    planningMessage,
+    SUGGESTION,
+    travelPlan,
+} from '@/test/fixtures'
 
-import { composerPlaceholder, mergeTranscript, visibleMessages } from './PlanningPanelService'
+import {
+    canContinue,
+    composerPlaceholder,
+    mergeTranscript,
+    visibleMessages,
+} from './PlanningPanelService'
 
 // ----- setup -----
 
@@ -32,7 +45,7 @@ describe('visibleMessages', () => {
 
         expect(visibleMessages([ANSWER, ASKED_DATES], ASK_DESTINATION)).toHaveLength(2)
         expect(visibleMessages([ASKED_DATES, reply], ASK_DATES)).toHaveLength(2)
-        expect(visibleMessages([ASKED_DATES], { type: 'complete' })).toHaveLength(1)
+        expect(visibleMessages([ASKED_DATES], null)).toHaveLength(1)
     })
 })
 
@@ -55,6 +68,30 @@ describe('visibleMessages with choices', () => {
     })
 })
 
+describe('visibleMessages with a suggestion', () => {
+    const reason = planningMessage({ id: 'm5', content: SUGGESTION.prompt })
+
+    it("leaves out the suggestion's reason when its card shows it", () => {
+        expect(visibleMessages([ANSWER, reason], SUGGESTION)).toEqual([ANSWER])
+    })
+
+    it('keeps any other last message', () => {
+        const other = planningMessage({ id: 'm6', content: 'May is lovely.' })
+        const typed = planningMessage({ id: 'm7', role: 'user', content: SUGGESTION.prompt })
+
+        expect(visibleMessages([ANSWER, other], SUGGESTION)).toHaveLength(2)
+        expect(visibleMessages([ANSWER, typed], SUGGESTION)).toHaveLength(2)
+    })
+})
+
+describe('canContinue', () => {
+    it('offers to carry on only when nothing is asked and the trip needs something', () => {
+        expect(canContinue(travelPlan())).toBe(true)
+        expect(canContinue(planAsking(ASK_DATES))).toBe(false)
+        expect(canContinue(travelPlan({ complete: true }))).toBe(false)
+    })
+})
+
 describe('composerPlaceholder', () => {
     it('repeats the pending question', () => {
         expect(composerPlaceholder(ASK_DATES)).toBe(
@@ -63,8 +100,9 @@ describe('composerPlaceholder', () => {
         expect(composerPlaceholder(OFFER_FLIGHTS_OUT)).toBe(
             'Pick one above, say which ("the second one"), or ask for a change.',
         )
-        expect(composerPlaceholder({ type: 'complete' })).toBe(
-            'Ask about your trip, or ask for a change…',
+        expect(composerPlaceholder(SUGGESTION)).toBe(
+            "Approve or reject above, or say what you'd rather do.",
         )
+        expect(composerPlaceholder(null)).toBe('Ask about your trip, or ask for a change…')
     })
 })

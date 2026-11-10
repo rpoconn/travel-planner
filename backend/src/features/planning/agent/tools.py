@@ -197,7 +197,26 @@ async def store(
     return PlanningMessageEvent(message=PlanningMessage.model_validate(row))
 
 
-def _tool_context(ctx: TurnContext) -> ToolContext:
+def search_context(ctx: TurnContext, exclude: frozenset[str] = frozenset()) -> SearchContext:
+    return SearchContext(
+        session=ctx.session,
+        today=ctx.today,
+        flights=ctx.flights,
+        hotels=ctx.hotels,
+        places=ctx.places,
+        exclude=exclude,
+    )
+
+
+def search_label(slot: SlotName) -> str:
+    """What the UI shows while the search for pick slot `slot` runs."""
+    return next(
+        (_SEARCH_LABELS[kind] for kind, searched in SEARCH_SLOTS.items() if searched == slot),
+        "Searching",
+    )
+
+
+def tool_context(ctx: TurnContext) -> ToolContext:
     return ToolContext(
         session=ctx.session, user_id=ctx.user_id, plan_id=ctx.plan_id, today=ctx.today
     )
@@ -353,14 +372,7 @@ async def _search(state: TurnState, args: SearchArgs) -> ToolOutcome:
         raise _RefusedError("Too many searches this turn")
     key = query_hash(plan, action)
     exclude = await _shown(state, plan, key) if args.more else frozenset[str]()
-    search_ctx = SearchContext(
-        session=ctx.session,
-        today=ctx.today,
-        flights=ctx.flights,
-        hotels=ctx.hotels,
-        places=ctx.places,
-        exclude=exclude,
-    )
+    search_ctx = search_context(ctx, exclude)
     if paid:
         state.paid_searches += 1  # counted even when it fails: the provider was asked
     try:
@@ -426,7 +438,7 @@ async def _present_choices(state: TurnState, args: PresentChoicesArgs) -> ToolOu
 async def _suggest_changes(state: TurnState, args: SuggestChangesArgs) -> ToolOutcome:
     ctx = state.ctx
     plan = await snapshot(ctx)
-    checked = await dry_run(_tool_context(ctx), plan, args.changes, state.candidates(plan.version))
+    checked = await dry_run(tool_context(ctx), plan, args.changes, state.candidates(plan.version))
     if checked.rejected:
         broken = "; ".join(f"{r.summary}: {r.reason}" for r in checked.rejected)
         raise _RefusedError(
@@ -469,7 +481,7 @@ async def _apply_user_changes(state: TurnState, args: ApplyUserChangesArgs) -> T
         )
     plan = await snapshot(ctx)
     record = await check_and_apply(
-        _tool_context(ctx), plan, args.changes, state.candidates(plan.version)
+        tool_context(ctx), plan, args.changes, state.candidates(plan.version)
     )
     return await _changes(state, record)
 
@@ -504,7 +516,7 @@ async def _decide_proposal(state: TurnState, args: DecideProposalArgs) -> ToolOu
         if args.decision == "reject":
             await proposals.reject_proposal(ctx.session, ctx.plan_id, proposal_id)
             return await _written(state, "The suggestion was rejected.", changed=False)
-        _, record = await proposals.approve_proposal(_tool_context(ctx), plan, proposal_id)
+        _, record = await proposals.approve_proposal(tool_context(ctx), plan, proposal_id)
     except proposals.ProposalClosedError as exc:
         raise _RefusedError(str(exc)) from exc
     return await _changes(state, record)

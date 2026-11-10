@@ -10,13 +10,13 @@ import {
     ASK_DATES,
     ASK_DESTINATION,
     OFFER_FLIGHTS_OUT,
-    issue,
     PLAN_ID,
     planAsking,
-    planAssessment,
     planChoosing,
     planningMessage,
+    planReviewing,
     sdkOk,
+    SUGGESTION,
     travelPlan,
 } from '@/test/fixtures'
 import { renderWithQuery } from '@/test/render'
@@ -200,31 +200,43 @@ describe('PlanningPanel', () => {
 
         expect(await sentRequest(fetchSpy)).toEqual({
             url: `http://api.test/plans/${PLAN_ID}/planning/continue`,
-            body: { refresh: true },
+            body: { refresh: true, problem_id: null },
         })
     })
 
-    it('lists what is left to fix at review', async () => {
-        mockTranscript([])
-        const missing = issue({ stage: 'lodging', message: 'a place to stay the night of May 3' })
-        renderPanel(
-            travelPlan({
-                stage: 'review',
-                assessment: planAssessment({ stage: 'review', issues: [missing] }),
-            }),
-        )
+    it('shows a suggestion once, and sends the decision', async () => {
+        mockTranscript([planningMessage({ id: 'm8', content: SUGGESTION.prompt })])
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(sseResponse([{ type: 'done', plan: travelPlan() }]))
+        const { user } = renderPanel(planReviewing())
 
-        const left = await screen.findByRole('region', { name: 'Before you go' })
-        expect(left).toHaveTextContent('Missing a place to stay the night of May 3')
-        expect(within(left).getByRole('button', { name: /^Go to Lodging/ })).toBeEnabled()
+        const card = await screen.findByRole('region', { name: 'Suggested changes' })
+        // The card gives the reason, so the stored copy of it isn't repeated above it.
+        expect(screen.getAllByText('A quieter second day.')).toHaveLength(1)
+        expect(card).toHaveTextContent('Remove “Dinner at Ramiro”')
+        expect(screen.getByRole('textbox', { name: 'Message' })).toHaveAttribute(
+            'placeholder',
+            "Approve or reject above, or say what you'd rather do.",
+        )
+        await user.click(within(card).getByRole('button', { name: 'Approve' }))
+
+        expect(await sentRequest(fetchSpy)).toEqual({
+            url: `http://api.test/plans/${PLAN_ID}/planning/proposals/${SUGGESTION.proposal_id}/decision`,
+            body: { decision: 'approve' },
+        })
     })
 
-    it('shows no fix list before review', async () => {
+    it('rejects a suggestion', async () => {
         mockTranscript([])
-        renderPanel(planAsking(ASK_DATES))
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(sseResponse([{ type: 'done', plan: travelPlan() }]))
+        const { user } = renderPanel(planReviewing())
 
-        await screen.findByRole('form', { name: 'When are you going?' })
-        expect(screen.queryByRole('region', { name: 'Before you go' })).not.toBeInTheDocument()
+        await user.click(await screen.findByRole('button', { name: 'Reject' }))
+
+        expect((await sentRequest(fetchSpy)).body).toEqual({ decision: 'reject' })
     })
 
     it('sends free text, showing it while the planner works', async () => {
@@ -238,12 +250,16 @@ describe('PlanningPanel', () => {
 
         expect(await within(log()).findByText('Lisbon please')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+        // What the planner says before it uses a tool is dropped once it does.
+        stream.push({ type: 'token', text: 'Let me check.' })
+        expect(await within(log()).findByText('Let me check.')).toBeInTheDocument()
         expect(await sentRequest(fetchSpy)).toEqual({
             url: `http://api.test/plans/${PLAN_ID}/planning/chat`,
             body: { content: 'Lisbon please' },
         })
         stream.push({ type: 'status', text: 'Thinking…' })
         expect(await within(log()).findByText('Thinking…')).toBeInTheDocument()
+        expect(within(log()).queryByText('Let me check.')).not.toBeInTheDocument()
         stream.push({ type: 'done', plan: planAsking(ASK_DESTINATION) })
         stream.close()
         await waitFor(() => {
@@ -289,20 +305,55 @@ describe('PlanningPanel', () => {
         })
     })
 
-    it('drives the planner on with the stage bar', async () => {
+    it('asks the planner to work on a problem', async () => {
         mockTranscript([])
         const fetchSpy = vi
             .spyOn(globalThis, 'fetch')
             .mockResolvedValue(sseResponse([{ type: 'done', plan: travelPlan() }]))
-        const plan = travelPlan({
-            assessment: planAssessment({ next_action: { type: 'advance_stage', to: 'flights' } }),
+        const ref = createRef<PlanningPanelHandle>()
+        renderWithQuery(<PlanningPanel plan={travelPlan()} ref={ref} />)
+        await screen.findByRole('textbox', { name: 'Message' })
+
+        ref.current?.fixProblem('missing_return')
+
+        await waitFor(() => {
+            expect(fetchSpy).toHaveBeenCalled()
         })
-        const { user } = renderPanel(plan)
+        expect(await sentRequest(fetchSpy)).toEqual({
+            url: `http://api.test/plans/${PLAN_ID}/planning/continue`,
+            body: { refresh: false, problem_id: 'missing_return' },
+        })
+    })
 
-        await user.click(await screen.findByRole('button', { name: 'Continue to Flights' }))
+    it('offers to carry on when nothing is being asked', async () => {
+        mockTranscript([])
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(sseResponse([{ type: 'done', plan: travelPlan() }]))
+        const { user } = renderPanel(travelPlan())
 
-        const request = fetchSpy.mock.calls[0]?.[0] as Request
-        expect(request.url).toBe(`http://api.test/plans/${PLAN_ID}/planning/continue`)
+        await user.click(await screen.findByRole('button', { name: 'Continue planning' }))
+
+        expect(await sentRequest(fetchSpy)).toEqual({
+            url: `http://api.test/plans/${PLAN_ID}/planning/continue`,
+            body: { refresh: false, problem_id: null },
+        })
+    })
+
+    it('has nothing to carry on with once the trip is complete', async () => {
+        mockTranscript([planningMessage({ id: 'm9', content: 'All set.' })])
+        renderPanel(travelPlan({ complete: true }))
+
+        expect(await within(log()).findByText('All set.')).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Continue planning' })).not.toBeInTheDocument()
+    })
+
+    it('has nothing to carry on with while a question is open', async () => {
+        mockTranscript([])
+        renderPanel(planAsking(ASK_DATES))
+
+        await screen.findByRole('form', { name: 'When are you going?' })
+        expect(screen.queryByRole('button', { name: 'Continue planning' })).not.toBeInTheDocument()
     })
 
     it('says so when the form is stale', async () => {
