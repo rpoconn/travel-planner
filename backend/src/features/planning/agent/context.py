@@ -21,11 +21,12 @@ from features.planning.schemas import (
     OfferChoice,
     Pending,
     Problem,
+    ProblemSeverity,
     ReviewProposal,
     TravelPlan,
 )
 from features.planning.slots import SLOTS
-from features.plans.schemas import IssueSeverity, SlotName
+from features.plans.schemas import SlotName
 from shared.domain import Money, Place, Travelers
 
 # The stored search preferences the model is shown, by the name the
@@ -45,7 +46,7 @@ class ProblemView(BaseModel):
     """A problem as the model reads it; `id` is what `search` and "Fix this" name it by."""
 
     id: str
-    severity: IssueSeverity
+    severity: ProblemSeverity
     message: str
     how: Literal["ask", "search", "edit"]  # how it is usually fixed (`ProblemFix`)
     slot: SlotName | None = None  # ask: the form's slot; search: the pick slot searched for
@@ -244,7 +245,7 @@ def planner_context(
             travelers=plan.travelers,
             origin=_place(plan.origin),
             budget=plan.budget,
-            no_flights=plan.flights_skipped,
+            no_flights=plan.no_flights,
             preferences=_preferences(plan),
             declined=plan.preferences.declined,
         ),
@@ -260,7 +261,7 @@ def planner_context(
 
 def conversation(messages: Sequence[tuple[str, str]]) -> list[Line]:
     """Transcript messages (role, content) as the lines the model reads. System notices
-    (a failed turn, a stage divider) aren't part of the conversation."""
+    (a failed turn) aren't part of the conversation."""
     return [
         Line(who="user" if role == "user" else "planner", text=content)
         for role, content in messages

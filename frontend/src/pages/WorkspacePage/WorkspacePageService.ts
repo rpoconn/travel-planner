@@ -1,7 +1,7 @@
 // Pure logic for WorkspacePage: when the trips panel (the left sidebar) is open.
 //
 // The panel stays open while the user browses trips. Once they start working in a trip (a click
-// or key press in its stage bar, itinerary or chat) it hides to give the trip the room. The
+// or key press in its problem list, itinerary or chat) it hides to give the trip the room. The
 // header's toggle always wins: a panel reopened by hand stays open until the user hides it or
 // picks another trip.
 

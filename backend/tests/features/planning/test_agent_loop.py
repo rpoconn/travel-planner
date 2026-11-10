@@ -210,7 +210,7 @@ async def test_a_change_without_the_users_words_is_handed_back(
     failure = ToolFailure.model_validate_json(fake_llm.requests[1].messages[-1].content)
     assert "use suggest_changes" in failure.error
     assert stored(events) == [(MessageKind.MESSAGE, "I can suggest that instead.")]
-    assert not (await plan_of(turn)).flights_skipped
+    assert not (await plan_of(turn)).no_flights
 
 
 async def test_the_last_round_only_offers_what_ends_the_turn(

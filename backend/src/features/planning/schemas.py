@@ -1,8 +1,9 @@
-"""Planning engine schemas: the form fields a slot asks with, the candidates an offer
-lists, the engine's next action, and the `TravelPlan` the API returns.
+"""Planning schemas: the form fields a slot asks with, the candidates an offer lists, the
+plan's problems, the commands that change it, and the `TravelPlan` the API returns.
 
-`TravelPlan` lives here, not in `plans`, because it carries the engine's assessment and
-the dependency only runs one way: `planning` imports `plans`, never the reverse.
+`TravelPlan` lives here, not in `plans`, because it carries the plan's problems and what it
+is waiting on, and the dependency only runs one way: `planning` imports `plans`, never the
+reverse.
 """
 
 import datetime as dt
@@ -23,10 +24,7 @@ from features.itinerary.schemas import (
 from features.plans.schemas import (
     DepartWindow,
     HotelClass,
-    Issue,
-    IssueSeverity,
     PlanSnapshot,
-    PlanStage,
     ShortAnswer,
     SlotName,
 )
@@ -77,7 +75,7 @@ class NightRange(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Slot values: what a basics slot's form (or the extractor) produces. The preference
+# Slot values: what a basics slot's form (or a command) produces. The preference
 # slots use `plans.schemas.*Preferences*` directly; pick slots take candidate ids.
 # ---------------------------------------------------------------------------
 
@@ -154,7 +152,6 @@ class Offer(BaseModel):
     id: UUID
     plan_id: UUID
     slot: SlotName
-    stage: PlanStage
     plan_version: int  # the plan's version when offered; any later change makes it stale
     candidates: list[Candidate]
     status: OfferStatus
@@ -166,7 +163,7 @@ class Offer(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Next action: what the engine wants from the user (or itself) next
+# What the user is shown to answer, and the search behind a list of choices
 # ---------------------------------------------------------------------------
 
 
@@ -177,7 +174,6 @@ class AskInput(BaseModel):
 
     type: Literal["ask_input"] = "ask_input"
     slot: SlotName
-    stage: PlanStage
     prompt: str
     fields: list[FieldSpec]
     optional: bool = False
@@ -192,7 +188,6 @@ class OfferChoice(BaseModel):
     type: Literal["offer_choice"] = "offer_choice"
     offer_id: UUID
     slot: SlotName
-    stage: PlanStage
     prompt: str
     candidates: list[Candidate]
     min_picks: int = 1
@@ -205,60 +200,21 @@ class OfferChoice(BaseModel):
 
 
 class RunSearch(BaseModel):
-    """Search for the slot's candidates (the "Find flights" / "Retry" button)."""
+    """A search for a pick slot's candidates, as the search runners take it
+    (`planning.searches.run_search`)."""
 
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
-
-    type: Literal["run_search"] = "run_search"
     slot: SlotName
-    stage: PlanStage
-    label: str
+    label: str  # shown while it runs, e.g. "Finding flights out"
     nights: NightRange | None = None
     gap: Gap | None = None
-
-
-class AdvanceStage(BaseModel):
-    """The current stage is done. The turn pipeline acts on this at once, so a client only
-    sees it on a stage the user went back to: it then offers to continue."""
-
-    type: Literal["advance_stage"] = "advance_stage"
-    to: PlanStage
-
-
-class ReturnToStage(BaseModel):
-    """A stage before the current one has a blocking issue again (an item was removed or
-    changed since it was finished), so the plan goes back to fix it. The turn pipeline acts
-    on this at once; a client only sees it after an edit outside a turn, and then offers to
-    go back."""
-
-    type: Literal["return_to_stage"] = "return_to_stage"
-    to: PlanStage
-    reason: str  # the first issue, for people: "a place to stay the night of May 2"
-
-
-class Complete(BaseModel):
-    """At review: nothing left to ask. Remaining issues are in the assessment."""
-
-    type: Literal["complete"] = "complete"
-
-
-NextAction = Annotated[
-    AskInput | OfferChoice | RunSearch | AdvanceStage | ReturnToStage | Complete,
-    Field(discriminator="type"),
-]
-
-
-class PlanAssessment(BaseModel):
-    stage: PlanStage
-    # Blocking issues of the stages reached so far, then timeline warnings.
-    issues: list[Issue]
-    next_action: NextAction
-    can_advance: bool  # the current stage's checklist is complete
 
 
 # ---------------------------------------------------------------------------
 # Problems: what the validation engine reports (`planning.validation.validate`)
 # ---------------------------------------------------------------------------
+
+
+ProblemSeverity = Literal["blocking", "warning"]
 
 
 class ProblemFix(BaseModel):
@@ -281,7 +237,7 @@ class Problem(BaseModel):
     # "uncovered_night:2027-05-02", "missing_transfer:<item before>:<item after>".
     id: str
     code: IssueCode
-    severity: IssueSeverity
+    severity: ProblemSeverity
     message: str  # for people, e.g. "a place to stay May 2 to May 5"
     # `dt.date`: a field named `date` would shadow the type in later annotations.
     date: dt.date | None = None
@@ -348,8 +304,6 @@ CommandName = Literal[
     "set_flight_preferences",
     "set_lodging_preferences",
     "set_activity_preferences",
-    "change_stage",
-    "redo_search",
     "set_travel_mode",
     "add_candidate",
 ]
@@ -479,15 +433,6 @@ class SetBudget(BasicsCommand):
     currency: CommandCurrency
 
 
-class ChangeStage(_Command):
-    """Move the plan back, or skip flights. Moving on is the engine's job, never a
-    command's."""
-
-    type: Literal["change_stage"] = "change_stage"
-    action: Literal["back", "go_to", "skip_flights"]
-    stage: PlanStage | None = Field(default=None, description="go_to only: the earlier stage")
-
-
 # How a command says how many stops a flight may make. A preference's `max_stops` uses
 # None for "any number", but a command can't send null (`inline_schema` drops it), so the
 # choices are words, mapped back in `planning.commands`.
@@ -499,9 +444,9 @@ PreferenceSection = Literal["flights", "lodging", "activities"]
 
 
 class PreferencesCommand(_Command):
-    """Changes what one stage searches for: the fields given go over the stored
+    """Changes what one kind of search looks for: the fields given go over the stored
     preferences and the rest keep their value. The plan's version moves on, so choices on
-    show for that stage are searched for again."""
+    show are searched for again."""
 
     section: ClassVar[PreferenceSection]
 
@@ -538,18 +483,6 @@ class SetActivityPreferences(PreferencesCommand):
     dietary: ShortAnswer | None = None
 
 
-# The searches whose choices `RedoSearch` can ask others for, by the stage that runs them.
-# Transfers aren't here: their rules list every way across at once.
-SearchName = Literal["flights", "lodging", "activities"]
-
-
-class RedoSearch(_Command):
-    """Look for other options than the choices on show, as "More options" does."""
-
-    type: Literal["redo_search"] = "redo_search"
-    search: SearchName = Field(description="Which choices to find others for")
-
-
 class SetTravelMode(_Command):
     """Say whether the trip has flights. Without them (driving, a train) the plan asks for
     no flight out or home."""
@@ -572,52 +505,13 @@ class AddCandidate(_Command):
 BasicsChange = SetDates | SetTravelers | SetDestination | SetOrigin | SetBudget
 PreferencesChange = SetFlightPreferences | SetLodgingPreferences | SetActivityPreferences
 
-# What the command reader of the stage flow can say.
-Command = Annotated[
-    RemoveItem | UpdateItem | BasicsChange | PreferencesChange | ChangeStage | RedoSearch,
-    Field(discriminator="type"),
-]
-
-# What the agent loop can say: no stages to move between and no search to redo (it runs
-# searches itself), but it can add what a search found and say the trip has no flights.
-# This replaces `Command` once the stage flow is deleted.
+# Every command there is. The model never moves the plan along or redoes a search by
+# command (it runs searches itself); it can add what a search found and say the trip has
+# no flights.
 AgentCommand = Annotated[
     RemoveItem | UpdateItem | BasicsChange | PreferencesChange | SetTravelMode | AddCandidate,
     Field(discriminator="type"),
 ]
-
-# Every command `planning.commands` checks and writes, from either flow.
-AnyCommand = (
-    RemoveItem
-    | UpdateItem
-    | BasicsChange
-    | PreferencesChange
-    | ChangeStage
-    | RedoSearch
-    | SetTravelMode
-    | AddCandidate
-)
-
-CommandStatus = Literal["command", "ambiguous", "question", "unrelated"]
-
-
-class CommandReply(BaseModel):
-    """The command reader's reply (`extractor.read_commands`). Every command is checked
-    against the plan afterwards; this only fixes the shape."""
-
-    status: CommandStatus = Field(
-        description=(
-            "command: the message asks to change the trip; ambiguous: it does, but which "
-            "item or what change isn't clear; question: it asks something instead; "
-            "unrelated: anything else"
-        )
-    )
-    commands: list[Command] = Field(
-        default_factory=list, description="command only: the changes, in the order to make them"
-    )
-    clarification: str | None = Field(
-        default=None, description="ambiguous only: one short question asking which"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -647,14 +541,6 @@ class PickRecord(BaseModel):
     slot: SlotName
     candidate_ids: list[str]
     titles: list[str]  # the picked candidates' titles, in the order picked
-
-
-class StageRecord(BaseModel):
-    """The plan moved to another stage (message kind "stage")."""
-
-    type: Literal["stage"] = "stage"
-    from_stage: PlanStage
-    to_stage: PlanStage
 
 
 class AppliedChange(BaseModel):
@@ -690,15 +576,13 @@ class ChangesRecord(BaseModel):
     # dinner): "Nothing gets you from Hotel Okura to Sushi Dai now. …"
     left_open: list[str] = Field(default_factory=list)
     # Set instead when the words could mean more than one change: the question asked back.
-    # The user's reply is read together with it (`turn._free_text`).
     clarification: str | None = None
 
 
 # kind "expected_input" → AskInput, "choices" → OfferChoice, "input" → AnswerRecord,
-# "pick" → PickRecord, "stage" → StageRecord, "changes" → ChangesRecord. Other kinds
-# carry no payload.
+# "pick" → PickRecord, "changes" → ChangesRecord. Other kinds carry no payload.
 MessagePayload = Annotated[
-    AskInput | OfferChoice | AnswerRecord | PickRecord | StageRecord | ChangesRecord,
+    AskInput | OfferChoice | AnswerRecord | PickRecord | ChangesRecord,
     Field(discriminator="type"),
 ]
 
@@ -769,13 +653,11 @@ Pending = Annotated[AskInput | OfferChoice | ReviewProposal, Field(discriminator
 
 
 class TravelPlan(PlanSnapshot):
-    """The full plan as the API returns it: details, items, stage checklists, gaps, the
-    validation engine's problems, what it is waiting on the user for, and the planning
-    engine's assessment (built by `planning.service.snapshot`)."""
+    """The full plan as the API returns it: details, items, gaps, the validation engine's
+    problems and what it is waiting on the user for (built by `planning.service.snapshot`)."""
 
-    assessment: PlanAssessment
-    # Everything wrong with the plan, whatever stage it is at: blocking problems, then
-    # warnings (`planning.validation.validate`).
+    # Everything wrong with the plan: blocking problems, then warnings
+    # (`planning.validation.validate`).
     problems: list[Problem]
     complete: bool  # no blocking problem is left
     pending: Pending | None

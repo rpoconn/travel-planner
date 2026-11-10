@@ -44,7 +44,7 @@ export function pickHint(action: OfferChoice): string | null {
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
- * Which nights a lodging offer is for: "2 nights, May 1 – May 3." The stage asks once per
+ * Which nights a lodging offer is for: "2 nights, May 1 – May 3." The planner asks once per
  * run of nights without a place to stay, so consecutive lists need telling apart. Null for
  * any other offer.
  */
@@ -58,8 +58,8 @@ export function nightsHint(action: OfferChoice): string | null {
 }
 
 /**
- * Which gap a transfer offer is for: "From Home to San Francisco International." The ground
- * stage asks once per gap with the same question, so consecutive lists need telling apart.
+ * Which gap a transfer offer is for: "From Home to San Francisco International." The planner
+ * asks once per gap with the same question, so consecutive lists need telling apart.
  * Home is a gap end with no item next to it. Null for any other offer.
  */
 export function gapHint(action: OfferChoice): string | null {

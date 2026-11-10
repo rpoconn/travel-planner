@@ -150,7 +150,7 @@ async def test_a_tool_that_is_not_offered_is_refused(turn: TurnContext) -> None:
     error = _error(await call(state, "apply_user_changes", quote="x", changes=[NO_FLIGHTS]))
 
     assert "isn't available now" in error
-    assert not (await plan_of(turn)).flights_skipped
+    assert not (await plan_of(turn)).no_flights
 
 
 async def test_an_unknown_tool_and_bad_arguments_are_refused(turn: TurnContext) -> None:
@@ -403,7 +403,7 @@ async def test_changes_the_user_asked_for_are_written_at_once(turn: TurnContext)
     message, updated = outcome.events
     assert isinstance(message, PlanningMessageEvent) and isinstance(updated, PlanningPlanEvent)
     assert message.message.kind == MessageKind.CHANGES
-    assert updated.plan.flights_skipped is True
+    assert updated.plan.no_flights is True
 
 
 async def test_changes_need_the_users_own_words(turn: TurnContext) -> None:
@@ -414,7 +414,7 @@ async def test_changes_need_the_users_own_words(turn: TurnContext) -> None:
     )
 
     assert "use suggest_changes" in error
-    assert not (await plan_of(turn)).flights_skipped
+    assert not (await plan_of(turn)).no_flights
 
 
 async def test_a_change_the_rules_turn_down_is_not_stored(turn: TurnContext) -> None:

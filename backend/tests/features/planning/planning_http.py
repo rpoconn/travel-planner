@@ -19,7 +19,6 @@ from features.planning.events import (
 from features.planning.schemas import AskInput, OfferChoice
 from features.plans import service as plans_service
 from features.plans.models import Plan
-from features.plans.schemas import PlanStage
 
 EVENTS: TypeAdapter[PlanningEvent] = TypeAdapter(PlanningEvent)
 MESSAGES: TypeAdapter[list[PlanningMessage]] = TypeAdapter(list[PlanningMessage])
@@ -161,27 +160,27 @@ LISBON_TZ = "Europe/Lisbon"
 FLAT: dict[str, JsonValue] = {"name": "Friend's flat", "city": "Lisbon"}
 
 
-async def move_to(
-    app: FastAPI, plan_id: str, stage: PlanStage, *, flights_skipped: bool = False
-) -> None:
-    """Put the plan at `stage` directly, past the readiness checks."""
+async def set_no_flights(app: FastAPI, plan_id: str, no_flights: bool) -> None:
+    """Say whether the trip is made without flying, straight in the database."""
     maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
     async with maker() as db:
         row = await db.get(Plan, UUID(plan_id))
         assert row is not None
-        await plans_service.set_stage(db, row.user_id, row.id, stage, flights_skipped)
+        await plans_service.set_no_flights(db, row.user_id, row.id, no_flights)
 
 
 async def reach(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str], plan_id: str, stage: PlanStage
+    app: FastAPI,
+    client: AsyncClient,
+    headers: dict[str, str],
+    plan_id: str,
+    *,
+    settled: bool = True,
 ) -> None:
-    """Put a `BASICS` plan at `stage` the way a trip without flights gets there: flights
-    skipped past the flights stage, every night (May 1-8) at a friend's flat past lodging,
-    and a dinner there past activities. The engine goes back to any earlier stage whose
-    checklist isn't empty, so a plan can't just be set to a later stage."""
-    stages = list(PlanStage)
-    index = stages.index(stage)
-    if index > stages.index(PlanStage.LODGING):
+    """Make a plan with its basics a trip without flights. `settled` (the default) also
+    gives it every night (May 1-8) at a friend's flat and a dinner there, so nothing
+    is left to fix but the rides between home and the flat."""
+    if settled:
         await add_item(
             client,
             headers,
@@ -193,7 +192,6 @@ async def reach(
             timezone=LISBON_TZ,
             place=FLAT,
         )
-    if index > stages.index(PlanStage.ACTIVITIES):
         await add_item(
             client,
             headers,
@@ -206,5 +204,4 @@ async def reach(
             place=FLAT,
             category="food",
         )
-    skipped = index > stages.index(PlanStage.FLIGHTS)
-    await move_to(app, plan_id, stage, flights_skipped=skipped)
+    await set_no_flights(app, plan_id, True)

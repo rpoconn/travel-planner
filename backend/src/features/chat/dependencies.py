@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from features.planning.offline import planning_reply
+from features.planning.agent.offline import agent_reply
 from shared.config import Settings
 from shared.llm.anthropic_client import AnthropicClient
 from shared.llm.fake import FakeLLM
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def create_llm(settings: Settings) -> LLMClient:
     """Build the client for `settings.llm_provider`; `create_app` stores it on app.state."""
     if settings.llm_provider == "fake":
-        return FakeLLM(fallback=planning_reply)
+        return FakeLLM(fallback=agent_reply)
     if settings.llm_provider == "anthropic":
         api_key = settings.anthropic_api_key
         if api_key is None or not api_key.get_secret_value():

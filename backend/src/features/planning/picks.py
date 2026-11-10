@@ -4,7 +4,7 @@ fits is written straight away.
 Every candidate carries ready-made plan changes, run through the same validation as any
 other change (`chat.tools.check_change`: route, overnight stay, timezone, budget). They are
 all checked before any is written, so a pick that doesn't fit changes nothing. No model
-calls here; free text reaches this module only as candidate ids the extractor read.
+calls here; free text reaches this module only as candidate ids the model named.
 """
 
 import logging

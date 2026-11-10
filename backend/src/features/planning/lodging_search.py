@@ -1,6 +1,6 @@
-"""Hotel searches for the lodging stage: one per run of nights without a place to stay.
+"""Hotel searches for lodging: one per run of nights without a place to stay.
 
-The engine names the nights (`RunSearch.nights`); this module turns them and the lodging
+The planner names the nights (`RunSearch.nights`); this module turns them and the lodging
 preferences into a `HotelQuery`, ranks what comes back by rules, and gives each candidate
 the `add_lodging` change picking it makes. No model is involved.
 
@@ -70,7 +70,7 @@ _MAX_URL = 2000
 def _preferences(plan: PlanSnapshot) -> LodgingPreferences:
     prefs = plan.preferences.lodging
     if prefs is None:
-        # The engine asks for the preferences before it offers a search.
+        # The planner asks for the preferences before it searches.
         raise SearchFailedError("Tell me what kind of place you want to stay in first.")
     return prefs
 
@@ -231,8 +231,7 @@ def stay_zone(plan: PlanSnapshot, nights: NightRange) -> str:
         return destination
     name = plan.destination.name if plan.destination else "the destination"
     raise SearchFailedError(
-        f"I couldn't work out the local time in {name}. Go back to the basics and give the "
-        "nearest city with an airport."
+        f"I couldn't work out the local time in {name}. Give the nearest city with an airport."
     )
 
 

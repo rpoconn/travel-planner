@@ -544,95 +544,6 @@
         }
       }
     },
-    "/plans/{plan_id}/stage": {
-      "post": {
-        "tags": [
-          "plans"
-        ],
-        "summary": "Change Stage",
-        "description": "Move through the planning stages. `next` is refused (409) until the current stage's\nchecklist is complete; going back is always allowed.",
-        "operationId": "changeStage",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "plan_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Plan Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StageChange"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TravelPlan"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/plans/{plan_id}/items": {
       "get": {
         "tags": [
@@ -2507,25 +2418,6 @@
         ],
         "title": "ActivityPreferences"
       },
-      "AdvanceStage": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "advance_stage",
-            "title": "Type",
-            "default": "advance_stage"
-          },
-          "to": {
-            "$ref": "#/components/schemas/PlanStage"
-          }
-        },
-        "type": "object",
-        "required": [
-          "to"
-        ],
-        "title": "AdvanceStage",
-        "description": "The current stage is done. The turn pipeline acts on this at once, so a client only\nsees it on a stage the user went back to: it then offers to continue."
-      },
       "AnswerRecord": {
         "properties": {
           "type": {
@@ -2582,8 +2474,6 @@
               "set_flight_preferences",
               "set_lodging_preferences",
               "set_activity_preferences",
-              "change_stage",
-              "redo_search",
               "set_travel_mode",
               "add_candidate"
             ],
@@ -2626,9 +2516,6 @@
           "slot": {
             "$ref": "#/components/schemas/SlotName"
           },
-          "stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
           "prompt": {
             "type": "string",
             "title": "Prompt"
@@ -2657,7 +2544,6 @@
         "required": [
           "type",
           "slot",
-          "stage",
           "prompt",
           "fields",
           "optional",
@@ -2858,19 +2744,6 @@
         ],
         "title": "ChoicePick",
         "description": "Pick from the open offer: picking is the approval. The ids must be the offer's, and\nas many as its pick slot takes."
-      },
-      "Complete": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "complete",
-            "title": "Type",
-            "default": "complete"
-          }
-        },
-        "type": "object",
-        "title": "Complete",
-        "description": "At review: nothing left to ask. Remaining issues are in the assessment."
       },
       "ContinueRequest": {
         "properties": {
@@ -3830,70 +3703,6 @@
         ],
         "title": "HealthResponse"
       },
-      "Issue": {
-        "properties": {
-          "code": {
-            "$ref": "#/components/schemas/IssueCode"
-          },
-          "stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
-          "severity": {
-            "type": "string",
-            "enum": [
-              "blocking",
-              "warning"
-            ],
-            "title": "Severity"
-          },
-          "message": {
-            "type": "string",
-            "title": "Message"
-          },
-          "date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Date"
-          },
-          "item_ids": {
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "type": "array",
-            "title": "Item Ids"
-          },
-          "gap": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Gap"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "code",
-          "stage",
-          "severity",
-          "message",
-          "date",
-          "item_ids",
-          "gap"
-        ],
-        "title": "Issue",
-        "description": "One problem with the plan, tied to the stage that fixes it."
-      },
       "IssueCode": {
         "type": "string",
         "enum": [
@@ -3906,7 +3715,6 @@
           "uncovered_night",
           "no_activities",
           "missing_transfer",
-          "stage_incomplete",
           "overlap",
           "outside_trip",
           "missing_cost",
@@ -3916,7 +3724,7 @@
           "wrong_departure"
         ],
         "title": "IssueCode",
-        "description": "Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's\nwarnings use the same codes."
+        "description": "What the plan still needs (blocking) or what looks wrong (warning). The timeline's\nwarnings use the same codes."
       },
       "ItemRemoval": {
         "properties": {
@@ -4554,7 +4362,6 @@
           "pick",
           "expected_input",
           "choices",
-          "stage",
           "changes"
         ],
         "title": "MessageKind",
@@ -4648,9 +4455,6 @@
           "slot": {
             "$ref": "#/components/schemas/SlotName"
           },
-          "stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
           "prompt": {
             "type": "string",
             "title": "Prompt"
@@ -4703,7 +4507,6 @@
           "type",
           "offer_id",
           "slot",
-          "stage",
           "prompt",
           "candidates",
           "min_picks",
@@ -4846,66 +4649,6 @@
           "name"
         ],
         "title": "Place"
-      },
-      "PlanAssessment": {
-        "properties": {
-          "stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
-          "issues": {
-            "items": {
-              "$ref": "#/components/schemas/Issue"
-            },
-            "type": "array",
-            "title": "Issues"
-          },
-          "next_action": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/AskInput"
-              },
-              {
-                "$ref": "#/components/schemas/OfferChoice"
-              },
-              {
-                "$ref": "#/components/schemas/RunSearch"
-              },
-              {
-                "$ref": "#/components/schemas/AdvanceStage"
-              },
-              {
-                "$ref": "#/components/schemas/ReturnToStage"
-              },
-              {
-                "$ref": "#/components/schemas/Complete"
-              }
-            ],
-            "title": "Next Action",
-            "discriminator": {
-              "propertyName": "type",
-              "mapping": {
-                "advance_stage": "#/components/schemas/AdvanceStage",
-                "ask_input": "#/components/schemas/AskInput",
-                "complete": "#/components/schemas/Complete",
-                "offer_choice": "#/components/schemas/OfferChoice",
-                "return_to_stage": "#/components/schemas/ReturnToStage",
-                "run_search": "#/components/schemas/RunSearch"
-              }
-            }
-          },
-          "can_advance": {
-            "type": "boolean",
-            "title": "Can Advance"
-          }
-        },
-        "type": "object",
-        "required": [
-          "stage",
-          "issues",
-          "next_action",
-          "can_advance"
-        ],
-        "title": "PlanAssessment"
       },
       "PlanCreate": {
         "properties": {
@@ -5058,19 +4801,6 @@
         "title": "PlanPreferences",
         "description": "Stored on the plan (`travel_plans.preferences`); a plan saved before this existed\nreads as all None."
       },
-      "PlanStage": {
-        "type": "string",
-        "enum": [
-          "basics",
-          "flights",
-          "lodging",
-          "activities",
-          "ground",
-          "review"
-        ],
-        "title": "PlanStage",
-        "description": "The planning workflow, in order. A StrEnum rather than a Literal so the OpenAPI spec\nnames it and the generated SDK exports it as a constant the UI can iterate."
-      },
       "PlanSummary": {
         "properties": {
           "id": {
@@ -5090,9 +4820,6 @@
               "booked"
             ],
             "title": "Status"
-          },
-          "stage": {
-            "$ref": "#/components/schemas/PlanStage"
           },
           "destination": {
             "anyOf": [
@@ -5143,7 +4870,6 @@
           "id",
           "title",
           "status",
-          "stage",
           "destination",
           "start_date",
           "end_date",
@@ -5377,9 +5103,6 @@
                     "$ref": "#/components/schemas/PickRecord"
                   },
                   {
-                    "$ref": "#/components/schemas/StageRecord"
-                  },
-                  {
                     "$ref": "#/components/schemas/ChangesRecord"
                   }
                 ],
@@ -5390,8 +5113,7 @@
                     "ask_input": "#/components/schemas/AskInput",
                     "changes": "#/components/schemas/ChangesRecord",
                     "offer_choice": "#/components/schemas/OfferChoice",
-                    "pick": "#/components/schemas/PickRecord",
-                    "stage": "#/components/schemas/StageRecord"
+                    "pick": "#/components/schemas/PickRecord"
                   }
                 }
               },
@@ -5692,30 +5414,6 @@
         "title": "RejectedChange",
         "description": "One command the rules turned down, and the rule it broke."
       },
-      "ReturnToStage": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "return_to_stage",
-            "title": "Type",
-            "default": "return_to_stage"
-          },
-          "to": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
-          "reason": {
-            "type": "string",
-            "title": "Reason"
-          }
-        },
-        "type": "object",
-        "required": [
-          "to",
-          "reason"
-        ],
-        "title": "ReturnToStage",
-        "description": "A stage before the current one has a blocking issue again (an item was removed or\nchanged since it was finished), so the plan goes back to fix it. The turn pipeline acts\non this at once; a client only sees it after an edit outside a turn, and then offers to\ngo back."
-      },
       "ReviewProposal": {
         "properties": {
           "type": {
@@ -5750,57 +5448,6 @@
         ],
         "title": "ReviewProposal",
         "description": "Show the pending proposal's changes with Approve and Reject."
-      },
-      "RunSearch": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "run_search",
-            "title": "Type",
-            "default": "run_search"
-          },
-          "slot": {
-            "$ref": "#/components/schemas/SlotName"
-          },
-          "stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "nights": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/NightRange"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "gap": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Gap"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "slot",
-          "stage",
-          "label",
-          "nights",
-          "gap"
-        ],
-        "title": "RunSearch",
-        "description": "Search for the slot's candidates (the \"Find flights\" / \"Retry\" button)."
       },
       "SlotAnswer": {
         "properties": {
@@ -5930,95 +5577,6 @@
         "title": "SpendingLimit",
         "description": "The most one activity of a category may cost per person (a plan setting, defined here\nbecause it is about items)."
       },
-      "StageChange": {
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "next",
-              "back",
-              "skip_flights",
-              "go_to"
-            ],
-            "title": "Action"
-          },
-          "stage": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PlanStage"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "action"
-        ],
-        "title": "StageChange",
-        "description": "Move the plan through the workflow: `next` (only when the current stage is ready),\n`back`, `skip_flights` (from the flights stage, for a trip without flying) or `go_to`\nan earlier `stage`."
-      },
-      "StageRecord": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "stage",
-            "title": "Type",
-            "default": "stage"
-          },
-          "from_stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
-          "to_stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          }
-        },
-        "type": "object",
-        "required": [
-          "from_stage",
-          "to_stage"
-        ],
-        "title": "StageRecord",
-        "description": "The plan moved to another stage (message kind \"stage\")."
-      },
-      "StageStatus": {
-        "properties": {
-          "stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
-          "issues": {
-            "items": {
-              "$ref": "#/components/schemas/Issue"
-            },
-            "type": "array",
-            "title": "Issues"
-          },
-          "ready": {
-            "type": "boolean",
-            "title": "Ready",
-            "readOnly": true
-          },
-          "missing": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Missing",
-            "readOnly": true
-          }
-        },
-        "type": "object",
-        "required": [
-          "stage",
-          "issues",
-          "ready",
-          "missing"
-        ],
-        "title": "StageStatus",
-        "description": "A stage's checklist: what still blocks it (`issues`), plus two views derived from\nthem for callers that only need a yes/no or the messages."
-      },
       "SuggestedChange": {
         "properties": {
           "name": {
@@ -6034,8 +5592,6 @@
               "set_flight_preferences",
               "set_lodging_preferences",
               "set_activity_preferences",
-              "change_stage",
-              "redo_search",
               "set_travel_mode",
               "add_candidate"
             ],
@@ -6875,12 +6431,9 @@
             ],
             "title": "Status"
           },
-          "stage": {
-            "$ref": "#/components/schemas/PlanStage"
-          },
-          "flights_skipped": {
+          "no_flights": {
             "type": "boolean",
-            "title": "Flights Skipped"
+            "title": "No Flights"
           },
           "origin": {
             "anyOf": [
@@ -7003,22 +6556,12 @@
             "type": "array",
             "title": "Items"
           },
-          "stages": {
-            "items": {
-              "$ref": "#/components/schemas/StageStatus"
-            },
-            "type": "array",
-            "title": "Stages"
-          },
           "gaps": {
             "items": {
               "$ref": "#/components/schemas/Gap"
             },
             "type": "array",
             "title": "Gaps"
-          },
-          "assessment": {
-            "$ref": "#/components/schemas/PlanAssessment"
           },
           "problems": {
             "items": {
@@ -7067,8 +6610,7 @@
           "user_id",
           "title",
           "status",
-          "stage",
-          "flights_skipped",
+          "no_flights",
           "origin",
           "destination",
           "start_date",
@@ -7082,15 +6624,13 @@
           "created_at",
           "updated_at",
           "items",
-          "stages",
           "gaps",
-          "assessment",
           "problems",
           "complete",
           "pending"
         ],
         "title": "TravelPlan",
-        "description": "The full plan as the API returns it: details, items, stage checklists, gaps, the\nvalidation engine's problems, what it is waiting on the user for, and the planning\nengine's assessment (built by `planning.service.snapshot`)."
+        "description": "The full plan as the API returns it: details, items, gaps, the validation engine's\nproblems and what it is waiting on the user for (built by `planning.service.snapshot`)."
       },
       "Travelers": {
         "properties": {

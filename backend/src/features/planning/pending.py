@@ -46,7 +46,6 @@ def ask_input(name: SlotName, plan: PlanSnapshot, prompt: str | None = None) -> 
     answer = spec.read(plan) if spec.read is not None else None
     return AskInput(
         slot=name,
-        stage=spec.stage,
         prompt=prompt or spec.prompt,
         fields=list(spec.fields),
         optional=spec.optional,
@@ -60,7 +59,6 @@ def offer_choice(offer: Offer) -> OfferChoice:
     return OfferChoice(
         offer_id=offer.id,
         slot=offer.slot,
-        stage=spec.stage,
         prompt=spec.prompt,
         candidates=offer.candidates,
         min_picks=spec.min_picks,

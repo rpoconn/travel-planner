@@ -153,11 +153,11 @@ class Travelers(BaseModel):
 # Shared rather than in `plans`: the itinerary timeline uses it too, and `plans` already
 # imports `itinerary`, so `itinerary` importing `plans` would be a cycle.
 class IssueCode(StrEnum):
-    """Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's
+    """What the plan still needs (blocking) or what looks wrong (warning). The timeline's
     warnings use the same codes."""
 
-    # Stage checklists (blocking). The timeline also warns of uncovered_night and
-    # missing_transfer.
+    # What a finished trip needs (blocking). The timeline also warns of uncovered_night
+    # and missing_transfer.
     MISSING_DATES = "missing_dates"
     MISSING_TRAVELERS = "missing_travelers"
     MISSING_ORIGIN = "missing_origin"
@@ -167,7 +167,6 @@ class IssueCode(StrEnum):
     UNCOVERED_NIGHT = "uncovered_night"
     NO_ACTIVITIES = "no_activities"
     MISSING_TRANSFER = "missing_transfer"
-    STAGE_INCOMPLETE = "stage_incomplete"  # review: an earlier stage isn't done
     # Timeline warnings.
     OVERLAP = "overlap"
     OUTSIDE_TRIP = "outside_trip"

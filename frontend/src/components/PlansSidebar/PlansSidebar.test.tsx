@@ -14,7 +14,6 @@ const TOKYO = planSummary()
 const LISBON = planSummary({
     id: 'aaaaaaaa-0000-0000-0000-000000000002',
     title: 'Lisbon weekend',
-    stage: 'lodging',
     destination: null,
     start_date: null,
     end_date: null,

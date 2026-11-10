@@ -94,7 +94,7 @@ async def test_approving_writes_the_changes_then_the_planner_carries_on(
         ("message", "No flights, then."),
     ]
     plan = done(events).plan
-    assert plan.flights_skipped is True and plan.pending is None
+    assert plan.no_flights is True and plan.pending is None
     assert "missing_outbound" not in [problem.id for problem in plan.problems]
     changes = (await messages(client, headers, plan_id))[2]
     assert isinstance(changes.payload, ChangesRecord)
@@ -117,7 +117,7 @@ async def test_rejecting_writes_nothing(
         ("message", "Flights it is."),
     ]
     plan = done(events).plan
-    assert plan.flights_skipped is False and plan.pending is None
+    assert plan.no_flights is False and plan.pending is None
     assert plan.version == 1
 
 
@@ -146,7 +146,7 @@ async def test_a_suggestion_for_an_earlier_plan_cannot_be_decided(
 
     assert status == 409
     plan = await client.get(f"/plans/{plan_id}", headers=headers)
-    assert plan.json()["flights_skipped"] is False
+    assert plan.json()["no_flights"] is False
 
 
 async def test_a_suggestion_the_plan_never_had_cannot_be_decided(

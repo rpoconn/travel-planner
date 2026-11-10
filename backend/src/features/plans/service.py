@@ -12,7 +12,6 @@ from features.plans.models import Plan
 from features.plans.schemas import (
     PlanCreate,
     PlanPreferences,
-    PlanStage,
     PlanUpdate,
     check_date_range,
 )
@@ -119,30 +118,12 @@ async def update_preferences(
     return plan
 
 
-async def set_stage(
-    session: AsyncSession,
-    user_id: UUID,
-    plan_id: UUID,
-    stage: PlanStage,
-    flights_skipped: bool,
-) -> Plan:
-    """Store a workflow position already checked by `plans.stages.apply_stage_change`."""
-    plan = await get_plan(session, user_id, plan_id)
-    plan.stage = stage.value
-    plan.flights_skipped = flights_skipped
-    mark_changed(plan)
-    await session.commit()
-    logger.info("Plan %s moved to stage %s", plan_id, stage)
-    return plan
-
-
 async def set_no_flights(
     session: AsyncSession, user_id: UUID, plan_id: UUID, no_flights: bool
 ) -> Plan:
-    """Record whether the trip is made without flying, wherever the plan stands. Stored in
-    `flights_skipped` until the stage flow, which names it that, is deleted."""
+    """Record whether the trip is made without flying."""
     plan = await get_plan(session, user_id, plan_id)
-    plan.flights_skipped = no_flights
+    plan.no_flights = no_flights
     mark_changed(plan)
     await session.commit()
     logger.info("Plan %s: no flights is now %s", plan_id, no_flights)

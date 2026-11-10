@@ -1,5 +1,5 @@
 """The plan as the API returns it: the itinerary snapshot plus the validation engine's
-problems, what the plan is waiting on the user for, and the planning engine's assessment.
+problems and what the plan is waiting on the user for.
 
 Routers call this rather than `itinerary.service.snapshot`, which stays free of planning
 imports so `itinerary` and `plans` never depend on `planning`.
@@ -15,7 +15,6 @@ from features.chat.schemas import MessageKind
 from features.itinerary import service as itinerary_service
 from features.itinerary.timeline import build_timeline
 from features.planning import offers, proposals
-from features.planning.engine import evaluate
 from features.planning.pending import AskedForm, ask_input, pending_interaction
 from features.planning.schemas import AskInput, Problem, TravelPlan
 from features.planning.validation import is_complete, validate
@@ -70,7 +69,6 @@ async def snapshot(session: AsyncSession, plan: Plan) -> TravelPlan:
         origin=base.origin,
     )
     offer = await offers.current_offer(session, plan.id)
-    assessment = evaluate(base, offer, timeline.warnings)
     problems = validate(base, timeline.warnings)
     pending = pending_interaction(
         base,
@@ -81,7 +79,6 @@ async def snapshot(session: AsyncSession, plan: Plan) -> TravelPlan:
     return TravelPlan.model_validate(
         {
             **dict(base),
-            "assessment": assessment,
             "problems": problems,
             "complete": is_complete(problems),
             "pending": pending,

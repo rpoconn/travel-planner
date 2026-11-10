@@ -1,4 +1,4 @@
-"""Place searches for the activities stage: one per interest the user picked.
+"""Place searches for activities: one per interest the user picked.
 
 Each interest becomes a map search near the destination ("museums in Lisbon, Portugal";
 restaurants carry the dietary needs). The searches run concurrently; one that fails is
@@ -95,7 +95,7 @@ class _Found:
 def _preferences(plan: PlanSnapshot) -> ActivityPreferences:
     prefs = plan.preferences.activities
     if prefs is None:
-        # The engine asks for the preferences before it offers a search.
+        # The planner asks for the preferences before it searches.
         raise SearchFailedError("Tell me what you like to do first.")
     return prefs
 
@@ -328,8 +328,7 @@ def _zone(plan: PlanSnapshot) -> str:
         return legs[0].end_timezone or legs[0].timezone
     name = plan.destination.name if plan.destination else "the destination"
     raise SearchFailedError(
-        f"I couldn't work out the local time in {name}. Go back to the basics and give the "
-        "nearest city with an airport."
+        f"I couldn't work out the local time in {name}. Give the nearest city with an airport."
     )
 
 

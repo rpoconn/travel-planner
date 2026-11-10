@@ -14,7 +14,6 @@ from httpx import AsyncClient
 from pydantic import JsonValue
 
 from features.planning.schemas import ChangesRecord, TravelPlan
-from features.plans.schemas import PlanStage
 from shared.llm.fake import FakeLLM, text
 from tests.features.planning.agent_helpers import brief_of
 from tests.features.planning.planning_http import (
@@ -26,9 +25,9 @@ from tests.features.planning.planning_http import (
     create_plan,
     done,
     messages,
-    move_to,
     post,
     reach,
+    set_no_flights,
     stored,
 )
 from tests.features.planning.scripts import ask
@@ -42,11 +41,9 @@ PHILADELPHIA_AIRPORT: dict[str, JsonValue] = {"name": "Philadelphia Airport", "i
 # ---------------------------------------------------------------------------
 
 
-async def _plan_at(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str], stage: PlanStage
-) -> str:
+async def _settled_plan(app: FastAPI, client: AsyncClient, headers: dict[str, str]) -> str:
     plan_id = await create_plan(client, headers, **BASICS)
-    await reach(app, client, headers, plan_id, stage)
+    await reach(app, client, headers, plan_id)
     return plan_id
 
 
@@ -96,7 +93,7 @@ async def _add_flight(
 async def test_removing_the_only_stay_says_what_it_needs_then_the_planner_asks(
     app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
-    plan_id = await _plan_at(app, client, headers, PlanStage.GROUND)
+    plan_id = await _settled_plan(app, client, headers)
     flat = await _item_id(client, headers, plan_id, "Friend's flat")
     fake_llm.queue(ask("What kind of place do you want to stay in?", "lodging_preferences"))
 
@@ -127,7 +124,7 @@ async def test_removing_the_only_stay_says_what_it_needs_then_the_planner_asks(
 async def test_removing_a_flight_says_the_trip_needs_another(
     app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
-    plan_id = await _plan_at(app, client, headers, PlanStage.GROUND)
+    plan_id = await _settled_plan(app, client, headers)
     await _add_flight(
         client,
         headers,
@@ -148,7 +145,7 @@ async def test_removing_a_flight_says_the_trip_needs_another(
         (LISBON_AIRPORT, PHILADELPHIA_AIRPORT),
         (LISBON_TZ, "America/New_York"),
     )
-    await move_to(app, plan_id, PlanStage.GROUND, flights_skipped=False)
+    await set_no_flights(app, plan_id, False)
     flight_home = await _item_id(client, headers, plan_id, "LIS → PHL")
     fake_llm.queue(text("Shall I look for another flight home?"))
 
@@ -160,7 +157,7 @@ async def test_removing_a_flight_says_the_trip_needs_another(
         (
             "changes",
             "Removed “LIS → PHL”. The trip needs a flight home now. Pick another flight, "
-            "tell me what you'd like instead, or skip flights if you'll get there another "
+            "tell me what you'd like instead, or say so if you'll get there another "
             "way.",
         ),
         ("message", "Shall I look for another flight home?"),
@@ -173,7 +170,7 @@ async def test_removing_an_item_takes_its_rides_and_names_the_one_now_missing(
 ) -> None:
     # Flat → taxi → tram tour → taxi → flat, then lunch on from the flat: the tour goes with
     # both taxis, which is back to how it was before it; nothing new is missing.
-    plan_id = await _plan_at(app, client, headers, PlanStage.GROUND)
+    plan_id = await _settled_plan(app, client, headers)
     tram: dict[str, JsonValue] = {"name": "Tram 28 stop", "city": "Lisbon"}
     await add_item(
         client,
@@ -228,7 +225,7 @@ async def test_removing_an_item_takes_its_rides_and_names_the_one_now_missing(
 async def test_an_item_not_on_the_plan_is_not_found(
     app: FastAPI, client: AsyncClient, headers: dict[str, str], fake_llm: FakeLLM
 ) -> None:
-    plan_id = await _plan_at(app, client, headers, PlanStage.GROUND)
+    plan_id = await _settled_plan(app, client, headers)
 
     response = await client.post(
         f"/plans/{plan_id}/planning/removals", json={"item_id": str(uuid4())}, headers=headers

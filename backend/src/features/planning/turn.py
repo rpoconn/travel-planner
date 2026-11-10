@@ -212,9 +212,7 @@ async def _refresh(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
     if offer is None or not isinstance(choice, OfferChoice) or offer.id != choice.offer_id:
         return  # checked by the router; the plan moved on since
     label = search_label(offer.slot)
-    action = RunSearch(
-        slot=offer.slot, stage=offer.stage, label=label, gap=offer.gap, nights=offer.nights
-    )
+    action = RunSearch(slot=offer.slot, label=label, gap=offer.gap, nights=offer.nights)
     yield PlanningStatusEvent(text=f"{label}…")
     exclude = await offers.offered_titles(ctx.session, ctx.plan_id, offer.query_hash, plan.version)
     try:
@@ -229,7 +227,6 @@ async def _refresh(ctx: TurnContext) -> AsyncIterator[PlanningEvent]:
         ctx.session,
         plan_id=ctx.plan_id,
         slot=offer.slot,
-        stage=offer.stage,
         plan_version=plan.version,
         candidates=candidates,
         query_hash=offer.query_hash,

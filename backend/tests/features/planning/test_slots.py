@@ -5,16 +5,15 @@ from pydantic import ValidationError
 
 from features.planning.schemas import BudgetAnswer, DatesAnswer
 from features.planning.searches import RUNNERS
-from features.planning.slots import FIX_SLOT, SLOTS, STAGE_SLOTS, SlotSpec, slot
-from features.plans.schemas import PlanStage, SlotName
+from features.planning.slots import FIX_SLOT, SLOT_ORDER, SLOTS, SlotSpec, slot
+from features.plans.schemas import SlotName
 from shared.domain import IssueCode
 from tests.features.plans.builders import snapshot
 
 INPUT_SLOTS = [spec for spec in SLOTS.values() if spec.kind == "input"]
 PICK_SLOTS = [spec for spec in SLOTS.values() if spec.kind == "pick"]
 
-# Stage checklist issues (`plans.stages`). Review's `stage_incomplete` is fixed in the
-# stage it names, so no slot fixes it.
+# What a finished trip needs (`planning.validation.blocking_problems`).
 CHECKLIST_CODES = {
     IssueCode.MISSING_DATES,
     IssueCode.MISSING_TRAVELERS,
@@ -37,20 +36,18 @@ def test_every_slot_name_is_registered_once() -> None:
     assert set(SLOTS) == set(SlotName)
 
 
-def test_stages_ask_their_slots_in_order() -> None:
-    assert STAGE_SLOTS[PlanStage.BASICS] == (
+def test_slots_are_ordered_the_way_a_trip_is_planned() -> None:
+    assert sorted(SLOT_ORDER, key=SLOT_ORDER.__getitem__)[:8] == [
         SlotName.DESTINATION,
         SlotName.DATES,
         SlotName.TRAVELERS,
         SlotName.ORIGIN,
         SlotName.BUDGET,
-    )
-    assert STAGE_SLOTS[PlanStage.FLIGHTS] == (
         SlotName.FLIGHT_PREFERENCES,
         SlotName.FLIGHT_OUTBOUND,
         SlotName.FLIGHT_RETURN,
-    )
-    assert STAGE_SLOTS[PlanStage.REVIEW] == ()
+    ]
+    assert SLOT_ORDER[SlotName.TRANSFER] == len(SLOTS) - 1
 
 
 def test_only_the_budget_is_optional() -> None:
@@ -69,8 +66,8 @@ def test_an_input_slot_asks_for_every_required_value(spec: SlotSpec) -> None:
     for name, info in model_fields.items():
         if info.is_required():
             assert name in form and form[name].required, name
-    # ...and it has the words the engine and the extractor need.
-    assert spec.prompt and spec.nudge and spec.extractor_hint
+    # ...and it has a question to ask.
+    assert spec.prompt
 
 
 @pytest.mark.parametrize("spec", INPUT_SLOTS, ids=lambda spec: spec.name)

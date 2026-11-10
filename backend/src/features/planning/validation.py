@@ -5,24 +5,32 @@ nothing else: it does not say what to do next, and it moves nothing. Whoever dri
 plan (the model, through the `validate_plan` tool) decides which problem to work on; the
 plan is complete once no blocking problem is left.
 
-Blocking problems come from the plan's checklists (`plans.stages.plan_progress`), in the
-order their fixes are usually made: the basics, the flights, the stays, the activities,
-then the rides between them. Warnings come from the timeline (`itinerary.timeline`):
-overlaps, costs over a budget, items outside the trip. They don't block.
+Blocking problems are what a finished trip needs and the plan lacks, in the order their
+fixes are usually made: the basics, the flights, the stays, the activities, then the rides
+between them. Warnings come from the timeline (`itinerary.timeline`): overlaps, costs over
+a budget, items outside the trip. They don't block.
 """
 
 from collections.abc import Sequence
 from datetime import date, timedelta
 
-from features.itinerary.schemas import TimelineWarning
+from features.itinerary.days import date_range, uncovered_nights
+from features.itinerary.gaps import describe_place
+from features.itinerary.schemas import (
+    FlightItem,
+    Gap,
+    ItemType,
+    ItineraryItem,
+    TimelineWarning,
+    active,
+)
 from features.planning.schemas import NightRange, Problem, ProblemFix
 from features.planning.slots import FIX_SLOT, SLOT_ORDER, SLOTS
-from features.plans.schemas import Issue, PlanSnapshot, PlanStage
+from features.plans.schemas import PlanSnapshot
 from shared.domain import IssueCode
 
-# Timeline warnings that aren't reported as warnings: the checklists already report them
-# as blocking problems.
-CHECKLIST_WARNINGS = frozenset({IssueCode.UNCOVERED_NIGHT, IssueCode.MISSING_TRANSFER})
+# Timeline warnings that aren't reported as warnings: they are blocking problems already.
+BLOCKING_WARNINGS = frozenset({IssueCode.UNCOVERED_NIGHT, IssueCode.MISSING_TRANSFER})
 
 # ---------------------------------------------------------------------------
 # Night runs
@@ -48,7 +56,7 @@ def range_label(nights: NightRange) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Problems
+# Blocking problems: what a finished trip needs
 # ---------------------------------------------------------------------------
 
 
@@ -61,27 +69,41 @@ def _fix(code: IssueCode) -> ProblemFix:
     return ProblemFix(how="ask" if SLOTS[slot].kind == "input" else "search", slot=slot)
 
 
-def _checklist_problem(issue: Issue) -> Problem:
-    problem_id = issue.code.value
-    if issue.gap is not None:
-        # Home is not an item, so a gap end without an item is home.
-        ends = (issue.gap.after_item_id or "home", issue.gap.before_item_id or "home")
-        problem_id = f"{issue.code.value}:{ends[0]}:{ends[1]}"
-    return Problem(
-        id=problem_id,
-        code=issue.code,
-        severity="blocking",
-        message=issue.message,
-        date=issue.date,
-        item_ids=issue.item_ids,
-        gap=issue.gap,
-        fix=_fix(issue.code),
-    )
+def _missing(code: IssueCode, message: str) -> Problem:
+    return Problem(id=code.value, code=code, severity="blocking", message=message, fix=_fix(code))
 
 
-def _night_problems(issues: Sequence[Issue]) -> list[Problem]:
-    """One problem per run of uncovered nights: a run is fixed by one stay."""
-    nights = [issue.date for issue in issues if issue.date is not None]
+def _basics(plan: PlanSnapshot) -> list[Problem]:
+    problems: list[Problem] = []
+    if plan.start_date is None or plan.end_date is None:
+        problems.append(_missing(IssueCode.MISSING_DATES, "trip dates"))
+    if plan.travelers is None:
+        problems.append(_missing(IssueCode.MISSING_TRAVELERS, "who is travelling"))
+    if plan.origin is None:
+        problems.append(_missing(IssueCode.MISSING_ORIGIN, "where the trip starts (home)"))
+    if plan.destination is None:
+        problems.append(_missing(IssueCode.MISSING_DESTINATION, "a destination"))
+    return problems
+
+
+def _flights(plan: PlanSnapshot, items: Sequence[ItineraryItem]) -> list[Problem]:
+    if plan.no_flights:
+        return []
+    directions = {item.direction for item in items if isinstance(item, FlightItem)}
+    problems: list[Problem] = []
+    if "outbound" not in directions:
+        problems.append(_missing(IssueCode.MISSING_OUTBOUND, "a flight out"))
+    if "return" not in directions:
+        problems.append(_missing(IssueCode.MISSING_RETURN, "a flight home"))
+    return problems
+
+
+def _stays(plan: PlanSnapshot, items: Sequence[ItineraryItem]) -> list[Problem]:
+    """One problem per run of uncovered nights: a run is fixed by one stay. A trip without
+    dates has no nights to cover yet."""
+    if plan.start_date is None or plan.end_date is None:
+        return []
+    days = list(date_range(plan.start_date, plan.end_date))
     return [
         Problem(
             id=f"{IssueCode.UNCOVERED_NIGHT.value}:{run.check_in.isoformat()}",
@@ -92,25 +114,55 @@ def _night_problems(issues: Sequence[Issue]) -> list[Problem]:
             nights=run,
             fix=_fix(IssueCode.UNCOVERED_NIGHT),
         )
-        for run in night_ranges(nights)
+        for run in night_ranges(uncovered_nights(days, items))
     ]
 
 
-def _blocking(plan: PlanSnapshot) -> list[Problem]:
-    # Review's checklist only repeats the stages before it.
-    issues = [
-        issue
-        for status in plan.stages
-        if status.stage != PlanStage.REVIEW
-        for issue in status.issues
+def _activities(items: Sequence[ItineraryItem]) -> list[Problem]:
+    if any(item.type == ItemType.ACTIVITY for item in items):
+        return []
+    return [_missing(IssueCode.NO_ACTIVITIES, "at least one activity")]
+
+
+def _ride(gap: Gap) -> Problem:
+    moment = gap.arrive_before or gap.leave_after
+    # A gap's neighbours. Home is not an item, so an end without one is home.
+    ends = (gap.after_item_id, gap.before_item_id)
+    code = IssueCode.MISSING_TRANSFER
+    return Problem(
+        id=f"{code.value}:{ends[0] or 'home'}:{ends[1] or 'home'}",
+        code=code,
+        severity="blocking",
+        message=(
+            f"a transfer from {describe_place(gap.from_place, gap.after_item_id)} "
+            f"to {describe_place(gap.to_place, gap.before_item_id)}"
+        ),
+        date=moment.date() if moment is not None else None,
+        item_ids=[item_id for item_id in ends if item_id is not None],
+        gap=gap,
+        fix=_fix(code),
+    )
+
+
+def blocking_problems(plan: PlanSnapshot) -> list[Problem]:
+    """What the plan lacks for a finished trip. Cancelled items don't count."""
+    current = active(plan.items)
+    problems = [
+        *_basics(plan),
+        *_flights(plan, current),
+        *_stays(plan, current),
+        *_activities(current),
+        *(_ride(gap) for gap in plan.gaps),
     ]
-    uncovered = [issue for issue in issues if issue.code == IssueCode.UNCOVERED_NIGHT]
-    others = [issue for issue in issues if issue.code != IssueCode.UNCOVERED_NIGHT]
-    problems = [_checklist_problem(issue) for issue in others] + _night_problems(uncovered)
-    # The order their fix slots are asked in (stable, so nights and gaps keep trip order).
+    # The order their fix slots are listed in (stable, so nights and gaps keep trip order).
     last = len(SLOT_ORDER)
     problems.sort(key=lambda p: SLOT_ORDER[p.fix.slot] if p.fix.slot is not None else last)
     return problems
+
+
+# ---------------------------------------------------------------------------
+# Warnings: what the timeline flags
+# ---------------------------------------------------------------------------
 
 
 def _warning_problem(warning: TimelineWarning) -> Problem:
@@ -130,9 +182,9 @@ def _warning_problem(warning: TimelineWarning) -> Problem:
 
 
 def _unique(problems: Sequence[Problem]) -> list[Problem]:
-    """`problems` with every id used once. The same problem reported twice (missing dates,
-    by the basics and by the stays) is kept once; different ones that share an id (two
-    spending limits exceeded, neither about an item) are numbered."""
+    """`problems` with every id used once. The same problem reported twice is kept once;
+    different ones that share an id (two spending limits exceeded, neither about an item)
+    are numbered."""
     kept: dict[str, Problem] = {}
     for problem in problems:
         twin = kept.get(problem.id)
@@ -155,8 +207,8 @@ def _unique(problems: Sequence[Problem]) -> list[Problem]:
 def validate(plan: PlanSnapshot, warnings: Sequence[TimelineWarning]) -> list[Problem]:
     """Everything wrong with the plan as it stands: blocking problems first, then the
     timeline's warnings."""
-    flagged = [_warning_problem(w) for w in warnings if w.kind not in CHECKLIST_WARNINGS]
-    return _unique([*_blocking(plan), *flagged])
+    flagged = [_warning_problem(w) for w in warnings if w.kind not in BLOCKING_WARNINGS]
+    return _unique([*blocking_problems(plan), *flagged])
 
 
 def is_complete(problems: Sequence[Problem]) -> bool:

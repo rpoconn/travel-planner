@@ -19,7 +19,6 @@ class PlanningOffer(Base):
     # String FK keeps this feature from importing the plans models directly.
     plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("travel_plans.id", ondelete="CASCADE"))
     slot: Mapped[str] = mapped_column(String(40))
-    stage: Mapped[str] = mapped_column(String(20))
     plan_version: Mapped[int]
     # `Candidate` list, in the order shown.
     candidates: Mapped[list[dict[str, JsonValue]]] = mapped_column(JSON, default=list)

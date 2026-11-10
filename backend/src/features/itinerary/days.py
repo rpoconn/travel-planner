@@ -1,4 +1,4 @@
-"""Local-calendar-day helpers shared by the timeline, the gap finder and plan stages.
+"""Local-calendar-day helpers shared by the timeline, the gap finder and plan validation.
 
 Days are *local* calendar days: an item's first day is the date of `start` in its timezone
 and its last day is the date of `end` in its end timezone, which is what the traveller

@@ -1,8 +1,8 @@
 """Deterministic `PlaceProvider` for tests and `PLACES_PROVIDER=fake` (offline dev / E2E).
 
 Without scripted replies it makes up obviously fake but well-formed places ("Example ...")
-for the query: two per kind of place the activities stage searches for (museums,
-restaurants...), and two generic ones for anything else, so the stage runs with no network
+for the query: two per kind of place the activity search looks for (museums,
+restaurants...), and two generic ones for anything else, so the search runs with no network
 access or API key.
 """
 

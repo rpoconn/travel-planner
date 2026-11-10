@@ -15,7 +15,7 @@ from features.itinerary.schemas import Gap
 from features.planning.models import PlanningOffer
 from features.planning.schemas import Candidate, NightRange, Offer, OfferStatus
 from features.planning.search_types import title_key
-from features.plans.schemas import PlanStage, SlotName
+from features.plans.schemas import SlotName
 from shared.db import utc_now
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,6 @@ async def open_offer(
     *,
     plan_id: UUID,
     slot: SlotName,
-    stage: PlanStage,
     plan_version: int,
     candidates: Sequence[Candidate],
     query_hash: str,
@@ -104,7 +103,6 @@ async def open_offer(
     row = PlanningOffer(
         plan_id=plan_id,
         slot=slot.value,
-        stage=stage.value,
         plan_version=plan_version,
         candidates=[candidate.model_dump(mode="json") for candidate in candidates],
         status="open",

@@ -11,7 +11,11 @@ describe('ChangesCard', () => {
                     type: 'changes',
                     applied: [
                         { name: 'remove_item', summary: 'Removed “Riverside Hotel”', item_id: 'a' },
-                        { name: 'change_stage', summary: 'Back to lodging', item_id: null },
+                        {
+                            name: 'set_travel_mode',
+                            summary: 'The trip has no flights',
+                            item_id: null,
+                        },
                     ],
                     rejected: [],
                     left_open: [],
@@ -25,7 +29,7 @@ describe('ChangesCard', () => {
             within(card)
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
-        ).toEqual(['Removed “Riverside Hotel”', 'Back to lodging'])
+        ).toEqual(['Removed “Riverside Hotel”', 'The trip has no flights'])
     })
 
     it('names a ride the change left missing, after what it changed', () => {

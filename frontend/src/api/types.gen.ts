@@ -229,20 +229,6 @@ export type ActivityPreferences = {
 };
 
 /**
- * AdvanceStage
- *
- * The current stage is done. The turn pipeline acts on this at once, so a client only
- * sees it on a stage the user went back to: it then offers to continue.
- */
-export type AdvanceStage = {
-    /**
-     * Type
-     */
-    type?: 'advance_stage';
-    to: PlanStage;
-};
-
-/**
  * AnswerRecord
  *
  * A user's answer to an input slot (message kind "input").
@@ -274,7 +260,7 @@ export type AppliedChange = {
     /**
      * Name
      */
-    name: 'remove_item' | 'update_item' | 'set_dates' | 'set_travelers' | 'set_destination' | 'set_origin' | 'set_budget' | 'set_flight_preferences' | 'set_lodging_preferences' | 'set_activity_preferences' | 'change_stage' | 'redo_search' | 'set_travel_mode' | 'add_candidate';
+    name: 'remove_item' | 'update_item' | 'set_dates' | 'set_travelers' | 'set_destination' | 'set_origin' | 'set_budget' | 'set_flight_preferences' | 'set_lodging_preferences' | 'set_activity_preferences' | 'set_travel_mode' | 'add_candidate';
     /**
      * Summary
      */
@@ -296,7 +282,6 @@ export type AskInput = {
      */
     type: 'ask_input';
     slot: SlotName;
-    stage: PlanStage;
     /**
      * Prompt
      */
@@ -428,18 +413,6 @@ export type ChoicePick = {
      * Candidate Ids
      */
     candidate_ids: Array<string>;
-};
-
-/**
- * Complete
- *
- * At review: nothing left to ask. Remaining issues are in the assessment.
- */
-export type Complete = {
-    /**
-     * Type
-     */
-    type?: 'complete';
 };
 
 /**
@@ -930,36 +903,9 @@ export type HealthResponse = {
 };
 
 /**
- * Issue
- *
- * One problem with the plan, tied to the stage that fixes it.
- */
-export type Issue = {
-    code: IssueCode;
-    stage: PlanStage;
-    /**
-     * Severity
-     */
-    severity: 'blocking' | 'warning';
-    /**
-     * Message
-     */
-    message: string;
-    /**
-     * Date
-     */
-    date: string | null;
-    /**
-     * Item Ids
-     */
-    item_ids: Array<string>;
-    gap: Gap | null;
-};
-
-/**
  * IssueCode
  *
- * Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's
+ * What the plan still needs (blocking) or what looks wrong (warning). The timeline's
  * warnings use the same codes.
  */
 export const IssueCode = {
@@ -972,7 +918,6 @@ export const IssueCode = {
     UNCOVERED_NIGHT: 'uncovered_night',
     NO_ACTIVITIES: 'no_activities',
     MISSING_TRANSFER: 'missing_transfer',
-    STAGE_INCOMPLETE: 'stage_incomplete',
     OVERLAP: 'overlap',
     OUTSIDE_TRIP: 'outside_trip',
     MISSING_COST: 'missing_cost',
@@ -985,7 +930,7 @@ export const IssueCode = {
 /**
  * IssueCode
  *
- * Why a stage isn't finished (blocking) or what looks wrong (warning). The timeline's
+ * What the plan still needs (blocking) or what looks wrong (warning). The timeline's
  * warnings use the same codes.
  */
 export type IssueCode = typeof IssueCode[keyof typeof IssueCode];
@@ -1282,7 +1227,6 @@ export const MessageKind = {
     PICK: 'pick',
     EXPECTED_INPUT: 'expected_input',
     CHOICES: 'choices',
-    STAGE: 'stage',
     CHANGES: 'changes'
 } as const;
 
@@ -1360,7 +1304,6 @@ export type OfferChoice = {
      */
     offer_id: string;
     slot: SlotName;
-    stage: PlanStage;
     /**
      * Prompt
      */
@@ -1447,37 +1390,6 @@ export type Place = {
 };
 
 /**
- * PlanAssessment
- */
-export type PlanAssessment = {
-    stage: PlanStage;
-    /**
-     * Issues
-     */
-    issues: Array<Issue>;
-    /**
-     * Next Action
-     */
-    next_action: ({
-        type: 'ask_input';
-    } & AskInput) | ({
-        type: 'offer_choice';
-    } & OfferChoice) | ({
-        type: 'run_search';
-    } & RunSearch) | ({
-        type: 'advance_stage';
-    } & AdvanceStage) | ({
-        type: 'return_to_stage';
-    } & ReturnToStage) | ({
-        type: 'complete';
-    } & Complete);
-    /**
-     * Can Advance
-     */
-    can_advance: boolean;
-};
-
-/**
  * PlanCreate
  */
 export type PlanCreate = {
@@ -1528,29 +1440,6 @@ export type PlanPreferences = {
 };
 
 /**
- * PlanStage
- *
- * The planning workflow, in order. A StrEnum rather than a Literal so the OpenAPI spec
- * names it and the generated SDK exports it as a constant the UI can iterate.
- */
-export const PlanStage = {
-    BASICS: 'basics',
-    FLIGHTS: 'flights',
-    LODGING: 'lodging',
-    ACTIVITIES: 'activities',
-    GROUND: 'ground',
-    REVIEW: 'review'
-} as const;
-
-/**
- * PlanStage
- *
- * The planning workflow, in order. A StrEnum rather than a Literal so the OpenAPI spec
- * names it and the generated SDK exports it as a constant the UI can iterate.
- */
-export type PlanStage = typeof PlanStage[keyof typeof PlanStage];
-
-/**
  * PlanSummary
  *
  * Lightweight row for the plans sidebar.
@@ -1568,7 +1457,6 @@ export type PlanSummary = {
      * Status
      */
     status: 'draft' | 'planned' | 'booked';
-    stage: PlanStage;
     destination: Place | null;
     /**
      * Start Date
@@ -1693,8 +1581,6 @@ export type PlanningMessage = {
     } & AnswerRecord) | ({
         type: 'pick';
     } & PickRecord) | ({
-        type: 'stage';
-    } & StageRecord) | ({
         type: 'changes';
     } & ChangesRecord) | null;
     /**
@@ -1870,26 +1756,6 @@ export type RejectedChange = {
 };
 
 /**
- * ReturnToStage
- *
- * A stage before the current one has a blocking issue again (an item was removed or
- * changed since it was finished), so the plan goes back to fix it. The turn pipeline acts
- * on this at once; a client only sees it after an edit outside a turn, and then offers to
- * go back.
- */
-export type ReturnToStage = {
-    /**
-     * Type
-     */
-    type?: 'return_to_stage';
-    to: PlanStage;
-    /**
-     * Reason
-     */
-    reason: string;
-};
-
-/**
  * ReviewProposal
  *
  * Show the pending proposal's changes with Approve and Reject.
@@ -1911,26 +1777,6 @@ export type ReviewProposal = {
      * Changes
      */
     changes: Array<SuggestedChange>;
-};
-
-/**
- * RunSearch
- *
- * Search for the slot's candidates (the "Find flights" / "Retry" button).
- */
-export type RunSearch = {
-    /**
-     * Type
-     */
-    type: 'run_search';
-    slot: SlotName;
-    stage: PlanStage;
-    /**
-     * Label
-     */
-    label: string;
-    nights: NightRange | null;
-    gap: Gap | null;
 };
 
 /**
@@ -2035,57 +1881,6 @@ export type SpendingLimitOutput = {
 };
 
 /**
- * StageChange
- *
- * Move the plan through the workflow: `next` (only when the current stage is ready),
- * `back`, `skip_flights` (from the flights stage, for a trip without flying) or `go_to`
- * an earlier `stage`.
- */
-export type StageChange = {
-    /**
-     * Action
-     */
-    action: 'next' | 'back' | 'skip_flights' | 'go_to';
-    stage?: PlanStage | null;
-};
-
-/**
- * StageRecord
- *
- * The plan moved to another stage (message kind "stage").
- */
-export type StageRecord = {
-    /**
-     * Type
-     */
-    type?: 'stage';
-    from_stage: PlanStage;
-    to_stage: PlanStage;
-};
-
-/**
- * StageStatus
- *
- * A stage's checklist: what still blocks it (`issues`), plus two views derived from
- * them for callers that only need a yes/no or the messages.
- */
-export type StageStatus = {
-    stage: PlanStage;
-    /**
-     * Issues
-     */
-    issues: Array<Issue>;
-    /**
-     * Ready
-     */
-    readonly ready: boolean;
-    /**
-     * Missing
-     */
-    readonly missing: Array<string>;
-};
-
-/**
  * SuggestedChange
  *
  * One row of a proposal card.
@@ -2094,7 +1889,7 @@ export type SuggestedChange = {
     /**
      * Name
      */
-    name: 'remove_item' | 'update_item' | 'set_dates' | 'set_travelers' | 'set_destination' | 'set_origin' | 'set_budget' | 'set_flight_preferences' | 'set_lodging_preferences' | 'set_activity_preferences' | 'change_stage' | 'redo_search' | 'set_travel_mode' | 'add_candidate';
+    name: 'remove_item' | 'update_item' | 'set_dates' | 'set_travelers' | 'set_destination' | 'set_origin' | 'set_budget' | 'set_flight_preferences' | 'set_lodging_preferences' | 'set_activity_preferences' | 'set_travel_mode' | 'add_candidate';
     /**
      * Summary
      */
@@ -2441,9 +2236,8 @@ export type TransferItemPatch = {
 /**
  * TravelPlan
  *
- * The full plan as the API returns it: details, items, stage checklists, gaps, the
- * validation engine's problems, what it is waiting on the user for, and the planning
- * engine's assessment (built by `planning.service.snapshot`).
+ * The full plan as the API returns it: details, items, gaps, the validation engine's
+ * problems and what it is waiting on the user for (built by `planning.service.snapshot`).
  */
 export type TravelPlan = {
     /**
@@ -2462,11 +2256,10 @@ export type TravelPlan = {
      * Status
      */
     status: 'draft' | 'planned' | 'booked';
-    stage: PlanStage;
     /**
-     * Flights Skipped
+     * No Flights
      */
-    flights_skipped: boolean;
+    no_flights: boolean;
     origin: Place | null;
     destination: Place | null;
     /**
@@ -2505,14 +2298,9 @@ export type TravelPlan = {
      */
     items: Array<FlightItem | LodgingItem | ActivityItem | TransferItem>;
     /**
-     * Stages
-     */
-    stages: Array<StageStatus>;
-    /**
      * Gaps
      */
     gaps: Array<Gap>;
-    assessment: PlanAssessment;
     /**
      * Problems
      */
@@ -2608,142 +2396,6 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
-};
-
-/**
- * PlanningDoneEvent
- *
- * The turn finished; `plan` (with its problems and what it waits on) is what the UI
- * shows next.
- */
-export type PlanningDoneEventWritable = {
-    /**
-     * Type
-     */
-    type: 'done';
-    plan: TravelPlanWritable;
-};
-
-/**
- * PlanningPlanEvent
- *
- * The plan changed (an answer, a pick, an edit).
- */
-export type PlanningPlanEventWritable = {
-    /**
-     * Type
-     */
-    type: 'plan_updated';
-    plan: TravelPlanWritable;
-};
-
-/**
- * StageStatus
- *
- * A stage's checklist: what still blocks it (`issues`), plus two views derived from
- * them for callers that only need a yes/no or the messages.
- */
-export type StageStatusWritable = {
-    stage: PlanStage;
-    /**
-     * Issues
-     */
-    issues: Array<Issue>;
-};
-
-/**
- * TravelPlan
- *
- * The full plan as the API returns it: details, items, stage checklists, gaps, the
- * validation engine's problems, what it is waiting on the user for, and the planning
- * engine's assessment (built by `planning.service.snapshot`).
- */
-export type TravelPlanWritable = {
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * User Id
-     */
-    user_id: string;
-    /**
-     * Title
-     */
-    title: string;
-    /**
-     * Status
-     */
-    status: 'draft' | 'planned' | 'booked';
-    stage: PlanStage;
-    /**
-     * Flights Skipped
-     */
-    flights_skipped: boolean;
-    origin: Place | null;
-    destination: Place | null;
-    /**
-     * Start Date
-     */
-    start_date: string | null;
-    /**
-     * End Date
-     */
-    end_date: string | null;
-    travelers: Travelers | null;
-    budget: MoneyOutput | null;
-    /**
-     * Limits
-     */
-    limits: Array<SpendingLimitOutput>;
-    preferences: PlanPreferences;
-    /**
-     * Notes
-     */
-    notes: string;
-    /**
-     * Version
-     */
-    version: number;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Updated At
-     */
-    updated_at: string;
-    /**
-     * Items
-     */
-    items: Array<FlightItem | LodgingItem | ActivityItem | TransferItem>;
-    /**
-     * Stages
-     */
-    stages: Array<StageStatusWritable>;
-    /**
-     * Gaps
-     */
-    gaps: Array<Gap>;
-    assessment: PlanAssessment;
-    /**
-     * Problems
-     */
-    problems: Array<Problem>;
-    /**
-     * Complete
-     */
-    complete: boolean;
-    /**
-     * Pending
-     */
-    pending: ({
-        type: 'ask_input';
-    } & AskInput) | ({
-        type: 'offer_choice';
-    } & OfferChoice) | ({
-        type: 'review_proposal';
-    } & ReviewProposal) | null;
 };
 
 export type GetHealthData = {
@@ -3051,48 +2703,6 @@ export type UpdatePlanResponses = {
 };
 
 export type UpdatePlanResponse = UpdatePlanResponses[keyof UpdatePlanResponses];
-
-export type ChangeStageData = {
-    body: StageChange;
-    path: {
-        /**
-         * Plan Id
-         */
-        plan_id: string;
-    };
-    query?: never;
-    url: '/plans/{plan_id}/stage';
-};
-
-export type ChangeStageErrors = {
-    /**
-     * Unauthorized
-     */
-    401: ErrorResponse;
-    /**
-     * Not Found
-     */
-    404: ErrorResponse;
-    /**
-     * Conflict
-     */
-    409: ErrorResponse;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type ChangeStageError = ChangeStageErrors[keyof ChangeStageErrors];
-
-export type ChangeStageResponses = {
-    /**
-     * Successful Response
-     */
-    200: TravelPlan;
-};
-
-export type ChangeStageResponse = ChangeStageResponses[keyof ChangeStageResponses];
 
 export type ListItemsData = {
     body?: never;

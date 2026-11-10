@@ -1,4 +1,4 @@
-"""Flight searches for the flights stage: the query a plan makes, ranking by preferences, and
+"""Flight searches: the query a plan makes, ranking by preferences, and
 the candidates (with the changes picking them makes). No database: the provider is a fake."""
 
 from collections.abc import Sequence
@@ -23,7 +23,6 @@ from features.plans.schemas import (
     FlightPreferences,
     PlanPreferences,
     PlanSnapshot,
-    PlanStage,
     SlotName,
 )
 from shared.domain import Money, Place, Travelers
@@ -46,12 +45,10 @@ TODAY = date(2026, 10, 15)
 
 OUTBOUND = RunSearch(
     slot=SlotName.FLIGHT_OUTBOUND,
-    stage=PlanStage.FLIGHTS,
     label="Find flights out",
 )
 RETURN = RunSearch(
     slot=SlotName.FLIGHT_RETURN,
-    stage=PlanStage.FLIGHTS,
     label="Find flights home",
 )
 
@@ -62,7 +59,7 @@ def _plan(
     **overrides: object,
 ) -> PlanSnapshot:
     preferences = PlanPreferences(flights=prefs or FlightPreferences())
-    return snapshot(items, stage=PlanStage.FLIGHTS, preferences=preferences, **overrides)
+    return snapshot(items, preferences=preferences, **overrides)
 
 
 def _ctx(flights: FakeFlightProvider) -> SearchContext:

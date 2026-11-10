@@ -1,5 +1,5 @@
 """Input slot answers: check one against its slot, describe it for the transcript, and write
-it to the plan. The same path serves a submitted form and a value the extractor read from
+it to the plan. The same path serves a submitted form and a value a command carries from
 free text, so both are validated alike. No model calls here.
 """
 

@@ -1,4 +1,4 @@
-import { CircleAlert, Compass, Flag } from 'lucide-react'
+import { CircleAlert, Compass } from 'lucide-react'
 
 import type { PlanningMessage } from '@/api/types.gen'
 import { ChangesCard } from '@/components/ChangesCard/ChangesCard'
@@ -8,7 +8,7 @@ import { TypingDots } from '@/components/TypingDots/TypingDots'
 // One transcript entry. Renders stored messages and the live, streaming reply the same way:
 // user bubbles on the right (free text, form answers and picks), assistant replies on the
 // left (a planner question, `expected_input` / `choices`, reads as one too), nudges back to
-// the pending question as a soft hint card, a stage move as a divider, what a typed edit
+// the pending question as a soft hint card, what a typed edit
 // changed as a list card, and failures as an error notice.
 
 // ----- types -----
@@ -37,25 +37,6 @@ export function MessageBubble({
                 <p className="bg-primary text-primary-foreground max-w-[85%] rounded-2xl rounded-br-md px-3 py-1.5 text-sm leading-snug whitespace-pre-wrap">
                     {content}
                 </p>
-            </div>
-        )
-    }
-
-    if (kind === 'stage') {
-        // The planner moved on to another stage: a divider, not a message.
-        return (
-            <div
-                role="separator"
-                aria-label={content}
-                data-role="system"
-                className="text-muted-foreground flex items-center gap-3 py-1 text-xs"
-            >
-                <span className="bg-border h-px flex-1" aria-hidden />
-                <span className="flex items-center gap-1.5">
-                    <Flag className="size-3.5" aria-hidden />
-                    {content}
-                </span>
-                <span className="bg-border h-px flex-1" aria-hidden />
             </div>
         )
     }

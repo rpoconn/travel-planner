@@ -20,7 +20,7 @@ from shared.domain import Money
 
 
 # A flight's cabin class, for searches, flight preferences and itinerary flights. (No class
-# docstring: it would land in the extractor's and the tools' schemas.)
+# docstring: it would land in the tools' schemas.)
 class FlightCabin(StrEnum):
     ECONOMY = "economy"
     PREMIUM = "premium"

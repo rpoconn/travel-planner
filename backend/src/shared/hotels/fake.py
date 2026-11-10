@@ -2,7 +2,7 @@
 
 Without scripted replies it makes up obviously fake but well-formed places to stay for the
 query ("Example ..."), two per star class asked for (or three classes when any will do),
-so the lodging stage runs with no network access or API key.
+so the lodging search runs with no network access or API key.
 """
 
 from collections import deque

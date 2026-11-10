@@ -1,4 +1,4 @@
-"""Ways across a gap, for the ground stage: what kind of gap it is, the ways offered, how long
+"""Ways across a gap: what kind of gap it is, the ways offered, how long
 and how much, and when the ride happens. Rules only, so no providers at all."""
 
 from datetime import date, timedelta
@@ -22,7 +22,7 @@ from features.planning.transfer_search import (
     transfers,
     ways,
 )
-from features.plans.schemas import PlanStage, SlotName
+from features.plans.schemas import SlotName
 from shared.domain import Money, Place
 from shared.flights.fake import FakeFlightProvider
 from shared.hotels.fake import FakeHotelProvider
@@ -58,7 +58,6 @@ def _ctx() -> SearchContext:
 def _action(gap: Gap | None) -> RunSearch:
     return RunSearch(
         slot=SlotName.TRANSFER,
-        stage=PlanStage.GROUND,
         label="Find a way",
         gap=gap,
     )
@@ -279,7 +278,7 @@ def _rental_trip() -> list[ItineraryItem]:
 
 
 def test_leaving_home_without_flights_the_own_car_leads() -> None:
-    plan = snapshot([lodging("2027-05-02T17:00", "2027-05-04T09:00")], flights_skipped=True)
+    plan = snapshot([lodging("2027-05-02T17:00", "2027-05-04T09:00")], no_flights=True)
     leaving = plan.gaps[0]
 
     assert ways(plan, leaving, gap_kind(plan, leaving), None) == [
@@ -300,7 +299,7 @@ def test_flying_the_own_car_is_never_offered() -> None:
 
 
 def test_the_own_car_leads_once_it_is_on_the_trip() -> None:
-    plan = snapshot(_driving_trip(), flights_skipped=True)
+    plan = snapshot(_driving_trip(), no_flights=True)
     to_temple, back_to_stay, home_back = plan.gaps
 
     for gap in (to_temple, back_to_stay, home_back):
@@ -311,7 +310,7 @@ def test_the_own_car_leads_once_it_is_on_the_trip() -> None:
 
 
 async def test_driving_the_own_car_costs_fuel_and_parking() -> None:
-    plan = snapshot(_driving_trip(), flights_skipped=True)
+    plan = snapshot(_driving_trip(), no_flights=True)
     to_temple = plan.gaps[0]
 
     own, *_ = await transfers(_ctx(), plan, _action(to_temple))

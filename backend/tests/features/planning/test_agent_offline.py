@@ -15,9 +15,9 @@ from features.planning.agent.offline import (
     OFFLINE_ANSWER,
     PICK_ABOVE,
     SUGGEST_REASON,
+    agent_reply,
 )
 from features.planning.agent.tools import TurnContext, store
-from features.planning.offline import planning_reply
 from features.planning.pending import ask_input
 from features.planning.schemas import AskInput, OfferChoice, ReviewProposal
 from features.plans.schemas import SlotName
@@ -31,7 +31,7 @@ FIRST = "The first one."
 @pytest.fixture
 def offline(turn: TurnContext) -> TurnContext:
     """The turn's context with the fake the app runs offline."""
-    return replace(turn, llm=FakeLLM(fallback=planning_reply))
+    return replace(turn, llm=FakeLLM(fallback=agent_reply))
 
 
 async def _asked(ctx: TurnContext) -> SlotName | None:

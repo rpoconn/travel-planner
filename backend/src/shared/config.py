@@ -68,12 +68,12 @@ class Settings(BaseSettings):
     serpapi_api_key: str | None = None
     flight_search_timeout_seconds: float = Field(default=30.0, gt=0)
 
-    # Hotel search for the lodging stage: "serpapi" (Google Hotels results; the same
+    # Hotel search for lodging: "serpapi" (Google Hotels results; the same
     # SERPAPI_API_KEY) or "fake" (made-up places to stay, no network).
     hotel_provider: Literal["serpapi", "fake"] = "serpapi"
     hotel_search_timeout_seconds: float = Field(default=30.0, gt=0)
 
-    # Place search for the activities stage: "serpapi" (Google Maps results; the same
+    # Place search for activities: "serpapi" (Google Maps results; the same
     # SERPAPI_API_KEY) or "fake" (made-up museums and restaurants, no network).
     places_provider: Literal["serpapi", "fake"] = "serpapi"
     places_search_timeout_seconds: float = Field(default=30.0, gt=0)

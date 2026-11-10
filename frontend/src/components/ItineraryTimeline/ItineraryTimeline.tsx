@@ -12,8 +12,8 @@ import { findTimelineItem } from '@/lib/timeline'
 // The itinerary panel: day columns left to right (outbound flight on the first day,
 // return on the last) and lodging bars spanning the nights. The layout comes from the server's
 // timeline view model; plan_updated events refetch it. Clicking an item opens its details, with
-// a button to remove it (the planner runs the removal as a turn in the chat). The planner's issues
-// live in the stage bar (IssuesPanel); per-day and per-item warnings still mark the cards here.
+// a button to remove it (the planner runs the removal as a turn in the chat). The plan's problems
+// are listed above it (ProblemsPanel); per-day and per-item warnings still mark the cards here.
 // The panel has no title bar: the day and item counts are in the page's top bar (TripSummary).
 
 // ----- types -----

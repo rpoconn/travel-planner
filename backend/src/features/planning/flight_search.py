@@ -1,4 +1,4 @@
-"""Flight searches for the flights stage: the flights out, then the flights home.
+"""Flight searches for flights: the flights out, then the flights home.
 
 A round trip is searched in two steps, as the provider does it: the flights out, each
 priced as the whole round trip with its cheapest flight home, and, once one is picked, the
@@ -58,8 +58,8 @@ def _airports(place: Place, role: str) -> tuple[str, ...]:
     codes = city_airports(place.iata, place.city, place.name)
     if not codes:
         raise SearchFailedError(
-            f"I couldn't find an airport for {place.name} (where the trip {role}). Go back to "
-            "the basics and give the nearest city with an airport, or skip flights."
+            f"I couldn't find an airport for {place.name} (where the trip {role}). Give the "
+            "nearest city with an airport, or say so if you'll get there another way."
         )
     return codes
 
@@ -67,7 +67,7 @@ def _airports(place: Place, role: str) -> tuple[str, ...]:
 def _preferences(plan: PlanSnapshot) -> FlightPreferences:
     prefs = plan.preferences.flights
     if prefs is None:
-        # The engine asks for the preferences before it offers a search.
+        # The planner asks for the preferences before it searches.
         raise SearchFailedError("Tell me how you like to fly first.")
     return prefs
 

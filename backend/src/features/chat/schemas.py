@@ -31,8 +31,6 @@ class MessageKind(StrEnum):
     EXPECTED_INPUT = "expected_input"
     # The candidates shown.
     CHOICES = "choices"
-    # Moving on to another stage.
-    STAGE = "stage"
     # Edits the user asked for in their own words, as written (or why none were).
     CHANGES = "changes"
 

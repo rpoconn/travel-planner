@@ -16,7 +16,7 @@ NOT_CONFIGURED = "Hotel search is not configured (set SERPAPI_API_KEY to enable 
 
 
 class UnavailableHotelProvider:
-    """Stands in when no hotel backend is configured, so the lodging stage says why it
+    """Stands in when no hotel backend is configured, so the lodging search says why it
     can't search."""
 
     async def search(self, query: HotelQuery) -> list[HotelOption]:

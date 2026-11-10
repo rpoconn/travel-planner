@@ -1,12 +1,12 @@
-"""Builders for plan snapshots, for stage and planning engine tests (no database)."""
+"""Builders for plan snapshots, for validation and search tests (no database)."""
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
-from features.itinerary.schemas import ItineraryItem
+from features.itinerary.gaps import find_gaps
+from features.itinerary.schemas import ItineraryItem, active
 from features.plans.schemas import PlanDetails, PlanSnapshot
-from features.plans.stages import plan_progress
 from shared.domain import Place
 from tests.features.itinerary.factories import (
     HOME,
@@ -32,8 +32,7 @@ def details(**overrides: object) -> PlanDetails:
         "user_id": uuid4(),
         "title": "Tokyo",
         "status": "draft",
-        "stage": "basics",
-        "flights_skipped": False,
+        "no_flights": False,
         "origin": HOME,
         "destination": Place(name="Tokyo"),
         "start_date": date(2027, 5, 1),
@@ -51,10 +50,8 @@ def details(**overrides: object) -> PlanDetails:
 
 def snapshot(items: Sequence[ItineraryItem] = (), **overrides: object) -> PlanSnapshot:
     plan = details(**overrides)
-    progress = plan_progress(plan, items)
-    return PlanSnapshot.model_validate(
-        {**dict(plan), "items": list(items), "stages": progress.stages, "gaps": progress.gaps}
-    )
+    gaps = find_gaps(active(items), plan.origin)
+    return PlanSnapshot.model_validate({**dict(plan), "items": list(items), "gaps": gaps})
 
 
 def outbound_flight() -> ItineraryItem:
@@ -73,7 +70,7 @@ def return_flight() -> ItineraryItem:
 
 
 def complete_trip() -> list[ItineraryItem]:
-    """Every stage done: flights both ways, three nights, a visit, and every transfer."""
+    """Nothing left to fix: flights both ways, three nights, a visit, and every transfer."""
     return [
         transfer(
             "2027-05-01T07:00", "2027-05-01T08:00", from_place=HOME, to_place=SFO, timezone=LA_TZ

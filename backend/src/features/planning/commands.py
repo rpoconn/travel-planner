@@ -1,7 +1,7 @@
 """Commands: plan edits the user asked for in their own words, checked against the plan's
 rules and written all or nothing. The words are the approval, as a pick is.
 
-A command (`planning.schemas.Command`) names what to change, pointing at an item by its
+A command (`planning.schemas.AgentCommand`) names what to change, pointing at an item by its
 number in the itinerary list (`numbered_items`) and at a basic by its field. This module
 turns each one into the write that already exists for it and runs that write's rules:
 
@@ -12,12 +12,8 @@ turns each one into the write that already exists for it and runs that write's r
   `answers.parse_answer` / `apply_answer`, as the slot's form.
 - `set_flight_preferences` / `set_lodging_preferences` / `set_activity_preferences` → the
   fields given, over the stored preferences, checked by the preference model and written
-  with `plans_service.update_preferences`. The version moves on, so choices on show for
-  that stage are searched for again.
-- `change_stage` → `plans.stages.apply_stage_change` / `plans_service.set_stage`.
-- `redo_search` → nothing to write: it checks that the search is the one behind the
-  pending choices (`engine.refresh_search`), and the turn then runs it again the way
-  "More options" does, leaving out what it already offered.
+  with `plans_service.update_preferences`. The version moves on, so choices on show are
+  searched for again.
 - `add_candidate` → the candidate's own `chat.tools` changes, as a pick writes them. The
   caller hands over the candidates the command may name, by ref (`candidates`); the
   command never carries an item's contents.
@@ -36,7 +32,7 @@ An item's Remove button comes here too, as a `remove_item` command (`removal`).
 
 Every command is checked, with the earlier ones staged, before any is written; one that
 breaks a rule means nothing is written, and the outcome says which rule. No model calls
-here: free text reaches this module only as commands the reader filled in.
+here: free text reaches this module only as commands the model filled in.
 """
 
 import logging
@@ -61,47 +57,39 @@ from features.planning.answers import (
     describe_value,
     parse_answer,
 )
-from features.planning.engine import refresh_search
 from features.planning.picks import keep_outbound_token
 from features.planning.schemas import (
     BASICS_FIELDS,
     MAX_COMMANDS,
     AddCandidate,
     AgentCommand,
-    AnyCommand,
     AppliedChange,
     BasicName,
     BasicsChange,
     BasicsCommand,
     Candidate,
     ChangesRecord,
-    ChangeStage,
     CommandName,
     PreferencesChange,
     PreferencesCommand,
     PreferenceSection,
+    Problem,
     ProposalChange,
-    RedoSearch,
     RejectedChange,
     RemoveItem,
-    SearchName,
     SetTravelMode,
     UpdateItem,
 )
 from features.planning.slots import SLOTS
-from features.planning.validation import night_ranges, range_label
+from features.planning.validation import blocking_problems
 from features.plans import service as plans_service
 from features.plans.schemas import (
     ActivityPreferences,
     FlightPreferences,
-    Issue,
     LodgingPreferences,
     PlanPreferences,
     PlanSnapshot,
-    PlanStage,
-    StageChange,
 )
-from features.plans.stages import STAGE_LABELS, StageError, apply_stage_change
 from shared.domain import IssueCode
 from shared.validation import summarize_validation_error
 
@@ -131,13 +119,6 @@ _PREFERENCE_MODELS: dict[PreferenceSection, type[BaseModel]] = {
 
 # Each `StopsChoice` as the `max_stops` a flight preference stores (None: any number).
 _STOPS: dict[str, int | None] = {"nonstop": 0, "up_to_1": 1, "up_to_2": 2, "any": None}
-
-# Each search `redo_search` can run again: the stage it belongs to, and its choices in words.
-_SEARCHES: dict[SearchName, tuple[PlanStage, str]] = {
-    "flights": (PlanStage.FLIGHTS, "flights"),
-    "lodging": (PlanStage.LODGING, "places to stay"),
-    "activities": (PlanStage.ACTIVITIES, "things to do"),
-}
 
 
 class CommandError(ValueError):
@@ -216,17 +197,6 @@ class _PreferencesStep(_Step):
 
 
 @dataclass(frozen=True)
-class _StageStep(_Step):
-    stage: PlanStage
-    flights_skipped: bool
-
-
-@dataclass(frozen=True)
-class _SearchStep(_Step):
-    """Nothing to write: the turn runs the search again once the other commands are in."""
-
-
-@dataclass(frozen=True)
 class _AddStep(_Step):
     ref: str  # how the command named the candidate
     candidate: Candidate
@@ -246,7 +216,7 @@ def _suggested(step: _Step) -> str:
 
 
 def _asked(
-    command: AnyCommand,
+    command: AgentCommand,
     items: Sequence[ItineraryItem],
     candidates: Mapping[str, Candidate] | None = None,
 ) -> str:
@@ -265,14 +235,6 @@ def _asked(
             return f"Change the {_BASICS_LABELS[command.basic].lower()}"
         case PreferencesCommand():
             return f"Change the {_PREFERENCE_LABELS[command.section].lower()}"
-        case RedoSearch():
-            return f"Look for other {_SEARCHES[command.search][1]}"
-        case ChangeStage():
-            if command.action == "skip_flights":
-                return "Skip flights"
-            if command.stage is None:
-                return "Go back a stage"
-            return f"Go back to {STAGE_LABELS[command.stage]}"
 
 
 def _item_change(item_id: UUID, changes: dict[str, JsonValue], summary: str) -> ProposedChange:
@@ -378,39 +340,6 @@ def _set_preferences(command: PreferencesChange, plan: PlanSnapshot) -> _Prefere
     )
 
 
-def _redo_search(command: RedoSearch, plan: PlanSnapshot) -> _SearchStep:
-    stage, choices = _SEARCHES[command.search]
-    pending = refresh_search(plan)
-    if pending is None or pending.stage != stage:
-        # Worded for the repair pass too: a stay already picked is found again by removing it.
-        raise CommandError(
-            f"No {choices} are being offered right now; to find a different one, remove it"
-        )
-    return _SearchStep(
-        name=command.type, asked=_asked(command, ()), done=f"Looking for other {choices}"
-    )
-
-
-def _change_stage(command: ChangeStage, plan: PlanSnapshot) -> _StageStep:
-    try:
-        change = StageChange(action=command.action, stage=command.stage)
-        stage, skipped = apply_stage_change(plan, change)
-    except ValidationError as exc:
-        raise CommandError(summarize_validation_error(exc)) from exc
-    except StageError as exc:
-        raise CommandError(str(exc)) from exc
-    done = (
-        "Skipped flights" if command.action == "skip_flights" else f"Back to {STAGE_LABELS[stage]}"
-    )
-    return _StageStep(
-        name=command.type,
-        asked=_asked(command, ()),
-        done=done,
-        stage=stage,
-        flights_skipped=skipped,
-    )
-
-
 def _add_candidate(command: AddCandidate, candidates: Mapping[str, Candidate]) -> _AddStep:
     candidate = candidates.get(command.candidate)
     if candidate is None:
@@ -435,7 +364,7 @@ def _add_candidate(command: AddCandidate, candidates: Mapping[str, Candidate]) -
 
 
 def _set_travel_mode(command: SetTravelMode, plan: PlanSnapshot) -> _TravelStep:
-    if plan.flights_skipped == command.no_flights:
+    if plan.no_flights == command.no_flights:
         already = "has no flights" if command.no_flights else "is planned with flights"
         raise CommandError(f"The trip already {already}")
     done = "The trip has no flights" if command.no_flights else "The trip has flights again"
@@ -445,7 +374,7 @@ def _set_travel_mode(command: SetTravelMode, plan: PlanSnapshot) -> _TravelStep:
 
 
 def _resolve(
-    command: AnyCommand,
+    command: AgentCommand,
     items: Sequence[ItineraryItem],
     plan: PlanSnapshot,
     today: date,
@@ -465,10 +394,6 @@ def _resolve(
             return _set_basics(command, plan, today)
         case PreferencesCommand():
             return _set_preferences(command, plan)
-        case ChangeStage():
-            return _change_stage(command, plan)
-        case RedoSearch():
-            return _redo_search(command, plan)
 
 
 # ---------------------------------------------------------------------------
@@ -499,13 +424,13 @@ async def _stage(
 async def _check(
     ctx: tools.ToolContext,
     plan: PlanSnapshot,
-    commands: Sequence[AnyCommand],
+    commands: Sequence[AgentCommand],
     candidates: Mapping[str, Candidate],
 ) -> _Checked:
     """Resolve and check every command (writes nothing). Item changes are checked with the
     earlier ones staged, so "remove the hotel, then move dinner" checks the move without
-    the hotel; stage, travel-mode and preference changes are checked from where the
-    earlier ones left the plan. Every command is checked even after one fails, so all the
+    the hotel; travel-mode and preference changes are checked from where the earlier ones
+    left the plan. Every command is checked even after one fails, so all the
     broken rules are reported."""
     if len(commands) > MAX_COMMANDS:
         too_many = RejectedChange(
@@ -518,7 +443,7 @@ async def _check(
     touched: set[UUID] = set()
     removed: set[UUID] = set()  # by an earlier removal, as one of its transfers
     added: set[str] = set()  # candidate refs
-    at = plan  # the plan as the stage, travel-mode and preference changes so far leave it
+    at = plan  # the plan as the travel-mode and preference changes so far leave it
     for command in commands:
         try:
             step = _resolve(command, items, at, ctx.today, touched, candidates)
@@ -541,11 +466,7 @@ async def _check(
                 await _stage(ctx, staged, step.changes)
                 added.add(step.ref)
             elif isinstance(step, _TravelStep):
-                at = at.model_copy(update={"flights_skipped": step.no_flights})
-            elif isinstance(step, _StageStep):
-                at = at.model_copy(
-                    update={"stage": step.stage, "flights_skipped": step.flights_skipped}
-                )
+                at = at.model_copy(update={"no_flights": step.no_flights})
             elif isinstance(step, _PreferencesStep):
                 at = at.model_copy(update={"preferences": step.preferences})
         except CommandError as exc:
@@ -614,10 +535,6 @@ async def _write(ctx: tools.ToolContext, plan: PlanSnapshot, step: _Step) -> Non
         await plans_service.update_preferences(
             ctx.session, ctx.user_id, ctx.plan_id, step.preferences
         )
-    elif isinstance(step, _StageStep):
-        await plans_service.set_stage(
-            ctx.session, ctx.user_id, ctx.plan_id, step.stage, step.flights_skipped
-        )
     elif isinstance(step, _TravelStep):
         await plans_service.set_no_flights(ctx.session, ctx.user_id, ctx.plan_id, step.no_flights)
     elif isinstance(step, _AddStep):
@@ -640,7 +557,7 @@ async def _write(ctx: tools.ToolContext, plan: PlanSnapshot, step: _Step) -> Non
 async def check_and_apply(
     ctx: tools.ToolContext,
     plan: PlanSnapshot,
-    commands: Sequence[AnyCommand],
+    commands: Sequence[AgentCommand],
     candidates: Mapping[str, Candidate] | None = None,
 ) -> ChangesRecord:
     """Check every command against the plan's rules and, when all fit, write them in order.
@@ -673,11 +590,11 @@ async def check_and_apply(
 # What the edit left to fix
 # ---------------------------------------------------------------------------
 
-# How the user can fix each checklist issue an edit can open, put to them with it. The
+# How the user can fix each blocking problem an edit can open, put to them with it. The
 # planner then asks (the choices or the form), so each names the ways to answer.
 _FLIGHT_FIX = (
-    "Pick another flight, tell me what you'd like instead, or skip flights if you'll get "
-    "there another way"
+    "Pick another flight, tell me what you'd like instead, or say so if you'll get there "
+    "another way"
 )
 _FIXES: dict[IssueCode, str] = {
     IssueCode.MISSING_OUTBOUND: _FLIGHT_FIX,
@@ -695,32 +612,18 @@ def _route(gap: Gap) -> tuple[str, str]:
     )
 
 
-def _opened(before: Sequence[Issue], after: Sequence[Issue]) -> list[Issue]:
-    """The issues in `after` of a kind `before` had none of: what the edit took away. More
-    of something the trip already lacked (other nights without a stay, once the dates
+def _fixable(plan: PlanSnapshot) -> list[Problem]:
+    """The blocking problems an edit can open and the user is asked to fix: flights, stays
+    (one per run of nights, as one stay covers a run) and activities."""
+    return [problem for problem in blocking_problems(plan) if problem.code in _FIXES]
+
+
+def _opened(before: Sequence[Problem], after: Sequence[Problem]) -> list[Problem]:
+    """The problems in `after` of a kind `before` had none of: what the edit took away.
+    More of something the trip already lacked (other nights without a stay, once the dates
     move) isn't news, and the problems list shows it anyway."""
-    had = {issue.code for issue in before}
-    return [issue for issue in after if issue.code not in had]
-
-
-def _checklist(plan: PlanSnapshot) -> list[Issue]:
-    """The blocking issues an edit can open and the user is asked to fix: flights, stays
-    and activities."""
-    return [issue for status in plan.stages for issue in status.issues if issue.code in _FIXES]
-
-
-def _issue_notes(opened: Sequence[Issue]) -> list[str]:
-    """Each opened issue in words, with how to fix it. Uncovered nights come as runs, one
-    stay each, as the lodging stage asks for them."""
-    notes: list[str] = []
-    nights = [i.date for i in opened if i.code == IssueCode.UNCOVERED_NIGHT and i.date]
-    for issue in opened:
-        if issue.code != IssueCode.UNCOVERED_NIGHT:
-            notes.append(f"The trip needs {issue.message} now. {_FIXES[issue.code]}")
-    for run in night_ranges(nights):
-        fix = _FIXES[IssueCode.UNCOVERED_NIGHT]
-        notes.append(f"The trip needs a place to stay {range_label(run)} now. {fix}")
-    return notes
+    had = {problem.code for problem in before}
+    return [problem for problem in after if problem.code not in had]
 
 
 async def _left_open(ctx: tools.ToolContext, before: PlanSnapshot) -> list[str]:
@@ -733,9 +636,9 @@ async def _left_open(ctx: tools.ToolContext, before: PlanSnapshot) -> list[str]:
     route missing more often than before is new. They aren't named when a flight or stay
     is missing too: replacing it moves the rides, and they are found again then."""
     after = await itinerary_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
-    opened = _opened(_checklist(before), _checklist(after))
+    opened = _opened(_fixable(before), _fixable(after))
     if opened:
-        return _issue_notes(opened)
+        return [f"The trip needs {p.message} now. {_FIXES[p.code]}" for p in opened]
     known = Counter(_route(gap) for gap in before.gaps)
     notes: list[str] = []
     for gap in after.gaps:

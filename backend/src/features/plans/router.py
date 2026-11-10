@@ -5,12 +5,11 @@ from fastapi import APIRouter, HTTPException, status
 from features.auth.dependencies import CurrentUser
 from features.planning import service as planning_service
 from features.planning.schemas import TravelPlan
-from features.plans import service, stages
+from features.plans import service
 from features.plans.schemas import (
     PlanCreate,
     PlanSummary,
     PlanUpdate,
-    StageChange,
 )
 from shared.db import SessionDep
 from shared.domain import Place
@@ -70,27 +69,6 @@ async def update_plan(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
-    return await planning_service.snapshot(session, plan)
-
-
-@router.post(
-    "/{plan_id}/stage",
-    operation_id="changeStage",
-    responses=_NOT_FOUND | error_responses(status.HTTP_409_CONFLICT),
-)
-async def change_stage(
-    plan_id: UUID, body: StageChange, user: CurrentUser, session: SessionDep
-) -> TravelPlan:
-    """Move through the planning stages. `next` is refused (409) until the current stage's
-    checklist is complete; going back is always allowed."""
-    try:
-        current = await planning_service.get_plan_snapshot(session, user.id, plan_id)
-        stage, flights_skipped = stages.apply_stage_change(current, body)
-        plan = await service.set_stage(session, user.id, plan_id, stage, flights_skipped)
-    except service.PlanNotFoundError as exc:
-        raise _not_found() from exc
-    except stages.StageError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return await planning_service.snapshot(session, plan)
 
 

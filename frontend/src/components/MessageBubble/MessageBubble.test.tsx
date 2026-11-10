@@ -50,16 +50,6 @@ describe('MessageBubble', () => {
         ).toHaveTextContent('Which dates are you travelling?')
     })
 
-    it('renders a stage move as a divider, not an error', () => {
-        render(
-            <MessageBubble role="system" kind="stage" content="Basics done. Next up: flights." />,
-        )
-
-        expect(
-            screen.getByRole('separator', { name: 'Basics done. Next up: flights.' }),
-        ).toBeInTheDocument()
-    })
-
     it('renders what a typed edit changed as a list card', () => {
         render(
             <MessageBubble

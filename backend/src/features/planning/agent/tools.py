@@ -315,22 +315,19 @@ def _problem(plan: TravelPlan, problem_id: str | None, slot: SlotName) -> Proble
 
 def _search_action(plan: TravelPlan, args: SearchArgs) -> RunSearch:
     slot = SEARCH_SLOTS[args.kind]
-    spec = SLOTS[slot]
     label = _SEARCH_LABELS[args.kind]
     if args.kind in ("stay", "transfer"):
         problem = _problem(plan, args.problem, slot)
-        return RunSearch(
-            slot=slot, stage=spec.stage, label=label, gap=problem.gap, nights=problem.nights
-        )
+        return RunSearch(slot=slot, label=label, gap=problem.gap, nights=problem.nights)
     if args.kind != "activities" and not any(p.fix.slot == slot for p in plan.problems):
         # A second flight the same way would break the route's rules when added.
         flight = _FLIGHTS_IN_WORDS[args.kind]
-        if plan.flights_skipped:
+        if plan.no_flights:
             raise _RefusedError(
                 "The trip is planned without flights; set_travel_mode brings them back"
             )
         raise _RefusedError(f"The trip already has a {flight}; remove it to look for another")
-    return RunSearch(slot=slot, stage=spec.stage, label=label)
+    return RunSearch(slot=slot, label=label)
 
 
 def _check_preferences(plan: TravelPlan, kind: SearchKind) -> None:
@@ -423,7 +420,6 @@ async def _present_choices(state: TurnState, args: PresentChoicesArgs) -> ToolOu
         ctx.session,
         plan_id=ctx.plan_id,
         slot=found.action.slot,
-        stage=found.action.stage,
         plan_version=plan.version,
         candidates=found.candidates,
         query_hash=found.key,

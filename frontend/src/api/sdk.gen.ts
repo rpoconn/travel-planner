@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AddItemData, AddItemErrors, AddItemResponses, ChangeStageData, ChangeStageErrors, ChangeStageResponses, ContinuePlanningData, ContinuePlanningErrors, ContinuePlanningResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DecidePlanningProposalData, DecidePlanningProposalErrors, DecidePlanningProposalResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListPlanningMessagesData, ListPlanningMessagesErrors, ListPlanningMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, RemovePlanItemData, RemovePlanItemErrors, RemovePlanItemResponses, SendPlanningMessageData, SendPlanningMessageErrors, SendPlanningMessageResponses, SubmitPlanningInputData, SubmitPlanningInputErrors, SubmitPlanningInputResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdateMeData, UpdateMeErrors, UpdateMeResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
+import type { AddItemData, AddItemErrors, AddItemResponses, ContinuePlanningData, ContinuePlanningErrors, ContinuePlanningResponses, CreatePlanData, CreatePlanErrors, CreatePlanResponses, DecidePlanningProposalData, DecidePlanningProposalErrors, DecidePlanningProposalResponses, DeletePlanData, DeletePlanErrors, DeletePlanResponses, GetHealthData, GetHealthResponses, GetMeData, GetMeErrors, GetMeResponses, GetPlanData, GetPlanErrors, GetPlanResponses, GetTimelineData, GetTimelineErrors, GetTimelineResponses, ListItemsData, ListItemsErrors, ListItemsResponses, ListPlanningMessagesData, ListPlanningMessagesErrors, ListPlanningMessagesResponses, ListPlansData, ListPlansErrors, ListPlansResponses, LoginData, LoginErrors, LoginResponses, RegisterData, RegisterErrors, RegisterResponses, RemoveItemData, RemoveItemErrors, RemoveItemResponses, RemovePlanItemData, RemovePlanItemErrors, RemovePlanItemResponses, SendPlanningMessageData, SendPlanningMessageErrors, SendPlanningMessageResponses, SubmitPlanningInputData, SubmitPlanningInputErrors, SubmitPlanningInputResponses, UpdateItemData, UpdateItemErrors, UpdateItemResponses, UpdateMeData, UpdateMeErrors, UpdateMeResponses, UpdatePlanData, UpdatePlanErrors, UpdatePlanResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -133,22 +133,6 @@ export const getPlan = <ThrowOnError extends boolean = false>(options: Options<G
 export const updatePlan = <ThrowOnError extends boolean = false>(options: Options<UpdatePlanData, ThrowOnError>): RequestResult<UpdatePlanResponses, UpdatePlanErrors, ThrowOnError> => (options.client ?? client).patch<UpdatePlanResponses, UpdatePlanErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/plans/{plan_id}',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * Change Stage
- *
- * Move through the planning stages. `next` is refused (409) until the current stage's
- * checklist is complete; going back is always allowed.
- */
-export const changeStage = <ThrowOnError extends boolean = false>(options: Options<ChangeStageData, ThrowOnError>): RequestResult<ChangeStageResponses, ChangeStageErrors, ThrowOnError> => (options.client ?? client).post<ChangeStageResponses, ChangeStageErrors, ThrowOnError>({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/plans/{plan_id}/stage',
     ...options,
     headers: {
         'Content-Type': 'application/json',

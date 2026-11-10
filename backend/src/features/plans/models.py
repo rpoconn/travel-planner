@@ -21,10 +21,8 @@ class Plan(Base):
     )
     title: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(20), default="draft")
-    # Workflow position (see `schemas.PlanStage`); only `service.set_stage` changes it.
-    stage: Mapped[str] = mapped_column(String(20), default="basics")
-    # The user chose to travel without flying; the flights stage then counts as done.
-    flights_skipped: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The user chose to travel without flying, so the trip needs no flight out or home.
+    no_flights: Mapped[bool] = mapped_column(Boolean, default=False)
     origin: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
     destination: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
     start_date: Mapped[date | None] = mapped_column(default=None)

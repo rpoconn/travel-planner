@@ -6,8 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from features.planning.agent.offline import COMPLETE, SUGGEST_REASON
-from features.planning.offline import planning_reply
+from features.planning.agent.offline import COMPLETE, SUGGEST_REASON, agent_reply
 from features.planning.schemas import ReviewProposal
 from shared.config import Settings
 from shared.llm.fake import FakeLLM
@@ -34,7 +33,7 @@ def settings(settings: Settings) -> Settings:
 
 @pytest.fixture(autouse=True)
 def offline_llm(app: FastAPI) -> None:
-    app.state.llm = FakeLLM(fallback=planning_reply)
+    app.state.llm = FakeLLM(fallback=agent_reply)
 
 
 async def test_a_whole_trip_is_planned_with_forms_and_picks(

@@ -1,7 +1,7 @@
 """Commands: resolving item numbers, checking every command against the plan's rules with
 the earlier ones staged, writing all or nothing, and the summaries the transcript shows.
 
-The plan is the Lisbon trip at the ground stage (`planning_http.reach`), with no search
+The plan is the Lisbon trip without flights (`planning_http.reach`), with no search
 preferences: its items, in time order, are 1 "Friend's flat" (May 1-8) and 2 "Dinner in"
 (May 2).
 """
@@ -9,7 +9,6 @@ preferences: its items, in time order, are 1 "Friend's flat" (May 1-8) and 2 "Di
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
@@ -36,7 +35,6 @@ from features.planning.schemas import (
     Candidate,
     CandidateChange,
     ChangesRecord,
-    Command,
     ProposalChange,
     RejectedChange,
     RunSearch,
@@ -48,7 +46,6 @@ from features.plans.schemas import (
     FlightPreferences,
     LodgingPreferences,
     PlanPreferences,
-    PlanStage,
     PlanUpdate,
     SlotName,
 )
@@ -61,8 +58,7 @@ from tests.features.planning.planning_http import BASICS, FLAT, LISBON_TZ, creat
 # Fixed so the trip (May 2027) stays in the future.
 TODAY = date(2026, 11, 1)
 
-COMMANDS: TypeAdapter[list[Command]] = TypeAdapter(list[Command])
-AGENT_COMMANDS: TypeAdapter[list[AgentCommand]] = TypeAdapter(list[AgentCommand])
+COMMANDS: TypeAdapter[list[AgentCommand]] = TypeAdapter(list[AgentCommand])
 FLAT_REF, DINNER_REF = 1, 2
 
 
@@ -84,7 +80,7 @@ async def ctx(
     plan_id: str,
     session: AsyncSession,
 ) -> ToolContext:
-    await reach(app, client, headers, plan_id, PlanStage.GROUND)
+    await reach(app, client, headers, plan_id)
     response = await client.get(f"/plans/{plan_id}", headers=headers)
     plan = TravelPlan.model_validate_json(response.content)
     return ToolContext(session=session, user_id=plan.user_id, plan_id=plan.id, today=TODAY)
@@ -109,10 +105,6 @@ def _remove(ref: int) -> dict[str, JsonValue]:
 
 def _update(ref: int, **changes: JsonValue) -> dict[str, JsonValue]:
     return {"type": "update_item", "item": ref, "changes": changes}
-
-
-def _stage(action: str, stage: str | None = None) -> dict[str, JsonValue]:
-    return {"type": "change_stage", "action": action, "stage": stage}
 
 
 TRAM = Place(name="Tram 28 stop", city="Lisbon")
@@ -193,7 +185,7 @@ async def _titles(ctx: ToolContext) -> list[str]:
         # A place carries only what the searches read.
         {"type": "set_destination", "name": "Lisbon", "lat": 38.7},
         {"type": "set_basics", "budget": {"amount": 1, "currency": "USD"}},  # the old shape
-        _stage("next"),  # moving on is the engine's job
+        {"type": "change_stage", "action": "back"},  # there are no stages to move between
     ],
 )
 def test_a_command_outside_the_vocabulary_is_malformed(command: dict[str, JsonValue]) -> None:
@@ -313,17 +305,22 @@ async def test_a_ride_missing_before_the_edit_is_not_named_again(ctx: ToolContex
     assert record.left_open == []
 
 
-async def test_what_an_edit_takes_away_is_named_whatever_stage_the_plan_is_at(
-    ctx: ToolContext,
-) -> None:
-    await plans_service.set_stage(ctx.session, ctx.user_id, ctx.plan_id, PlanStage.BASICS, True)
-
+async def test_what_an_edit_takes_away_is_named(ctx: ToolContext) -> None:
     record = await _run(ctx, _remove(DINNER_REF))
 
     assert record.left_open == [
         "The trip needs at least one activity now. Pick something else to do, or tell me "
         "what you're into"
     ]
+
+
+async def test_a_stay_an_edit_takes_away_is_named_as_one_run_of_nights(ctx: ToolContext) -> None:
+    record = await _run(ctx, _remove(FLAT_REF))
+
+    assert describe_changes(record) == (
+        "Removed “Friend's flat”. The trip needs a place to stay May 1 to May 8 now. "
+        "Pick another place to stay, or tell me what you'd like instead."
+    )
 
 
 async def test_more_of_what_the_trip_already_lacked_is_not_named(ctx: ToolContext) -> None:
@@ -527,62 +524,6 @@ async def test_basics_follow_their_form_rules(
 
 
 # ---------------------------------------------------------------------------
-# Stages
-# ---------------------------------------------------------------------------
-
-
-async def test_going_back_to_an_earlier_stage(ctx: ToolContext) -> None:
-    record = await _run(ctx, _stage("go_to", "lodging"))
-
-    assert [change.summary for change in record.applied] == ["Back to lodging"]
-    assert (await _plan(ctx)).stage == PlanStage.LODGING
-
-
-async def test_stage_changes_follow_on_from_each_other(ctx: ToolContext) -> None:
-    record = await _run(ctx, _stage("back"), _stage("back"))
-
-    assert [change.summary for change in record.applied] == [
-        "Back to activities",
-        "Back to lodging",
-    ]
-    assert (await _plan(ctx)).stage == PlanStage.LODGING
-
-
-@pytest.mark.parametrize(
-    ("command", "summary", "reason"),
-    [
-        (_stage("go_to", "review"), "Go back to review", "You can only go back to an earlier"),
-        (_stage("go_to"), "Go back a stage", "go_to needs a stage"),
-        (_stage("skip_flights"), "Skip flights", "Flights can only be skipped from"),
-    ],
-)
-async def test_a_stage_change_the_workflow_does_not_allow(
-    ctx: ToolContext, command: dict[str, JsonValue], summary: str, reason: str
-) -> None:
-    record = await _run(ctx, command)
-
-    (rejection,) = record.rejected
-    assert rejection.summary == summary and reason in rejection.reason
-    assert (await _plan(ctx)).stage == PlanStage.GROUND
-
-
-async def test_an_item_change_and_a_stage_change_go_together(ctx: ToolContext) -> None:
-    flat: UUID = (await _item(ctx, FLAT_REF)).id
-
-    record = await _run(ctx, _remove(FLAT_REF), _stage("go_to", "lodging"))
-
-    assert record.applied == [
-        AppliedChange(name="remove_item", summary="Removed “Friend's flat”", item_id=flat),
-        AppliedChange(name="change_stage", summary="Back to lodging"),
-    ]
-    # Lodging is reached again, so the nights the flat covered are named with the fix.
-    assert describe_changes(record) == (
-        "Removed “Friend's flat”. Back to lodging. The trip needs a place to stay May 1 to "
-        "May 8 now. Pick another place to stay, or tell me what you'd like instead."
-    )
-
-
-# ---------------------------------------------------------------------------
 # Preferences
 # ---------------------------------------------------------------------------
 
@@ -681,16 +622,15 @@ async def test_preferences_follow_their_form_rules(
 @pytest.mark.parametrize(
     "command",
     [
-        _lodging(hotel_class="upscale", cabin="business"),  # one stage's per command
+        _lodging(hotel_class="upscale", cabin="business"),  # one kind of preferences per command
         _lodging(stars=5),
         _lodging(nightly_budget={"amount": 200}),  # the currency is required
         _flights(max_stops=3),
         {"type": "set_preferences", "lodging": {"hotel_class": "upscale"}},  # the old shape
-        {"type": "redo_search", "search": "transfer"},
-        {"type": "redo_search", "search": "lodging", "hint": "near the sea"},
+        {"type": "redo_search", "search": "lodging"},  # the planner searches itself
     ],
 )
-def test_a_preference_or_search_command_outside_the_vocabulary_is_malformed(
+def test_a_preference_command_outside_the_vocabulary_is_malformed(
     command: dict[str, JsonValue],
 ) -> None:
     with pytest.raises(ValidationError):
@@ -698,7 +638,7 @@ def test_a_preference_or_search_command_outside_the_vocabulary_is_malformed(
 
 
 # ---------------------------------------------------------------------------
-# The agent loop's commands: adding what a search found, and trips without flights
+# Adding what a search found, and trips without flights
 # ---------------------------------------------------------------------------
 
 
@@ -721,7 +661,7 @@ def _tour(title: str = "Tram tour", cost: int | None = None) -> Candidate:
 async def _agent(
     ctx: ToolContext, candidates: Mapping[str, Candidate], *commands: dict[str, JsonValue]
 ) -> ChangesRecord:
-    parsed = AGENT_COMMANDS.validate_python(commands)
+    parsed = COMMANDS.validate_python(commands)
     return await check_and_apply(ctx, await _plan(ctx), parsed, candidates)
 
 
@@ -732,23 +672,15 @@ def _add(ref: str) -> dict[str, JsonValue]:
 @pytest.mark.parametrize(
     "command",
     [
-        _stage("back"),  # there are no stages to move between
-        {"type": "redo_search", "search": "lodging"},  # the loop searches itself
         {"type": "add_candidate", "candidate": "a1", "title": "Mine"},  # never an item's contents
         {"type": "set_travel_mode"},
     ],
 )
-def test_a_command_outside_the_agent_vocabulary_is_malformed(
+def test_an_add_or_travel_mode_command_outside_the_vocabulary_is_malformed(
     command: dict[str, JsonValue],
 ) -> None:
     with pytest.raises(ValidationError):
-        AGENT_COMMANDS.validate_python([command])
-
-
-def test_the_stage_flow_reader_cannot_add_candidates_or_change_the_travel_mode() -> None:
-    for command in (_add("a1"), {"type": "set_travel_mode", "no_flights": True}):
-        with pytest.raises(ValidationError):
-            COMMANDS.validate_python([command])
+        COMMANDS.validate_python([command])
 
 
 async def test_adding_a_candidate_writes_its_changes(ctx: ToolContext) -> None:
@@ -822,7 +754,7 @@ async def test_adding_a_flight_out_keeps_its_token_for_the_flights_home(
         hotels=FakeHotelProvider(),
         places=FakePlaceProvider(),
     )
-    action = RunSearch(slot=SlotName.FLIGHT_OUTBOUND, stage=PlanStage.FLIGHTS, label="Find")
+    action = RunSearch(slot=SlotName.FLIGHT_OUTBOUND, label="Find")
     flight = (await outbound_flights(search, plan, action))[0]
     assert flight.follow_up_token is not None
 
@@ -848,10 +780,9 @@ async def test_a_trip_without_flights_asks_for_none(
         AppliedChange(name="set_travel_mode", summary="The trip has no flights")
     ]
     after = await _plan(new_ctx)
-    assert after.flights_skipped is True
+    assert after.no_flights is True
     assert not {"missing_outbound", "missing_return"} & {p.id for p in after.problems}
-    # The stage flow's position is left alone.
-    assert after.stage == plan.stage and after.version > plan.version
+    assert after.version > plan.version
 
 
 async def test_flights_can_be_wanted_again(ctx: ToolContext) -> None:
@@ -863,7 +794,7 @@ async def test_flights_can_be_wanted_again(ctx: ToolContext) -> None:
 
 
 async def test_a_travel_mode_the_trip_already_has_is_rejected(ctx: ToolContext) -> None:
-    # The fixture's trip got to ground transport without flights.
+    # The fixture's trip is planned without flights.
     record = await _agent(ctx, {}, {"type": "set_travel_mode", "no_flights": True})
 
     assert record.rejected == [
@@ -882,7 +813,7 @@ async def test_a_dry_run_resolves_the_commands_and_writes_nothing(ctx: ToolConte
     await _add_tram_tour(ctx)
     plan = await _plan(ctx)
     fado = _tour("Fado night")
-    commands = AGENT_COMMANDS.validate_python([_remove(4), _add("a1")])
+    commands = COMMANDS.validate_python([_remove(4), _add("a1")])
 
     result = await dry_run(ctx, plan, commands, {"a1": fado})
 
@@ -899,7 +830,7 @@ async def test_a_dry_run_resolves_the_commands_and_writes_nothing(ctx: ToolConte
 
 
 async def test_a_dry_run_reports_every_broken_rule_and_no_changes(ctx: ToolContext) -> None:
-    commands = AGENT_COMMANDS.validate_python([_remove(DINNER_REF), _remove(9), _add("a1")])
+    commands = COMMANDS.validate_python([_remove(DINNER_REF), _remove(9), _add("a1")])
 
     result = await dry_run(ctx, await _plan(ctx), commands)
 
@@ -908,51 +839,3 @@ async def test_a_dry_run_reports_every_broken_rule_and_no_changes(ctx: ToolConte
         "Remove item 9",
         "Add option a1",
     ]
-
-
-# ---------------------------------------------------------------------------
-# Searching again
-# ---------------------------------------------------------------------------
-
-
-async def test_searching_again_needs_those_choices_to_be_pending(ctx: ToolContext) -> None:
-    record = await _run(ctx, {"type": "redo_search", "search": "lodging"})
-
-    assert record == ChangesRecord(
-        rejected=[
-            RejectedChange(
-                summary="Look for other places to stay",
-                reason="No places to stay are being offered right now; to find a different "
-                "one, remove it",
-            )
-        ]
-    )
-
-
-async def test_searching_again_follows_a_preference_change(
-    app: FastAPI, client: AsyncClient, headers: dict[str, str], session: AsyncSession
-) -> None:
-    # At lodging with no preferences, the form is pending: no search to run again until
-    # the first command answers it.
-    plan_id = await create_plan(client, headers, **BASICS)
-    await reach(app, client, headers, plan_id, PlanStage.LODGING)
-    plan = TravelPlan.model_validate_json(
-        (await client.get(f"/plans/{plan_id}", headers=headers)).content
-    )
-    lodging_ctx = ToolContext(session=session, user_id=plan.user_id, plan_id=plan.id, today=TODAY)
-    version = plan.version
-
-    record = await _run(
-        lodging_ctx,
-        _lodging(hotel_class="midrange"),
-        {"type": "redo_search", "search": "lodging"},
-    )
-
-    assert record.applied == [
-        AppliedChange(
-            name="set_lodging_preferences", summary="Lodging preferences: Midrange hotel"
-        ),
-        AppliedChange(name="redo_search", summary="Looking for other places to stay"),
-    ]
-    # Searching again writes nothing itself; the turn runs the search.
-    assert (await _plan(lodging_ctx)).version == version + 1

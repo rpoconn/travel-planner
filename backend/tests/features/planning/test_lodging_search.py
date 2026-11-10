@@ -1,4 +1,4 @@
-"""Hotel searches for the lodging stage: the query a plan makes, ranking by preferences, the
+"""Hotel searches: the query a plan makes, ranking by preferences, the
 stay's zone and times, and the candidates (with the change picking one makes). No
 database: the provider is a fake."""
 
@@ -27,7 +27,6 @@ from features.plans.schemas import (
     LodgingPreferences,
     PlanPreferences,
     PlanSnapshot,
-    PlanStage,
     SlotName,
 )
 from shared.domain import Money, Place
@@ -53,7 +52,7 @@ def _plan(
 ) -> PlanSnapshot:
     preferences = PlanPreferences(lodging=prefs)
     fields: dict[str, object] = {"destination": TOKYO, **overrides}
-    return snapshot(items, stage=PlanStage.LODGING, preferences=preferences, **fields)
+    return snapshot(items, preferences=preferences, **fields)
 
 
 def _ctx(hotels: FakeHotelProvider) -> SearchContext:
@@ -70,7 +69,6 @@ def _ctx(hotels: FakeHotelProvider) -> SearchContext:
 def _action(nights: NightRange | None = NIGHTS) -> RunSearch:
     return RunSearch(
         slot=SlotName.LODGING_STAY,
-        stage=PlanStage.LODGING,
         label="Find a place to stay",
         nights=nights,
     )

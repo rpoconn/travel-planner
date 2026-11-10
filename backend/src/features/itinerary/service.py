@@ -12,6 +12,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from features.itinerary.gaps import find_gaps
 from features.itinerary.models import Item
 from features.itinerary.schemas import (
     ItemCreator,
@@ -21,12 +22,12 @@ from features.itinerary.schemas import (
     ItineraryItemCreate,
     ItineraryItemPatch,
     Timeline,
+    active,
 )
 from features.itinerary.timeline import build_timeline
 from features.plans import service as plans_service
 from features.plans.models import Plan
 from features.plans.schemas import PlanDetails, PlanSnapshot
-from features.plans.stages import plan_progress
 from shared.db import utc_now
 from shared.validation import summarize_validation_error
 
@@ -106,14 +107,12 @@ async def get_item(
 
 
 async def snapshot(session: AsyncSession, plan: Plan) -> PlanSnapshot:
-    """Full `PlanSnapshot` (details, items and stage progress) for a plan the caller has
-    already resolved."""
+    """Full `PlanSnapshot` (details, items and the gaps between them) for a plan the
+    caller has already resolved. Cancelled items bridge no gap."""
     details = PlanDetails.model_validate(plan)
     items = await _items_for(session, plan.id)
-    progress = plan_progress(details, items)
-    return PlanSnapshot.model_validate(
-        {**dict(details), "items": items, "stages": progress.stages, "gaps": progress.gaps}
-    )
+    gaps = find_gaps(active(items), details.origin)
+    return PlanSnapshot.model_validate({**dict(details), "items": items, "gaps": gaps})
 
 
 async def get_plan_snapshot(session: AsyncSession, user_id: UUID, plan_id: UUID) -> PlanSnapshot:

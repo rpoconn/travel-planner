@@ -82,9 +82,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.llm = llm
     # Used by flight search; tests replace it with a `FakeFlightProvider`.
     app.state.flights = flights
-    # Used by the lodging stage's search; tests replace it with a `FakeHotelProvider`.
+    # Used by the lodging search; tests replace it with a `FakeHotelProvider`.
     app.state.hotels = hotels
-    # Used by the activities stage's search; tests replace it with a `FakePlaceProvider`.
+    # Used by the activity search; tests replace it with a `FakePlaceProvider`.
     app.state.places = places
 
     # Plans with a planning turn streaming right now (`planning.router.hold_turn`).

@@ -1,7 +1,7 @@
-"""Ways to get across one gap of the trip, for the ground stage. Rules only: no provider
+"""Ways to get across one gap of the trip. Rules only: no provider
 and no model.
 
-The engine names the gap (`RunSearch.gap`, from `itinerary.gaps`). What it joins decides
+The planner names the gap (`RunSearch.gap`, from `itinerary.gaps`). What it joins decides
 the ways offered:
 
 | Gap                                     | Ways, in order                                |

@@ -1,4 +1,4 @@
-"""Place searches for the activities stage: the query per interest, price estimates and what
+"""Place searches for activities: the query per interest, price estimates and what
 counts as a misfit, ranking, and the candidates (with the change picking one makes). No
 database: the provider is a fake."""
 
@@ -24,7 +24,6 @@ from features.plans.schemas import (
     ActivityPreferences,
     PlanPreferences,
     PlanSnapshot,
-    PlanStage,
     SlotName,
 )
 from shared.domain import Cost, Money, Place
@@ -40,7 +39,6 @@ TODAY = date(2026, 10, 15)
 TOKYO = Place(name="Tokyo", city="Tokyo", country="Japan", lat=35.68, lng=139.69)
 ACTION = RunSearch(
     slot=SlotName.ACTIVITIES,
-    stage=PlanStage.ACTIVITIES,
     label="Find things to do",
 )
 
@@ -52,7 +50,7 @@ def _plan(
     fields: dict[str, object] = {"destination": TOKYO, **overrides}
     preferences = PlanPreferences(activities=prefs)
     # No items, passed positionally so mypy doesn't match the `object` overrides to `items`.
-    return snapshot((), stage=PlanStage.ACTIVITIES, preferences=preferences, **fields)
+    return snapshot((), preferences=preferences, **fields)
 
 
 def _ctx(places: FakePlaceProvider) -> SearchContext:
@@ -197,7 +195,7 @@ async def test_tours_need_booking() -> None:
 
 
 async def test_no_preferences_no_search() -> None:
-    plan = snapshot(stage=PlanStage.ACTIVITIES, destination=TOKYO)
+    plan = snapshot(destination=TOKYO)
 
     with pytest.raises(SearchFailedError, match="what you like to do"):
         await activities(_ctx(FakePlaceProvider()), plan, ACTION)

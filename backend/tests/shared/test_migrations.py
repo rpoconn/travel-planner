@@ -23,7 +23,7 @@ _BASELINE_TABLES = frozenset({"users", "travel_plans", "itinerary_items", "chat_
 # Columns later migrations added to the baseline tables: create_all builds today's models,
 # so these are dropped again to get the pre-migration schema.
 _LATER_COLUMNS = {
-    "travel_plans": ("limits", "stage", "flights_skipped", "preferences"),
+    "travel_plans": ("limits", "no_flights", "preferences"),
     "chat_messages": ("payload",),
     "users": ("home",),
 }
@@ -176,12 +176,10 @@ async def test_upgrades_keep_every_row(engine: AsyncEngine) -> None:
         "chat_messages": 1,
     }
     async with engine.connect() as connection:
-        plan = (
-            await connection.execute(text("SELECT stage, flights_skipped FROM travel_plans"))
-        ).one()
+        plan = (await connection.execute(text("SELECT title, no_flights FROM travel_plans"))).one()
         # Foreign keys are back on for the app's own queries.
         assert await connection.scalar(text("PRAGMA foreign_keys")) == 1
-    assert tuple(plan) == ("basics", False)
+    assert tuple(plan) == ("Old trip", False)
 
 
 async def test_downgrades_keep_every_row(engine: AsyncEngine) -> None:
@@ -197,3 +195,49 @@ async def test_downgrades_keep_every_row(engine: AsyncEngine) -> None:
 def test_baseline_is_the_first_revision() -> None:
     script = ScriptDirectory.from_config(alembic_config())
     assert script.get_base() == BASELINE_REVISION
+
+
+# ---------------------------------------------------------------------------
+# Dropping the stages (0009)
+# ---------------------------------------------------------------------------
+
+
+async def test_dropping_the_stages_keeps_the_plan_and_tidies_its_transcript(
+    engine: AsyncEngine,
+) -> None:
+    await _seed_at_0003(engine)
+    async with engine.connect() as connection:
+        await connection.run_sync(_migrate, "0008")
+    plan, message = "b" * 32, "INSERT INTO chat_messages (id, plan_id, role, kind, content, "
+    statements = [
+        f"UPDATE travel_plans SET stage = 'lodging', flights_skipped = 1 WHERE id = '{plan}'",
+        f"{message}payload, created_at) VALUES ('{'e' * 32}', '{plan}', 'system', 'stage', "
+        f"'Basics done.', '{{\"type\": \"stage\"}}', '{_NOW}')",
+        f"{message}payload, created_at) VALUES ('{'f' * 32}', '{plan}', 'assistant', 'changes', "
+        f"'Back to flights.', '{{\"applied\": [{{\"name\": \"change_stage\"}}]}}', '{_NOW}')",
+        "INSERT INTO planning_offers (id, plan_id, slot, stage, plan_version, candidates, "
+        f"status, query_hash, created_at) VALUES ('{'9' * 32}', '{plan}', 'lodging_stay', "
+        f"'lodging', 1, '[]', 'open', 'q', '{_NOW}')",
+    ]
+    async with engine.begin() as connection:
+        for statement in statements:
+            await connection.execute(text(statement))
+
+    await run_migrations(engine)
+
+    async with engine.connect() as connection:
+        no_flights = await connection.scalar(text("SELECT no_flights FROM travel_plans"))
+        messages = (
+            await connection.execute(
+                text("SELECT kind, content, payload FROM chat_messages ORDER BY content")
+            )
+        ).all()
+        offer = await connection.scalar(text("SELECT status FROM planning_offers"))
+    # The trip is still made without flying; the divider is gone, and what the stage
+    # command did reads as a plain message.
+    assert no_flights == 1
+    assert [tuple(row) for row in messages] == [
+        ("message", "Back to flights.", None),
+        ("message", "Hi", None),
+    ]
+    assert offer == "dismissed"

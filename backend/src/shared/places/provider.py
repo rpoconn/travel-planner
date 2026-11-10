@@ -16,7 +16,7 @@ NOT_CONFIGURED = "Place search is not configured (set SERPAPI_API_KEY to enable 
 
 
 class UnavailablePlaceProvider:
-    """Stands in when no place backend is configured, so the activities stage says why it
+    """Stands in when no place backend is configured, so the activity search says why it
     can't search."""
 
     async def search(self, query: PlaceQuery) -> list[PlaceOption]:

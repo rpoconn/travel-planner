@@ -12,7 +12,7 @@ The rules:
 - A window must fall while the traveller is at the destination: after the flight out lands
   (plus time to get from the airport) and before the flight home (minus time to get there).
 - It must not touch anything already planned (other than lodging), with half an hour
-  either side for the transfer the ground stage adds between them.
+  either side for the transfer added between them.
 - It must be within the place's opening hours, when the listing gives them.
 - Quieter days go first: days without a flight before travel days, and days with fewer
   activities before busier ones, so picks spread over the trip.

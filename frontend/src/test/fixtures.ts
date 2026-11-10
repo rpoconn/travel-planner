@@ -4,18 +4,13 @@ import type {
     Candidate,
     FlightItem,
     Gap,
-    Issue,
-    IssueCode,
     LodgingItem,
     OfferChoice,
     Place,
-    PlanAssessment,
     PlanningMessage,
-    PlanStage,
     PlanSummary,
     Problem,
     ReviewProposal,
-    StageStatus,
     Timeline,
     TimelineEntry,
     TokenResponse,
@@ -52,7 +47,6 @@ export function planSummary(overrides: Partial<PlanSummary> = {}): PlanSummary {
         id: 'aaaaaaaa-0000-0000-0000-000000000001',
         title: 'Tokyo in May',
         status: 'draft',
-        stage: 'basics',
         destination: { name: 'Tokyo' },
         start_date: '2027-05-01',
         end_date: '2027-05-08',
@@ -63,14 +57,12 @@ export function planSummary(overrides: Partial<PlanSummary> = {}): PlanSummary {
 }
 
 export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
-    const stage = overrides.stage ?? 'basics'
     return {
         id: 'aaaaaaaa-0000-0000-0000-000000000001',
         user_id: ADA.id,
         title: 'Tokyo in May',
         status: 'draft',
-        stage,
-        flights_skipped: false,
+        no_flights: false,
         origin: null,
         destination: { name: 'Tokyo' },
         start_date: '2027-05-01',
@@ -84,9 +76,7 @@ export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
         created_at: '2026-10-01T12:00:00Z',
         updated_at: '2026-10-01T12:00:00Z',
         items: [],
-        stages: stageStatuses(),
         gaps: [],
-        assessment: planAssessment({ stage }),
         problems: [],
         complete: false,
         pending: null,
@@ -94,71 +84,8 @@ export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
     }
 }
 
-/** The engine's verdict; by default the stage is done and nothing is asked. */
-export function planAssessment(overrides: Partial<PlanAssessment> = {}): PlanAssessment {
-    return {
-        stage: 'basics',
-        issues: [],
-        next_action: { type: 'complete' },
-        can_advance: false,
-        ...overrides,
-    }
-}
-
 /** Where Ada's trips start and end. */
 export const PHILADELPHIA: Place = { name: 'Philadelphia', city: 'Philadelphia', iata: 'PHL' }
-
-// A plausible code per stage for fixture issues; tests only read the messages.
-const FIXTURE_CODES: Record<PlanStage, IssueCode> = {
-    basics: 'missing_dates',
-    flights: 'missing_outbound',
-    lodging: 'uncovered_night',
-    activities: 'no_activities',
-    ground: 'missing_transfer',
-    review: 'stage_incomplete',
-}
-
-/** A planner issue; by default something missing from lodging. */
-export function issue(overrides: Partial<Issue> = {}): Issue {
-    const stage = overrides.stage ?? 'lodging'
-    return {
-        code: FIXTURE_CODES[stage],
-        stage,
-        severity: 'blocking',
-        message: 'a place to stay the night of May 3',
-        date: null,
-        item_ids: [],
-        gap: null,
-        ...overrides,
-    }
-}
-
-function stageStatus(stage: PlanStage, missing: string[]): StageStatus {
-    const issues: Issue[] = missing.map((message) => ({
-        code: FIXTURE_CODES[stage],
-        stage,
-        severity: 'blocking',
-        message,
-        date: null,
-        item_ids: [],
-        gap: null,
-    }))
-    return { stage, issues, ready: issues.length === 0, missing }
-}
-
-/**
- * One status per stage, in order: ready unless listed in `missing` (stage → what's missing).
- * Review is ready only when every other stage is.
- */
-export function stageStatuses(
-    missing: Partial<Record<StageStatus['stage'], string[]>> = {},
-): StageStatus[] {
-    const stages = ['basics', 'flights', 'lodging', 'activities', 'ground'] as const
-    const statuses = stages.map((stage) => stageStatus(stage, missing[stage] ?? []))
-    const review =
-        missing.review ?? statuses.filter((s) => !s.ready).map((s) => `the ${s.stage} stage`)
-    return [...statuses, stageStatus('review', review)]
-}
 
 // ----- itinerary -----
 // A Tokyo trip: overnight outbound flight SFO → NRT (lands May 2, local), Narita Express into
@@ -343,7 +270,6 @@ export function planningMessage(overrides: Partial<PlanningMessage> = {}): Plann
 export const ASK_DESTINATION: AskInput = {
     type: 'ask_input',
     slot: 'destination',
-    stage: 'basics',
     prompt: 'Where are you going?',
     fields: [
         {
@@ -364,7 +290,6 @@ export const ASK_DESTINATION: AskInput = {
 export const ASK_DATES: AskInput = {
     type: 'ask_input',
     slot: 'dates',
-    stage: 'basics',
     prompt: 'When are you going?',
     fields: [
         {
@@ -386,7 +311,6 @@ export const ASK_DATES: AskInput = {
 export const ASK_TRAVELERS: AskInput = {
     type: 'ask_input',
     slot: 'travelers',
-    stage: 'basics',
     prompt: "Who's coming?",
     fields: [
         {
@@ -417,7 +341,6 @@ export const ASK_TRAVELERS: AskInput = {
 export const ASK_BUDGET: AskInput = {
     type: 'ask_input',
     slot: 'budget',
-    stage: 'basics',
     prompt: 'Do you have a budget for the whole trip?',
     fields: [
         {
@@ -439,7 +362,6 @@ export const ASK_BUDGET: AskInput = {
 export const ASK_FLIGHT_PREFERENCES: AskInput = {
     type: 'ask_input',
     slot: 'flight_preferences',
-    stage: 'flights',
     prompt: 'How do you like to fly?',
     fields: [
         {
@@ -477,8 +399,6 @@ export const ASK_FLIGHT_PREFERENCES: AskInput = {
 /** A plan waiting on `action`'s form. */
 export function planAsking(action: AskInput, overrides: Partial<TravelPlan> = {}): TravelPlan {
     return travelPlan({
-        stage: action.stage,
-        assessment: planAssessment({ stage: action.stage, next_action: action }),
         pending: action,
         ...overrides,
     })
@@ -505,7 +425,6 @@ export const OFFER_FLIGHTS_OUT: OfferChoice = {
     type: 'offer_choice',
     offer_id: 'bbbbbbbb-0000-0000-0000-000000000001',
     slot: 'flight_outbound',
-    stage: 'flights',
     prompt: 'Pick your flight out.',
     candidates: [
         candidate(),
@@ -523,7 +442,6 @@ export const OFFER_ACTIVITIES: OfferChoice = {
     type: 'offer_choice',
     offer_id: 'bbbbbbbb-0000-0000-0000-000000000002',
     slot: 'activities',
-    stage: 'activities',
     prompt: "Pick the things you'd like to do.",
     candidates: [
         candidate({ id: '1', title: 'Tile museum', price: null }),
@@ -542,7 +460,6 @@ export const OFFER_LODGING: OfferChoice = {
     type: 'offer_choice',
     offer_id: 'bbbbbbbb-0000-0000-0000-000000000003',
     slot: 'lodging_stay',
-    stage: 'lodging',
     prompt: 'Pick a place to stay.',
     candidates: [
         candidate({
@@ -564,7 +481,6 @@ export const OFFER_TRANSFERS: OfferChoice = {
     type: 'offer_choice',
     offer_id: 'bbbbbbbb-0000-0000-0000-000000000004',
     slot: 'transfer',
-    stage: 'ground',
     prompt: 'How do you want to get there?',
     candidates: [
         candidate({
@@ -586,8 +502,6 @@ export const OFFER_TRANSFERS: OfferChoice = {
 /** A plan waiting on a pick from `action`'s choices. */
 export function planChoosing(action: OfferChoice, overrides: Partial<TravelPlan> = {}): TravelPlan {
     return travelPlan({
-        stage: action.stage,
-        assessment: planAssessment({ stage: action.stage, next_action: action }),
         pending: action,
         ...overrides,
     })

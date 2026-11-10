@@ -68,7 +68,6 @@ describe('PlanningPanel', () => {
     it('shows the transcript and asks the pending question as a form', async () => {
         mockTranscript([
             ANSWERED,
-            planningMessage({ id: 'm3', role: 'system', kind: 'stage', content: 'Basics done.' }),
             planningMessage({ id: 'm4', kind: 'nudge', content: 'Which dates?' }),
             ASKED_DATES,
         ])
@@ -76,7 +75,6 @@ describe('PlanningPanel', () => {
         renderPanel(planAsking(ASK_DATES))
 
         expect(await within(log()).findByText('Lisbon, Portugal')).toBeInTheDocument()
-        expect(screen.getByRole('separator', { name: 'Basics done.' })).toBeInTheDocument()
         expect(screen.getByRole('complementary', { name: 'Back to the question' })).toBeVisible()
         // The form asks the question, so the stored copy of it isn't repeated above it.
         expect(screen.getByRole('form', { name: 'When are you going?' })).toBeInTheDocument()

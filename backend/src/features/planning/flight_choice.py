@@ -1,4 +1,4 @@
-"""Flight search results as the flights stage uses them: ranked by total travel time,
+"""Flight search results as the planner uses them: ranked by total travel time,
 then price, described for a candidate card, and turned into `add_flight` arguments with
 the provider's own airport-local times (so nothing here does timezone arithmetic).
 """

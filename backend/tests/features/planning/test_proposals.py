@@ -1,7 +1,7 @@
 """Proposals: storing dry-run changes for the user's decision, and approving or rejecting
 them.
 
-The plan is the Lisbon trip at the ground stage (`planning_http.reach`): its items, in
+The plan is the Lisbon trip without flights (`planning_http.reach`): its items, in
 time order, are 1 "Friend's flat" (May 1-8) and 2 "Dinner in" (May 2).
 """
 
@@ -28,7 +28,7 @@ from features.planning.schemas import (
     TravelPlan,
 )
 from features.plans import service as plans_service
-from features.plans.schemas import PlanStage, PlanUpdate
+from features.plans.schemas import PlanUpdate
 from tests.features.planning.planning_http import BASICS, FLAT, LISBON_TZ, create_plan, reach
 
 # Fixed so the trip (May 2027) stays in the future.
@@ -69,7 +69,7 @@ async def ctx(
     app: FastAPI, client: AsyncClient, headers: dict[str, str], session: AsyncSession
 ) -> ToolContext:
     plan_id = await create_plan(client, headers, **BASICS)
-    await reach(app, client, headers, plan_id, PlanStage.GROUND)
+    await reach(app, client, headers, plan_id)
     response = await client.get(f"/plans/{plan_id}", headers=headers)
     plan = TravelPlan.model_validate_json(response.content)
     return ToolContext(session=session, user_id=plan.user_id, plan_id=plan.id, today=TODAY)

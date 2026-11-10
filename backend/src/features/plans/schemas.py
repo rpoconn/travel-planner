@@ -1,4 +1,3 @@
-import datetime as dt
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
@@ -10,7 +9,6 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
-    computed_field,
     model_validator,
 )
 
@@ -21,32 +19,17 @@ from features.itinerary.schemas import (
     LodgingKind,
     SpendingLimit,
 )
-from shared.domain import IssueCode, Money, Place, Travelers
+from shared.domain import Money, Place, Travelers
 from shared.flights.types import FlightCabin
 
 # ---------------------------------------------------------------------------
 # Field types
 # ---------------------------------------------------------------------------
 
-# `status` is the user's own label for the trip; `stage` (below) is where the planning
-# workflow is. Nothing reads `status` to gate anything.
+# `status` is the user's own label for the trip. Nothing reads it to gate anything.
 PlanStatus = Literal["draft", "planned", "booked"]
 
 
-class PlanStage(StrEnum):
-    """The planning workflow, in order. A StrEnum rather than a Literal so the OpenAPI spec
-    names it and the generated SDK exports it as a constant the UI can iterate."""
-
-    BASICS = "basics"
-    FLIGHTS = "flights"
-    LODGING = "lodging"
-    ACTIVITIES = "activities"
-    GROUND = "ground"
-    REVIEW = "review"
-
-
-STAGES: tuple[PlanStage, ...] = tuple(PlanStage)
-StageAction = Literal["next", "back", "skip_flights", "go_to"]
 PlanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 PlanNotes = Annotated[str, Field(max_length=5000)]
 
@@ -78,29 +61,6 @@ Budget = Annotated[Money | None, AfterValidator(active_budget)]
 def check_date_range(start: date | None, end: date | None) -> None:
     if start is not None and end is not None and end < start:
         raise ValueError("end_date must be on or after start_date")
-
-
-# ---------------------------------------------------------------------------
-# Issues: what stands between the plan and a finished trip
-# ---------------------------------------------------------------------------
-
-
-IssueSeverity = Literal["blocking", "warning"]
-
-
-class Issue(BaseModel):
-    """One problem with the plan, tied to the stage that fixes it."""
-
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
-
-    code: IssueCode
-    stage: PlanStage
-    severity: IssueSeverity
-    message: str  # for people, e.g. "a place to stay the night of May 2"
-    # `dt.date`: a field named `date` would shadow the type in later annotations.
-    date: dt.date | None = None
-    item_ids: list[UUID] = Field(default_factory=list)
-    gap: Gap | None = None  # missing_transfer: the change of place to bridge
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +102,7 @@ STOP_LABELS: dict[int | None, str] = {
 
 
 class FlightPreferencesAnswer(BaseModel):
-    """What the user tells the flights stage before it searches."""
+    """What the user tells the flight search before it runs."""
 
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
@@ -241,46 +201,9 @@ class PlanUpdate(BaseModel):
         return self
 
 
-class StageChange(BaseModel):
-    """Move the plan through the workflow: `next` (only when the current stage is ready),
-    `back`, `skip_flights` (from the flights stage, for a trip without flying) or `go_to`
-    an earlier `stage`."""
-
-    action: StageAction
-    stage: PlanStage | None = None
-
-    @model_validator(mode="after")
-    def _stage_only_for_go_to(self) -> Self:
-        if self.action == "go_to" and self.stage is None:
-            raise ValueError("go_to needs a stage")
-        if self.action != "go_to" and self.stage is not None:
-            raise ValueError(f"{self.action} takes no stage")
-        return self
-
-
 # ---------------------------------------------------------------------------
 # Responses
 # ---------------------------------------------------------------------------
-
-
-class StageStatus(BaseModel):
-    """A stage's checklist: what still blocks it (`issues`), plus two views derived from
-    them for callers that only need a yes/no or the messages."""
-
-    stage: PlanStage
-    issues: list[Issue]
-
-    # mypy doesn't accept a decorator on top of @property; this is Pydantic's documented
-    # way to put a derived value into the response.
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def ready(self) -> bool:
-        return not self.issues
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def missing(self) -> list[str]:
-        return [issue.message for issue in self.issues]
 
 
 class PlanSummary(BaseModel):
@@ -291,7 +214,6 @@ class PlanSummary(BaseModel):
     id: UUID
     title: str
     status: PlanStatus
-    stage: PlanStage
     destination: Place | None
     start_date: date | None
     end_date: date | None
@@ -311,8 +233,8 @@ class PlanDetails(BaseModel):
     user_id: UUID
     title: str
     status: PlanStatus
-    stage: PlanStage
-    flights_skipped: bool
+    # The trip is made without flying (driving, a train), so it needs no flight out or home.
+    no_flights: bool
     origin: Place | None
     destination: Place | None
     start_date: date | None
@@ -328,12 +250,11 @@ class PlanDetails(BaseModel):
 
 
 class PlanSnapshot(PlanDetails):
-    """Plan details with the itinerary and the stage checklists; built by
-    `itinerary.service.snapshot`, which owns the items. The API returns
-    `planning.schemas.TravelPlan`, which adds the planning engine's assessment."""
+    """Plan details with the itinerary; built by `itinerary.service.snapshot`, which owns
+    the items. The API returns `planning.schemas.TravelPlan`, which adds the plan's
+    problems and what it is waiting on the user for."""
 
     items: list[ItineraryItem]  # sorted by start
-    # Derived on every read (`plans.stages.plan_progress`), one per stage in order.
-    stages: list[StageStatus]
-    # Unbridged changes of place, home to home; the ground stage is done when it's empty.
+    # Unbridged changes of place, home to home; derived on every read
+    # (`itinerary.gaps.find_gaps`).
     gaps: list[Gap]

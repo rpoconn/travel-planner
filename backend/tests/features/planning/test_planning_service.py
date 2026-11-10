@@ -1,4 +1,5 @@
-"""Offers in the database, and the assessment every plan response carries."""
+"""Offers in the database, and the problems and pending interaction every plan response
+carries."""
 
 from uuid import UUID, uuid4
 
@@ -11,8 +12,7 @@ from features.chat import service as chat_service
 from features.chat.schemas import MessageKind
 from features.planning import offers, service
 from features.planning.schemas import Candidate, CandidateChange, OfferChoice, TravelPlan
-from features.plans import service as plans_service
-from features.plans.schemas import PlanStage, SlotName
+from features.plans.schemas import SlotName
 from shared.llm.fake import FakeLLM
 from tests.conftest import RegisterUser
 from tests.features.planning.planning_http import BASICS, LISBON, create_plan, messages, post
@@ -55,7 +55,6 @@ async def _open(session: AsyncSession, plan: TravelPlan, version: int) -> UUID:
         session,
         plan_id=plan.id,
         slot=SlotName.FLIGHT_OUTBOUND,
-        stage=PlanStage.FLIGHTS,
         plan_version=version,
         candidates=CANDIDATES,
         query_hash="q",
@@ -116,11 +115,8 @@ async def test_another_plans_offer_is_not_found(session: AsyncSession, plan: Tra
 async def test_a_new_plan_asks_where_to_go(client: AsyncClient, headers: dict[str, str]) -> None:
     response = await client.post("/plans", json={}, headers=headers)
 
-    assessment = response.json()["assessment"]
-    assert assessment["stage"] == "basics"
-    assert assessment["next_action"]["type"] == "ask_input"
-    assert assessment["next_action"]["slot"] == "destination"
-    assert assessment["can_advance"] is False
+    pending = response.json()["pending"]
+    assert (pending["type"], pending["slot"]) == ("ask_input", "destination")
     assert response.json()["preferences"] == {
         "flights": None,
         "lodging": None,
@@ -129,22 +125,10 @@ async def test_a_new_plan_asks_where_to_go(client: AsyncClient, headers: dict[st
     }
 
 
-async def test_finished_basics_advance(
-    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
-) -> None:
-    response = await client.get(f"/plans/{plan.id}", headers=headers)
-
-    assessment = response.json()["assessment"]
-    assert assessment["next_action"] == {"type": "advance_stage", "to": "flights"}
-    assert assessment["can_advance"] is True
-    assert assessment["issues"] == []
-
-
 async def test_every_plan_response_lists_its_problems(
     client: AsyncClient, headers: dict[str, str], plan: TravelPlan
 ) -> None:
-    """The basics are in and the plan is still at basics; the problems don't wait for the
-    stages to be reached."""
+    """The basics are in: everything else the trip needs is listed at once."""
     response = await client.get(f"/plans/{plan.id}", headers=headers)
 
     body = response.json()
@@ -157,32 +141,6 @@ async def test_every_plan_response_lists_its_problems(
     assert body["problems"][2]["nights"] == {"check_in": "2027-05-01", "check_out": "2027-05-04"}
     assert body["problems"][2]["fix"] == {"how": "search", "slot": "lodging_stay"}
     assert body["complete"] is False
-
-
-async def test_stage_checklists_are_typed(
-    client: AsyncClient, headers: dict[str, str], plan: TravelPlan
-) -> None:
-    response = await client.get(f"/plans/{plan.id}", headers=headers)
-
-    flights = next(s for s in response.json()["stages"] if s["stage"] == "flights")
-    assert flights["ready"] is False
-    assert flights["missing"] == ["a flight out", "a flight home"]
-    assert [issue["code"] for issue in flights["issues"]] == ["missing_outbound", "missing_return"]
-
-
-async def test_the_snapshot_shows_a_current_offer(session: AsyncSession, plan: TravelPlan) -> None:
-    plan_id, user_id = plan.id, plan.user_id
-    row = await plans_service.set_stage(session, user_id, plan_id, PlanStage.FLIGHTS, False)
-    row.preferences = {"flights": {"cabin": "economy"}}
-    await session.commit()
-    offer_id = await _open(session, plan, row.version)
-
-    snapshot = await service.get_plan_snapshot(session, user_id, plan_id)
-
-    action = snapshot.assessment.next_action
-    assert isinstance(action, OfferChoice)
-    assert action.offer_id == offer_id
-    assert [c.id for c in action.candidates] == ["c1", "c2"]
 
 
 async def test_a_new_plan_opens_on_the_first_thing_only_the_user_can_give(
@@ -241,15 +199,3 @@ async def test_the_plan_waits_on_its_open_offer(session: AsyncSession, plan: Tra
     await _open(session, plan, plan.version - 1)
     stale = await service.get_plan_snapshot(session, plan.user_id, plan.id)
     assert stale.pending is None
-
-
-async def test_a_stale_offer_is_ignored(session: AsyncSession, plan: TravelPlan) -> None:
-    plan_id, user_id = plan.id, plan.user_id
-    row = await plans_service.set_stage(session, user_id, plan_id, PlanStage.FLIGHTS, False)
-    row.preferences = {"flights": {}}
-    await session.commit()
-    await _open(session, plan, row.version - 1)
-
-    snapshot = await service.get_plan_snapshot(session, user_id, plan_id)
-
-    assert snapshot.assessment.next_action.type == "run_search"

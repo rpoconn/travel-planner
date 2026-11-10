@@ -6,9 +6,9 @@ from uuid import uuid4
 from features.itinerary.schemas import TimelineWarning
 from features.planning.schemas import NightRange, Problem
 from features.planning.validation import is_complete, night_ranges, range_label, validate
-from features.plans.schemas import PlanStage, SlotName
+from features.plans.schemas import SlotName
 from shared.domain import IssueCode
-from tests.features.itinerary.factories import HOME, OKURA, SFO, lodging
+from tests.features.itinerary.factories import HOME, OKURA, SFO, activity, flight, lodging
 from tests.features.plans.builders import complete_trip, outbound_flight, return_flight, snapshot
 
 
@@ -21,13 +21,10 @@ def _ids(problems: list[Problem]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_an_empty_plan_lists_every_problem_whatever_its_stage() -> None:
-    """Nothing is held back until a stage is reached: the plan is at basics, and the
-    flights, the activities and (once, though two checklists report them) the dates are
-    all there, in the order their fixes are asked."""
-    plan = snapshot(
-        stage=PlanStage.BASICS, destination=None, start_date=None, end_date=None, travelers=None
-    )
+def test_an_empty_plan_lists_every_problem_at_once() -> None:
+    """Nothing is held back: the basics, the flights and the activities are all there, in
+    the order their fixes are usually made. Without dates there are no nights to cover."""
+    plan = snapshot(destination=None, start_date=None, end_date=None, travelers=None)
 
     problems = validate(plan, [])
 
@@ -79,8 +76,48 @@ def test_uncovered_nights_are_one_problem_per_run() -> None:
     ]
 
 
-def test_skipped_flights_are_not_a_problem() -> None:
-    plan = snapshot(flights_skipped=True)
+def test_the_problems_read_as_what_the_trip_needs() -> None:
+    plan = snapshot(origin=None, destination=None, start_date=None, end_date=None, travelers=None)
+
+    assert [problem.message for problem in validate(plan, [])] == [
+        "a destination",
+        "trip dates",
+        "who is travelling",
+        "where the trip starts (home)",
+        "a flight out",
+        "a flight home",
+        "at least one activity",
+    ]
+
+
+def test_one_flight_leaves_the_other_missing() -> None:
+    out = flight("2027-05-01T11:00", "2027-05-02T14:30")
+
+    codes = [problem.code for problem in validate(snapshot([out]), [])]
+
+    assert IssueCode.MISSING_OUTBOUND not in codes
+    assert IssueCode.MISSING_RETURN in codes
+
+
+def test_cancelled_items_do_not_count() -> None:
+    out = flight("2027-05-01T11:00", "2027-05-02T14:30", status="cancelled")
+    visit = activity("2027-05-02T10:00", "2027-05-02T11:00", status="cancelled")
+
+    codes = {problem.code for problem in validate(snapshot([out, visit]), [])}
+
+    assert {IssueCode.MISSING_OUTBOUND, IssueCode.NO_ACTIVITIES} <= codes
+
+
+def test_one_activity_is_enough() -> None:
+    visit = activity("2027-05-02T10:00", "2027-05-02T11:00")
+
+    codes = {problem.code for problem in validate(snapshot([visit]), [])}
+
+    assert IssueCode.NO_ACTIVITIES not in codes
+
+
+def test_a_trip_without_flights_needs_none() -> None:
+    plan = snapshot(no_flights=True)
 
     codes = {problem.code for problem in validate(plan, [])}
 
@@ -101,6 +138,12 @@ def test_each_missing_transfer_is_a_problem_named_by_its_ends() -> None:
         f"missing_transfer:{back.id}:home",
     ]
     first = transfers[0]
+    assert (
+        first.message
+        == "a transfer from Home (San Francisco) to San Francisco International Airport"
+    )
+    # Home isn't an item, so the gap names only the flight.
+    assert first.item_ids == [out.id]
     assert first.gap is not None
     assert (first.gap.from_place, first.gap.to_place) == (HOME, SFO)
     assert first.fix.slot == SlotName.TRANSFER
@@ -134,7 +177,7 @@ def test_timeline_warnings_follow_the_blocking_problems_and_do_not_block() -> No
     assert is_complete(problems)
 
 
-def test_warnings_the_checklists_already_report_are_left_out() -> None:
+def test_warnings_that_are_blocking_problems_already_are_left_out() -> None:
     warnings = [
         TimelineWarning(
             kind=IssueCode.UNCOVERED_NIGHT, message="No lodging", date=date(2027, 5, 1)

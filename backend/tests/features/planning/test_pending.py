@@ -18,7 +18,7 @@ from features.planning.schemas import (
     ReviewProposal,
 )
 from features.planning.slots import SLOTS
-from features.plans.schemas import PlanStage, SlotName
+from features.plans.schemas import SlotName
 from tests.features.plans.builders import snapshot
 
 T0 = datetime(2026, 11, 10, 12, tzinfo=UTC)
@@ -35,7 +35,6 @@ def _form(minutes: int = 0) -> AskedForm:
     spec = SLOTS[SlotName.BUDGET]
     form = AskInput(
         slot=spec.name,
-        stage=spec.stage,
         prompt=spec.prompt,
         fields=list(spec.fields),
         optional=spec.optional,
@@ -49,7 +48,6 @@ def _offer(minutes: int = 0, *, version: int = 7, status: str = "open") -> Offer
             "id": uuid4(),
             "plan_id": PLAN.id,
             "slot": SlotName.LODGING_STAY,
-            "stage": PlanStage.LODGING,
             "plan_version": version,
             "candidates": [CANDIDATE],
             "status": status,
@@ -90,7 +88,6 @@ def test_an_offer_is_shown_as_its_slots_choices() -> None:
     assert choice == OfferChoice(
         offer_id=offer.id,
         slot=SlotName.LODGING_STAY,
-        stage=PlanStage.LODGING,
         prompt="Pick a place to stay.",
         candidates=[CANDIDATE],
         nights=offer.nights,
