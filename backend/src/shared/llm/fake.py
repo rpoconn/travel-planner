@@ -105,12 +105,14 @@ class FakeLLM:
         messages: Sequence[LLMMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
+        think: bool | None = None,
     ) -> AsyncIterator[LLMChunk]:
-        reply = self._next(FakeRequest(list(messages), list(tools or []), None, streamed=True))
+        request = FakeRequest(list(messages), list(tools or []), None, True, think)
+        reply = self._next(request)
         for token in _TOKEN.findall(reply.content):
             yield LLMChunk(content=token)
         if reply.tool_calls:
-            yield LLMChunk(tool_calls=reply.tool_calls)
+            yield LLMChunk(tool_calls=reply.tool_calls, provider_content=reply.provider_content)
 
     async def aclose(self) -> None:
         return None

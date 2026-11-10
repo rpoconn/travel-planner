@@ -3,7 +3,7 @@
 import logging
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 
 import anthropic
 from anthropic.types.beta import (
@@ -155,42 +155,61 @@ def schema_size(node: JsonValue) -> SchemaSize:
     return SchemaSize(optional + inner.optional, unions + inner.unions)
 
 
+def _call_blocks(message: LLMMessage, call_ids: Sequence[str]) -> list[BetaContentBlockParam]:
+    """An assistant turn that calls tools, as Claude's content blocks."""
+    if message.provider_content:
+        # Claude's own blocks from `_provider_content`, sent back untouched: they hold the
+        # thinking blocks (and their signatures) the API requires with tool results. The
+        # cast is safe because that function only builds block params.
+        return cast(list[BetaContentBlockParam], message.provider_content)
+    blocks: list[BetaContentBlockParam] = []
+    if message.content:
+        blocks.append({"type": "text", "text": message.content})
+    for call, call_id in zip(message.tool_calls, call_ids, strict=True):
+        arguments: dict[str, object] = dict(call.arguments)
+        blocks.append({"type": "tool_use", "id": call_id, "name": call.name, "input": arguments})
+    return blocks
+
+
 def _to_wire(messages: Sequence[LLMMessage]) -> tuple[str, list[BetaMessageParam]]:
     """Split `messages` into Claude's top-level system prompt and its message list."""
     system: list[str] = []
     wire: list[BetaMessageParam] = []
-    # `LLMToolCall` carries no id (Ollama matches results by order), so ids are made up
-    # here and handed to the following tool results in the same order.
+    # A call without an id (a hand-built message, or one from Ollama) gets one made up
+    # here; a result without `tool_call_id` takes the oldest unanswered call's.
     pending_ids: list[str] = []
+    # The run of tool results being collected: Claude wants every result of one assistant
+    # turn in a single user message.
+    results: list[BetaContentBlockParam] | None = None
     for index, message in enumerate(messages):
+        if message.role != "tool":
+            results = None
         if message.role == "system":
             system.append(message.content)
         elif message.role == "tool":
-            tool_use_id = pending_ids.pop(0) if pending_ids else f"call_orphan_{index}"
-            wire.append(
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": tool_use_id,
-                            "content": message.content,
-                        }
-                    ],
-                }
-            )
+            if message.tool_call_id is not None:
+                tool_use_id = message.tool_call_id
+                if tool_use_id in pending_ids:
+                    pending_ids.remove(tool_use_id)
+            else:
+                tool_use_id = pending_ids.pop(0) if pending_ids else f"call_orphan_{index}"
+            result: BetaContentBlockParam = {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": message.content,
+            }
+            if results is None:
+                results = [result]
+                wire.append({"role": "user", "content": results})
+            else:
+                results.append(result)
         elif message.role == "assistant" and message.tool_calls:
-            blocks: list[BetaContentBlockParam] = []
-            if message.content:
-                blocks.append({"type": "text", "text": message.content})
-            for call_index, call in enumerate(message.tool_calls):
-                call_id = f"call_{index}_{call_index}"
-                pending_ids.append(call_id)
-                arguments: dict[str, object] = dict(call.arguments)
-                blocks.append(
-                    {"type": "tool_use", "id": call_id, "name": call.name, "input": arguments}
-                )
-            wire.append({"role": "assistant", "content": blocks})
+            call_ids = [
+                call.id or f"call_{index}_{call_index}"
+                for call_index, call in enumerate(message.tool_calls)
+            ]
+            pending_ids = list(call_ids)
+            wire.append({"role": "assistant", "content": _call_blocks(message, call_ids)})
         elif message.role == "assistant":
             wire.append({"role": "assistant", "content": message.content})
         else:
@@ -211,15 +230,46 @@ def _reply(message: BetaMessage) -> LLMMessage:
         role="assistant",
         content="".join(block.text for block in message.content if block.type == "text"),
         tool_calls=_tool_calls(message),
+        provider_content=_provider_content(message),
     )
 
 
 def _tool_calls(message: BetaMessage) -> list[LLMToolCall]:
     return [
-        LLMToolCall(name=block.name, arguments=_TOOL_ARGUMENTS.validate_python(block.input))
+        LLMToolCall(
+            id=block.id, name=block.name, arguments=_TOOL_ARGUMENTS.validate_python(block.input)
+        )
         for block in message.content
         if block.type == "tool_use"
     ]
+
+
+def _provider_content(message: BetaMessage) -> list[dict[str, JsonValue]]:
+    """A tool-calling reply's blocks as request params, in order, for `_call_blocks` to
+    send back. Empty for a reply without tool calls: nothing sends that one back in a
+    form that needs its thinking."""
+    if not any(block.type == "tool_use" for block in message.content):
+        return []
+    blocks: list[dict[str, JsonValue]] = []
+    for block in message.content:
+        if block.type == "thinking":
+            blocks.append(
+                {"type": "thinking", "thinking": block.thinking, "signature": block.signature}
+            )
+        elif block.type == "redacted_thinking":
+            blocks.append({"type": "redacted_thinking", "data": block.data})
+        elif block.type == "text" and block.text:
+            blocks.append({"type": "text", "text": block.text})
+        elif block.type == "tool_use":
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": _TOOL_ARGUMENTS.validate_python(block.input),
+                }
+            )
+    return blocks
 
 
 class _Request(TypedDict, total=False):
@@ -331,12 +381,14 @@ class AnthropicClient:
         messages: Sequence[LLMMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
+        think: bool | None = None,
     ) -> AsyncIterator[LLMChunk]:
         # The request (with the SDK's retries) happens when the stream is entered, before
         # any token reaches the user. Failures after that aren't retried: the tokens
         # already shown would be duplicated.
         try:
-            async with self._sdk().beta.messages.stream(**self._request(messages, tools)) as stream:
+            request = self._request(messages, tools, think=think)
+            async with self._sdk().beta.messages.stream(**request) as stream:
                 async for text in stream.text_stream:
                     if text:
                         yield LLMChunk(content=text)
@@ -348,7 +400,7 @@ class AnthropicClient:
             raise LLMError(_describe(exc, self._model)) from exc
         tool_calls = _tool_calls(final)
         if tool_calls:
-            yield LLMChunk(tool_calls=tool_calls)
+            yield LLMChunk(tool_calls=tool_calls, provider_content=_provider_content(final))
 
     async def aclose(self) -> None:
         if self._client is not None:

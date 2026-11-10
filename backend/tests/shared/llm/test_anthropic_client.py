@@ -9,7 +9,14 @@ import pytest
 from pydantic import JsonValue
 
 from shared.llm.anthropic_client import AnthropicClient, SchemaSize, schema_size, strict_schema
-from shared.llm.types import LLMChunk, LLMError, LLMMessage, LLMToolCall, ToolSpec
+from shared.llm.types import (
+    LLMChunk,
+    LLMError,
+    LLMMessage,
+    LLMToolCall,
+    ToolSpec,
+    add_chunk,
+)
 from tests.json_path import at, json_object, obj, text
 
 Handler = Callable[[httpx2.Request], httpx2.Response]
@@ -191,7 +198,9 @@ async def test_tools_and_tool_results_round_trip() -> None:
     reply = await _client(handler).chat(history, tools=[TOOL])
 
     assert reply.content == "On it."
-    assert reply.tool_calls == [LLMToolCall(name="add_lodging", arguments={"title": "Hotel Okura"})]
+    assert reply.tool_calls == [
+        LLMToolCall(id="toolu_1", name="add_lodging", arguments={"title": "Hotel Okura"})
+    ]
     body = seen[0]
     assert text(body, "tools", 0, "name") == "add_lodging"
     assert obj(body, "tools", 0, "input_schema") == {"type": "object"}
@@ -199,6 +208,55 @@ async def test_tools_and_tool_results_round_trip() -> None:
     assert at(body, "messages", 1, "content", 0, "input") == {"title": "Park Hyatt"}
     assert at(body, "messages", 2, "role") == "user"
     assert text(body, "messages", 2, "content", 0, "tool_use_id") == call_id
+
+
+async def test_tool_loop_round_sends_thinking_back_and_merges_results() -> None:
+    """One round of a tool loop: the reply (thinking, text, two calls) is appended as it
+    is, then both results. Claude needs the thinking blocks back unchanged and both
+    results in one user message, under the ids it issued."""
+    seen: list[dict[str, JsonValue]] = []
+    thinking: JsonValue = {"type": "thinking", "thinking": "Flights first.", "signature": "sig"}
+    redacted: JsonValue = {"type": "redacted_thinking", "data": "opaque"}
+    calls: list[JsonValue] = [
+        {"type": "tool_use", "id": "toolu_a", "name": "add_lodging", "input": {"title": "A"}},
+        {"type": "tool_use", "id": "toolu_b", "name": "add_lodging", "input": {"title": "B"}},
+    ]
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(json_object(request.content))
+        if len(seen) == 1:
+            said: JsonValue = {"type": "text", "text": "Adding both."}
+            content = [thinking, redacted, said, *calls]
+            return httpx2.Response(200, json=_message(content, stop_reason="tool_use"))
+        return httpx2.Response(200, json=_message())
+
+    client = _client(handler)
+    reply = await client.chat(MESSAGES, tools=[TOOL])
+    first, second = reply.tool_calls
+    history = [
+        *MESSAGES,
+        reply,
+        # Answered out of order: each result goes under its own call's id.
+        LLMMessage(role="tool", tool_name="add_lodging", tool_call_id=second.id, content="b"),
+        LLMMessage(role="tool", tool_name="add_lodging", tool_call_id=first.id, content="a"),
+    ]
+    final = await client.chat(history, tools=[TOOL])
+
+    assert final == LLMMessage(role="assistant", content="Hi")
+    body = seen[1]
+    assert at(body, "messages", 1, "content") == [
+        thinking,
+        redacted,
+        {"type": "text", "text": "Adding both."},
+        *calls,
+    ]
+    assert at(body, "messages", 2) == {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_b", "content": "b"},
+            {"type": "tool_result", "tool_use_id": "toolu_a", "content": "a"},
+        ],
+    }
 
 
 def test_strict_schema_closes_nested_objects_but_not_field_names() -> None:
@@ -374,3 +432,55 @@ async def test_stream_error_mid_response_raises_llm_error() -> None:
         async for chunk in _client(handler).stream(MESSAGES):
             received.append(chunk)
     assert received == [LLMChunk(content="Partial")]
+
+
+async def test_stream_ends_with_the_tool_calls_and_the_blocks_to_send_back() -> None:
+    seen: list[dict[str, JsonValue]] = []
+    thinking: JsonValue = {"type": "thinking", "thinking": "", "signature": ""}
+    call: JsonValue = {"type": "tool_use", "id": "toolu_1", "name": "add_lodging", "input": {}}
+    start = _message(content=[])
+    start["stop_reason"] = None
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(json_object(request.content))
+        return _sse(
+            {"type": "message_start", "message": start},
+            {"type": "content_block_start", "index": 0, "content_block": thinking},
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "Stay first."},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "signature_delta", "signature": "sig"},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {"type": "content_block_start", "index": 1, "content_block": call},
+            {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "input_json_delta", "partial_json": '{"title": "Okura"}'},
+            },
+            {"type": "content_block_stop", "index": 1},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+                "usage": {"output_tokens": 5},
+            },
+            {"type": "message_stop"},
+        )
+
+    reply = LLMMessage(role="assistant")
+    async for chunk in _client(handler).stream(MESSAGES, tools=[TOOL], think=True):
+        add_chunk(reply, chunk)
+
+    assert at(seen[0], "output_config", "effort") == "high"
+    assert reply.tool_calls == [
+        LLMToolCall(id="toolu_1", name="add_lodging", arguments={"title": "Okura"})
+    ]
+    assert reply.provider_content == [
+        {"type": "thinking", "thinking": "Stay first.", "signature": "sig"},
+        {"type": "tool_use", "id": "toolu_1", "name": "add_lodging", "input": {"title": "Okura"}},
+    ]

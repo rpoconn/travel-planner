@@ -17,6 +17,9 @@ LLMRole = Literal["system", "user", "assistant", "tool"]
 
 
 class LLMToolCall(BaseModel):
+    # The provider's id for this call, echoed on its result (`LLMMessage.tool_call_id`).
+    # None from providers that match results by order (Ollama) and in hand-built messages.
+    id: str | None = None
     name: str
     arguments: dict[str, JsonValue] = Field(default_factory=dict)
 
@@ -26,6 +29,12 @@ class LLMMessage(BaseModel):
     content: str = ""
     tool_calls: list[LLMToolCall] = Field(default_factory=list)
     tool_name: str | None = None  # set on role="tool" results
+    tool_call_id: str | None = None  # role="tool": the `LLMToolCall.id` this answers
+    # Assistant replies that call tools: the provider's own content blocks, in order,
+    # which a tool loop must send back unchanged on the next round (Claude rejects a tool
+    # result whose assistant turn lost its thinking blocks). Opaque to features: append the
+    # reply to the history as it is. Empty for plain replies and for other providers.
+    provider_content: list[dict[str, JsonValue]] = Field(default_factory=list)
 
 
 class ToolSpec(BaseModel):
@@ -42,6 +51,16 @@ class LLMChunk(BaseModel):
 
     content: str = ""
     tool_calls: list[LLMToolCall] = Field(default_factory=list)
+    # Sent with the tool calls; see `LLMMessage.provider_content`.
+    provider_content: list[dict[str, JsonValue]] = Field(default_factory=list)
+
+
+def add_chunk(reply: LLMMessage, chunk: LLMChunk) -> None:
+    """Fold one streamed chunk into `reply`, so that after the last chunk it is the whole
+    assistant message, ready to append to a tool loop's history."""
+    reply.content += chunk.content
+    reply.tool_calls.extend(chunk.tool_calls)
+    reply.provider_content.extend(chunk.provider_content)
 
 
 # ---------------------------------------------------------------------------
@@ -72,8 +91,9 @@ class LLMClient(Protocol):
         messages: Sequence[LLMMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
+        think: bool | None = None,
     ) -> AsyncIterator[LLMChunk]:
-        """Stream a completion chunk by chunk."""
+        """Stream a completion chunk by chunk; `think` as for `chat`."""
         ...
 
     async def aclose(self) -> None: ...

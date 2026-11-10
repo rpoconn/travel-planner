@@ -182,6 +182,7 @@ class OllamaClient:
         messages: Sequence[LLMMessage],
         *,
         tools: Sequence[ToolSpec] | None = None,
+        think: bool | None = None,
     ) -> AsyncIterator[LLMChunk]:
         # The HTTP request only happens once the stream is iterated, so the retry covers
         # opening the stream and reading the first chunk. Failures after tokens have been
@@ -189,7 +190,9 @@ class OllamaClient:
         try:
             async for attempt in self._retrying():
                 with attempt:
-                    parts = await self._client.chat(**self._request(messages, tools), stream=True)
+                    parts = await self._client.chat(
+                        **self._request(messages, tools, think), stream=True
+                    )
                     first = await anext(parts, None)
         except Exception as exc:
             logger.exception("Ollama stream failed to start")
