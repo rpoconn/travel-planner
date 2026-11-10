@@ -17,6 +17,7 @@ from features.auth.dependencies import CurrentUser
 from features.chat import service as chat_service
 from features.chat.dependencies import LLMDep, limit_chat_messages
 from features.planning import service as planning_service
+from features.planning.agent.tools import TurnContext
 from features.planning.answers import AnswerError, parse_answer
 from features.planning.commands import removal
 from features.planning.events import (
@@ -36,7 +37,6 @@ from features.planning.turn import (
     Skip,
     Text,
     Trigger,
-    TurnContext,
     run_turn,
 )
 from features.plans import service as plans_service

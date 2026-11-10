@@ -15,6 +15,9 @@ Playwright suite), so free text works with no model.
   is the first stay). "Other options" are the current stage's, as the prompt names it.
 - Question requests (`prompts.QA_INTRO`), and anything else, get a fixed answer; a
   structured request for an unknown schema is "unrelated", which fails closed to a nudge.
+- A request with tools comes from the planner's loop (`planning.agent.loop`), which has its
+  own scripted policy (`planning.agent.offline`). That policy replaces the rest of this
+  module once the stage flow is gone.
 """
 
 import re
@@ -23,6 +26,7 @@ from typing import get_args
 
 from pydantic import JsonValue
 
+from features.planning.agent.offline import agent_reply
 from features.planning.schemas import SearchName
 from features.planning.slots import SLOTS
 from features.plans.schemas import HotelClass, PlanStage, SlotName
@@ -244,6 +248,9 @@ def _is_command_schema(schema: dict[str, JsonValue]) -> bool:
 
 def planning_reply(request: FakeRequest) -> LLMMessage:
     """The fake's reply to any request the app makes (`FakeLLM`'s offline fallback)."""
+    if request.tools:
+        # Only the planner's loop sends tools; the stage flow's readers send a format.
+        return agent_reply(request)
     content = _latest_user_text(request)
     if request.format is not None and _is_command_schema(request.format):
         prompt = request.messages[0].content if request.messages else ""

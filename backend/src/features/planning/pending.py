@@ -21,7 +21,7 @@ from features.planning.schemas import (
     SuggestedChange,
 )
 from features.planning.slots import SLOTS
-from features.plans.schemas import PlanSnapshot
+from features.plans.schemas import PlanSnapshot, SlotName
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,21 @@ class AskedForm:
 # ---------------------------------------------------------------------------
 # Views
 # ---------------------------------------------------------------------------
+
+
+def ask_input(name: SlotName, plan: PlanSnapshot, prompt: str | None = None) -> AskInput:
+    """Input slot `name` as the form the user fills in, with what the plan already holds
+    filled in. `prompt` is the question above it (the slot's own by default)."""
+    spec = SLOTS[name]
+    answer = spec.read(plan) if spec.read is not None else None
+    return AskInput(
+        slot=name,
+        stage=spec.stage,
+        prompt=prompt or spec.prompt,
+        fields=list(spec.fields),
+        optional=spec.optional,
+        prefill=answer.model_dump(mode="json") if answer is not None else {},
+    )
 
 
 def offer_choice(offer: Offer) -> OfferChoice:

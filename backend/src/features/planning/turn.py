@@ -31,17 +31,17 @@ the plan and its assessment (or `error`).
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import date
 from uuid import UUID
 
 from pydantic import BaseModel, JsonValue
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from features.chat import service as chat_service
-from features.chat.schemas import MessageKind, MessageRole
+from features.chat.schemas import MessageKind
 from features.chat.tools import ToolContext
 from features.planning import offers
-from features.planning import service as planning_service
+from features.planning.agent.tools import TurnContext
+from features.planning.agent.tools import snapshot as _snapshot
+from features.planning.agent.tools import store as _store
 from features.planning.answers import (
     SKIPPED_TEXT,
     AnswerError,
@@ -60,7 +60,6 @@ from features.planning.events import (
     PlanningDoneEvent,
     PlanningErrorEvent,
     PlanningEvent,
-    PlanningMessage,
     PlanningMessageEvent,
     PlanningPlanEvent,
     PlanningStatusEvent,
@@ -100,10 +99,7 @@ from features.planning.slots import SLOTS, SlotSpec
 from features.plans import service as plans_service
 from features.plans.schemas import PlanSnapshot, PlanStage, SlotName, StageChange
 from features.plans.stages import STAGE_LABELS, StageError, apply_stage_change
-from shared.flights.types import FlightProvider
-from shared.hotels.types import HotelProvider
-from shared.llm.types import LLMClient, LLMError, LLMMessage
-from shared.places.types import PlaceProvider
+from shared.llm.types import LLMError, LLMMessage
 
 logger = logging.getLogger(__name__)
 
@@ -121,18 +117,6 @@ EMPTY_ANSWER = "Sorry, I don't have an answer for that."
 # ---------------------------------------------------------------------------
 # Context and triggers
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class TurnContext:
-    session: AsyncSession
-    llm: LLMClient
-    user_id: UUID
-    plan_id: UUID
-    today: date
-    flights: FlightProvider
-    hotels: HotelProvider
-    places: PlaceProvider
 
 
 @dataclass(frozen=True)
@@ -185,24 +169,6 @@ class _Outcome:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _snapshot(ctx: TurnContext) -> TravelPlan:
-    return await planning_service.get_plan_snapshot(ctx.session, ctx.user_id, ctx.plan_id)
-
-
-async def _store(
-    ctx: TurnContext,
-    role: MessageRole,
-    content: str,
-    *,
-    kind: MessageKind = MessageKind.MESSAGE,
-    payload: BaseModel | None = None,
-) -> PlanningMessageEvent:
-    row = await chat_service.add_message(
-        ctx.session, ctx.plan_id, role, content, kind=kind, payload=payload
-    )
-    return PlanningMessageEvent(message=PlanningMessage.model_validate(row))
 
 
 async def _last_payload(ctx: TurnContext) -> dict[str, JsonValue] | None:

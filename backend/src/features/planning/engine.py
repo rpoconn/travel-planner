@@ -26,10 +26,9 @@ from collections.abc import Sequence
 
 from features.itinerary.gaps import describe_place
 from features.itinerary.schemas import Gap, ItemType, TimelineWarning
-from features.planning.pending import offer_choice
+from features.planning.pending import ask_input, offer_choice
 from features.planning.schemas import (
     AdvanceStage,
-    AskInput,
     Complete,
     NextAction,
     NightRange,
@@ -101,19 +100,6 @@ def plan_issues(plan: PlanSnapshot, warnings: Sequence[TimelineWarning]) -> list
 # ---------------------------------------------------------------------------
 
 
-def _ask(name: SlotName, plan: PlanSnapshot) -> AskInput:
-    spec = SLOTS[name]
-    answer = spec.read(plan) if spec.read is not None else None
-    return AskInput(
-        slot=name,
-        stage=spec.stage,
-        prompt=spec.prompt,
-        fields=list(spec.fields),
-        optional=spec.optional,
-        prefill=answer.model_dump(mode="json") if answer is not None else {},
-    )
-
-
 def offer_fits(
     offer: Offer,
     plan: PlanSnapshot,
@@ -174,7 +160,7 @@ def _fix(plan: PlanSnapshot, offer: Offer | None, issues: Sequence[Issue]) -> Ne
     issue = issues[0]
     slot = FIX_SLOT[issue.code]
     if SLOTS[slot].kind == "input":
-        return _ask(slot, plan)
+        return ask_input(slot, plan)
     nights = None
     if issue.code == IssueCode.UNCOVERED_NIGHT:
         # One stay for the first run of consecutive uncovered nights.
@@ -240,7 +226,7 @@ def next_action(plan: PlanSnapshot, offer: Offer | None) -> NextAction:
         return _fix(plan, offer, basics)
     if stage == PlanStage.BASICS:
         optional = _unanswered(plan, stage)
-        return _ask(optional, plan) if optional is not None else AdvanceStage(to=STAGES[1])
+        return ask_input(optional, plan) if optional is not None else AdvanceStage(to=STAGES[1])
     broken = _broken_earlier(plan)
     if broken is not None:
         return broken
@@ -252,7 +238,7 @@ def next_action(plan: PlanSnapshot, offer: Offer | None) -> NextAction:
         return AdvanceStage(to=following)
     preferences = _unanswered(plan, stage)
     if preferences is not None:
-        return _ask(preferences, plan)
+        return ask_input(preferences, plan)
     return _fix(plan, offer, issues)
 
 
