@@ -87,6 +87,7 @@ export function travelPlan(overrides: Partial<TravelPlan> = {}): TravelPlan {
         assessment: planAssessment({ stage }),
         problems: [],
         complete: false,
+        pending: null,
         ...overrides,
     }
 }

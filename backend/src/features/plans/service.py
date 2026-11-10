@@ -136,6 +136,19 @@ async def set_stage(
     return plan
 
 
+async def set_no_flights(
+    session: AsyncSession, user_id: UUID, plan_id: UUID, no_flights: bool
+) -> Plan:
+    """Record whether the trip is made without flying, wherever the plan stands. Stored in
+    `flights_skipped` until the stage flow, which names it that, is deleted."""
+    plan = await get_plan(session, user_id, plan_id)
+    plan.flights_skipped = no_flights
+    mark_changed(plan)
+    await session.commit()
+    logger.info("Plan %s: no flights is now %s", plan_id, no_flights)
+    return plan
+
+
 async def delete_plan(session: AsyncSession, user_id: UUID, plan_id: UUID) -> None:
     plan = await get_plan(session, user_id, plan_id)
     await session.delete(plan)

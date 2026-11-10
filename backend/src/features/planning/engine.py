@@ -26,6 +26,7 @@ from collections.abc import Sequence
 
 from features.itinerary.gaps import describe_place
 from features.itinerary.schemas import Gap, ItemType, TimelineWarning
+from features.planning.pending import offer_choice
 from features.planning.schemas import (
     AdvanceStage,
     AskInput,
@@ -162,18 +163,7 @@ def _pick_or_search(
 ) -> OfferChoice | RunSearch:
     spec: SlotSpec = SLOTS[slot]
     if offer is not None and offer_fits(offer, plan, slot, gap=gap, nights=nights):
-        return OfferChoice(
-            offer_id=offer.id,
-            slot=slot,
-            stage=spec.stage,
-            prompt=spec.prompt,
-            candidates=offer.candidates,
-            min_picks=spec.min_picks,
-            max_picks=spec.max_picks,
-            gap=gap,
-            nights=nights,
-            can_refresh=spec.refreshable,
-        )
+        return offer_choice(offer)
     label = _search_label(slot, gap, nights)
     return RunSearch(slot=slot, stage=spec.stage, label=label, gap=gap, nights=nights)
 

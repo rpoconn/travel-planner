@@ -2381,7 +2381,9 @@
               "set_lodging_preferences",
               "set_activity_preferences",
               "change_stage",
-              "redo_search"
+              "redo_search",
+              "set_travel_mode",
+              "add_candidate"
             ],
             "title": "Name"
           },
@@ -5482,6 +5484,40 @@
         "title": "ReturnToStage",
         "description": "A stage before the current one has a blocking issue again (an item was removed or\nchanged since it was finished), so the plan goes back to fix it. The turn pipeline acts\non this at once; a client only sees it after an edit outside a turn, and then offers to\ngo back."
       },
+      "ReviewProposal": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "review_proposal",
+            "title": "Type",
+            "default": "review_proposal"
+          },
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Proposal Id"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestedChange"
+            },
+            "type": "array",
+            "title": "Changes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "prompt",
+          "changes"
+        ],
+        "title": "ReviewProposal",
+        "description": "Show the pending proposal's changes with Approve and Reject."
+      },
       "RunSearch": {
         "properties": {
           "type": {
@@ -5749,6 +5785,52 @@
         ],
         "title": "StageStatus",
         "description": "A stage's checklist: what still blocks it (`issues`), plus two views derived from\nthem for callers that only need a yes/no or the messages."
+      },
+      "SuggestedChange": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "remove_item",
+              "update_item",
+              "set_dates",
+              "set_travelers",
+              "set_destination",
+              "set_origin",
+              "set_budget",
+              "set_flight_preferences",
+              "set_lodging_preferences",
+              "set_activity_preferences",
+              "change_stage",
+              "redo_search",
+              "set_travel_mode",
+              "add_candidate"
+            ],
+            "title": "Name"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Candidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "summary",
+          "candidate"
+        ],
+        "title": "SuggestedChange",
+        "description": "One row of a proposal card."
       },
       "Timeline": {
         "properties": {
@@ -6715,6 +6797,35 @@
           "complete": {
             "type": "boolean",
             "title": "Complete"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/AskInput"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OfferChoice"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReviewProposal"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "type",
+                  "mapping": {
+                    "ask_input": "#/components/schemas/AskInput",
+                    "offer_choice": "#/components/schemas/OfferChoice",
+                    "review_proposal": "#/components/schemas/ReviewProposal"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending"
           }
         },
         "type": "object",
@@ -6742,10 +6853,11 @@
           "gaps",
           "assessment",
           "problems",
-          "complete"
+          "complete",
+          "pending"
         ],
         "title": "TravelPlan",
-        "description": "The full plan as the API returns it: details, items, stage checklists, gaps, the\nvalidation engine's problems and the planning engine's assessment (built by\n`planning.service.snapshot`)."
+        "description": "The full plan as the API returns it: details, items, stage checklists, gaps, the\nvalidation engine's problems, what it is waiting on the user for, and the planning\nengine's assessment (built by `planning.service.snapshot`)."
       },
       "Travelers": {
         "properties": {

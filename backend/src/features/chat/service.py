@@ -2,6 +2,7 @@
 `plans.service.get_plan` (the router does it before a stream starts)."""
 
 import logging
+from collections.abc import Collection
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -38,6 +39,19 @@ async def recent_messages(session: AsyncSession, plan_id: UUID, limit: int) -> l
         .limit(limit)
     )
     return list(reversed(result.scalars().all()))
+
+
+async def latest_message(
+    session: AsyncSession, plan_id: UUID, *, skipping: Collection[MessageKind] = ()
+) -> Message | None:
+    """The plan's last message that isn't one of the `skipping` kinds, if any."""
+    result = await session.execute(
+        select(Message)
+        .where(Message.plan_id == plan_id, Message.kind.not_in(list(skipping)))
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 # ---------------------------------------------------------------------------

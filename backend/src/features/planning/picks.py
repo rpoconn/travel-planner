@@ -20,7 +20,7 @@ from features.chat.schemas import ProposedChange
 from features.planning import offers
 from features.planning.schemas import Candidate, OfferChoice
 from features.plans import service as plans_service
-from features.plans.schemas import PlanSnapshot, SlotName
+from features.plans.schemas import PlanPreferences, PlanSnapshot, SlotName
 
 logger = logging.getLogger(__name__)
 
@@ -118,12 +118,25 @@ async def apply_pick(
     await offers.close_offer(ctx.session, ctx.plan_id, action.offer_id, "picked")
     logger.info("Plan %s picked %s from offer %s", plan.id, action.slot, action.offer_id)
 
-    flights = plan.preferences.flights
-    if action.slot == SlotName.FLIGHT_OUTBOUND and flights is not None:
-        # The flights home are searched for this flight out; without a token they are
-        # searched one way.
-        token = candidates[0].follow_up_token
-        preferences = plan.preferences.model_copy(
-            update={"flights": flights.model_copy(update={"outbound_token": token})}
+    if action.slot == SlotName.FLIGHT_OUTBOUND:
+        await keep_outbound_token(
+            ctx.session, ctx.user_id, plan.id, plan.preferences, candidates[0].follow_up_token
         )
-        await plans_service.update_preferences(ctx.session, ctx.user_id, plan.id, preferences)
+
+
+async def keep_outbound_token(
+    session: AsyncSession,
+    user_id: UUID,
+    plan_id: UUID,
+    preferences: PlanPreferences,
+    token: str | None,
+) -> None:
+    """Keep the token of the flight out just added: the flights home are searched for that
+    flight, and without a token they are searched one way. Nothing to keep it in when the
+    plan has no flight preferences."""
+    if preferences.flights is None:
+        return
+    flights = preferences.flights.model_copy(update={"outbound_token": token})
+    await plans_service.update_preferences(
+        session, user_id, plan_id, preferences.model_copy(update={"flights": flights})
+    )

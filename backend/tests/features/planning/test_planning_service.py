@@ -7,11 +7,14 @@ from httpx import AsyncClient
 from pydantic import JsonValue
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from features.chat import service as chat_service
+from features.chat.schemas import MessageKind
 from features.planning import offers, service
 from features.planning.schemas import Candidate, CandidateChange, OfferChoice, TravelPlan
 from features.plans import service as plans_service
 from features.plans.schemas import PlanStage, SlotName
 from tests.conftest import RegisterUser
+from tests.features.planning.planning_http import create_plan, post
 
 TRIP: dict[str, JsonValue] = {
     "title": "Tokyo in May",
@@ -178,6 +181,41 @@ async def test_the_snapshot_shows_a_current_offer(session: AsyncSession, plan: T
     assert isinstance(action, OfferChoice)
     assert action.offer_id == offer_id
     assert [c.id for c in action.candidates] == ["c1", "c2"]
+
+
+async def test_the_plan_waits_on_the_form_its_transcript_ends_on(
+    client: AsyncClient, headers: dict[str, str], session: AsyncSession
+) -> None:
+    # A new plan's first turn asks where to go.
+    plan_id = await create_plan(client, headers)
+    await post(client, headers, plan_id, "continue")
+
+    response = await client.get(f"/plans/{plan_id}", headers=headers)
+    body = response.json()
+    assert body["pending"]["type"] == "ask_input"
+    assert body["pending"]["slot"] == "destination"
+
+    # A failure notice after the form doesn't answer it; anything else does.
+    await chat_service.add_message(session, UUID(plan_id), "system", "!", kind=MessageKind.ERROR)
+    assert (await client.get(f"/plans/{plan_id}", headers=headers)).json()["pending"] == body[
+        "pending"
+    ]
+    await chat_service.add_message(session, UUID(plan_id), "user", "Hm.")
+    assert (await client.get(f"/plans/{plan_id}", headers=headers)).json()["pending"] is None
+
+
+async def test_the_plan_waits_on_its_open_offer(session: AsyncSession, plan: TravelPlan) -> None:
+    offer_id = await _open(session, plan, plan.version)
+
+    snapshot = await service.get_plan_snapshot(session, plan.user_id, plan.id)
+
+    assert isinstance(snapshot.pending, OfferChoice)
+    assert snapshot.pending.offer_id == offer_id
+
+    # Made for an earlier version of the plan: no longer waited on.
+    await _open(session, plan, plan.version - 1)
+    stale = await service.get_plan_snapshot(session, plan.user_id, plan.id)
+    assert stale.pending is None
 
 
 async def test_a_stale_offer_is_ignored(session: AsyncSession, plan: TravelPlan) -> None:

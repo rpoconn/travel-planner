@@ -18,6 +18,14 @@ turns each one into the write that already exists for it and runs that write's r
 - `redo_search` → nothing to write: it checks that the search is the one behind the
   pending choices (`engine.refresh_search`), and the turn then runs it again the way
   "More options" does, leaving out what it already offered.
+- `add_candidate` → the candidate's own `chat.tools` changes, as a pick writes them. The
+  caller hands over the candidates the command may name, by ref (`candidates`); the
+  command never carries an item's contents.
+- `set_travel_mode` → `plans_service.set_no_flights`: the trip has no flights (or has
+  them again).
+
+`dry_run` checks commands and writes nothing: it is how a suggestion is vetted before it
+is stored for approval (`planning.proposals`).
 
 Once written, what the edit left to fix is named in the outcome with how to fix it, so the
 user hears it then and there: a flight, a stay or the activities the plan no longer has,
@@ -33,7 +41,7 @@ here: free text reaches this module only as commands the reader filled in.
 
 import logging
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from datetime import date
@@ -54,24 +62,30 @@ from features.planning.answers import (
     parse_answer,
 )
 from features.planning.engine import refresh_search
+from features.planning.picks import keep_outbound_token
 from features.planning.schemas import (
     BASICS_FIELDS,
     MAX_COMMANDS,
+    AddCandidate,
+    AgentCommand,
+    AnyCommand,
     AppliedChange,
     BasicName,
     BasicsChange,
     BasicsCommand,
+    Candidate,
     ChangesRecord,
     ChangeStage,
-    Command,
     CommandName,
     PreferencesChange,
     PreferencesCommand,
     PreferenceSection,
+    ProposalChange,
     RedoSearch,
     RejectedChange,
     RemoveItem,
     SearchName,
+    SetTravelMode,
     UpdateItem,
 )
 from features.planning.slots import SLOTS
@@ -181,6 +195,7 @@ class _ItemStep(_Step):
     change: ProposedChange
     # Transfers removed along with the item, each with its removal.
     along: tuple[tuple[UUID, ProposedChange], ...] = ()
+    rides: str = ""  # their titles, for the summaries: '“Taxi there”, “Taxi back”'
 
     @property
     def changes(self) -> tuple[ProposedChange, ...]:
@@ -212,9 +227,37 @@ class _SearchStep(_Step):
     """Nothing to write: the turn runs the search again once the other commands are in."""
 
 
-def _asked(command: Command, items: Sequence[ItineraryItem]) -> str:
+@dataclass(frozen=True)
+class _AddStep(_Step):
+    ref: str  # how the command named the candidate
+    candidate: Candidate
+    changes: tuple[ProposedChange, ...]  # the candidate's own, in order
+
+
+@dataclass(frozen=True)
+class _TravelStep(_Step):
+    no_flights: bool
+
+
+def _suggested(step: _Step) -> str:
+    """The step as a suggestion words it: what was asked, and the rides that go too."""
+    if isinstance(step, _ItemStep) and step.rides:
+        return f"{step.asked} and {step.rides}"
+    return step.asked
+
+
+def _asked(
+    command: AnyCommand,
+    items: Sequence[ItineraryItem],
+    candidates: Mapping[str, Candidate] | None = None,
+) -> str:
     """What the command asks for, in words, even when it doesn't resolve."""
     match command:
+        case AddCandidate():
+            found = (candidates or {}).get(command.candidate)
+            return f"Add “{found.title}”" if found else f"Add option {command.candidate}"
+        case SetTravelMode():
+            return "Plan the trip without flights" if command.no_flights else "Plan flights"
         case RemoveItem():
             return f"Remove {_item_label(items, command.item)}"
         case UpdateItem():
@@ -258,9 +301,10 @@ def _remove(
     or removed by an earlier command)."""
     item = _item(items, command.item)
     along = [ride for ride in connecting_transfers(item.id, items) if ride.id not in keep]
+    rides = ", ".join(f"“{ride.title}”" for ride in along)
     done = f"Removed “{item.title}”"
     if along:
-        done += " and " + ", ".join(f"“{ride.title}”" for ride in along)
+        done += f" and {rides}"
     return _ItemStep(
         name=command.type,
         asked=f"Remove “{item.title}”",
@@ -268,6 +312,7 @@ def _remove(
         item_id=item.id,
         change=_removal(item),
         along=tuple((ride.id, _removal(ride)) for ride in along),
+        rides=rides,
     )
 
 
@@ -367,14 +412,52 @@ def _change_stage(command: ChangeStage, plan: PlanSnapshot) -> _StageStep:
     )
 
 
+def _add_candidate(command: AddCandidate, candidates: Mapping[str, Candidate]) -> _AddStep:
+    candidate = candidates.get(command.candidate)
+    if candidate is None:
+        raise CommandError(f"There's no option {command.candidate} to add; search for it first")
+    changes = tuple(
+        ProposedChange(
+            call_id=f"add-{command.candidate}-{index}",
+            name=change.name,
+            arguments=change.arguments,
+            summary=change.summary,
+        )
+        for index, change in enumerate(candidate.changes)
+    )
+    return _AddStep(
+        name=command.type,
+        asked=f"Add “{candidate.title}”",
+        done=f"Added “{candidate.title}”",
+        ref=command.candidate,
+        candidate=candidate,
+        changes=changes,
+    )
+
+
+def _set_travel_mode(command: SetTravelMode, plan: PlanSnapshot) -> _TravelStep:
+    if plan.flights_skipped == command.no_flights:
+        already = "has no flights" if command.no_flights else "is planned with flights"
+        raise CommandError(f"The trip already {already}")
+    done = "The trip has no flights" if command.no_flights else "The trip has flights again"
+    return _TravelStep(
+        name=command.type, asked=_asked(command, ()), done=done, no_flights=command.no_flights
+    )
+
+
 def _resolve(
-    command: Command,
+    command: AnyCommand,
     items: Sequence[ItineraryItem],
     plan: PlanSnapshot,
     today: date,
     touched: AbstractSet[UUID],
+    candidates: Mapping[str, Candidate],
 ) -> _Step:
     match command:
+        case AddCandidate():
+            return _add_candidate(command, candidates)
+        case SetTravelMode():
+            return _set_travel_mode(command, plan)
         case RemoveItem():
             return _remove(command, items, touched)
         case UpdateItem():
@@ -400,23 +483,46 @@ class _Checked:
     rejected: list[RejectedChange]
 
 
+async def _stage(
+    ctx: tools.ToolContext, staged: list[ProposedChange], changes: Sequence[ProposedChange]
+) -> None:
+    """Check one command's changes on top of `staged` and add them to it; `CommandError`
+    (and nothing added) when one doesn't fit."""
+    trial = list(staged)
+    for change in changes:
+        outcome = await tools.check_change(replace(ctx, staged=tuple(trial)), change)
+        if not outcome.ok:
+            raise CommandError(outcome.summary)
+        trial.append(change)
+    staged[:] = trial
+
+
 async def _check(
-    ctx: tools.ToolContext, plan: PlanSnapshot, commands: Sequence[Command]
+    ctx: tools.ToolContext,
+    plan: PlanSnapshot,
+    commands: Sequence[AnyCommand],
+    candidates: Mapping[str, Candidate],
 ) -> _Checked:
     """Resolve and check every command (writes nothing). Item changes are checked with the
     earlier ones staged, so "remove the hotel, then move dinner" checks the move without
-    the hotel; stage and preference changes are checked from where the earlier ones left
-    the plan. Every command is checked even after one fails, so all the broken rules are
-    reported."""
+    the hotel; stage, travel-mode and preference changes are checked from where the
+    earlier ones left the plan. Every command is checked even after one fails, so all the
+    broken rules are reported."""
+    if len(commands) > MAX_COMMANDS:
+        too_many = RejectedChange(
+            summary="Change the trip", reason=f"At most {MAX_COMMANDS} changes at a time"
+        )
+        return _Checked(steps=[], rejected=[too_many])
     items = numbered_items(plan)
     checked = _Checked(steps=[], rejected=[])
     staged: list[ProposedChange] = []
     touched: set[UUID] = set()
     removed: set[UUID] = set()  # by an earlier removal, as one of its transfers
-    at = plan  # the plan as the stage and preference changes so far leave it
+    added: set[str] = set()  # candidate refs
+    at = plan  # the plan as the stage, travel-mode and preference changes so far leave it
     for command in commands:
         try:
-            step = _resolve(command, items, at, ctx.today, touched)
+            step = _resolve(command, items, at, ctx.today, touched, candidates)
             if isinstance(step, _ItemStep) and step.item_id in removed:
                 # "Remove dinner and the taxi there": the taxi is already going.
                 if not isinstance(command, RemoveItem):
@@ -427,13 +533,16 @@ async def _check(
                 # first edit leaves it, so both have to come as one.
                 if step.item_id in touched:
                     raise CommandError("Change each item in one command")
-                for change in step.changes:
-                    outcome = await tools.check_change(replace(ctx, staged=tuple(staged)), change)
-                    if not outcome.ok:
-                        raise CommandError(outcome.summary)
-                    staged.append(change)
+                await _stage(ctx, staged, step.changes)
                 touched.update(step.item_ids)
                 removed.update(step.item_ids[1:])
+            elif isinstance(step, _AddStep):
+                if step.ref in added:
+                    raise CommandError("It's already being added")
+                await _stage(ctx, staged, step.changes)
+                added.add(step.ref)
+            elif isinstance(step, _TravelStep):
+                at = at.model_copy(update={"flights_skipped": step.no_flights})
             elif isinstance(step, _StageStep):
                 at = at.model_copy(
                     update={"stage": step.stage, "flights_skipped": step.flights_skipped}
@@ -441,15 +550,53 @@ async def _check(
             elif isinstance(step, _PreferencesStep):
                 at = at.model_copy(update={"preferences": step.preferences})
         except CommandError as exc:
-            checked.rejected.append(RejectedChange(summary=_asked(command, items), reason=str(exc)))
+            asked = _asked(command, items, candidates)
+            checked.rejected.append(RejectedChange(summary=asked, reason=str(exc)))
             continue
         checked.steps.append(step)
     return checked
 
 
+@dataclass(frozen=True)
+class DryRun:
+    """What `dry_run` found: the commands as checked changes, or why they don't fit."""
+
+    changes: list[ProposalChange]  # one per command, in order; empty when any is rejected
+    rejected: list[RejectedChange]
+
+
+async def dry_run(
+    ctx: tools.ToolContext,
+    plan: PlanSnapshot,
+    commands: Sequence[AgentCommand],
+    candidates: Mapping[str, Candidate] | None = None,
+) -> DryRun:
+    """Check the commands against the plan's rules as `check_and_apply` would, and write
+    nothing. `candidates` are the search results an `add_candidate` may name, by ref."""
+    checked = await _check(ctx, plan, commands, candidates or {})
+    if checked.rejected:
+        return DryRun(changes=[], rejected=checked.rejected)
+    changes = [
+        ProposalChange(
+            summary=_suggested(step),
+            command=command,
+            candidate=step.candidate if isinstance(step, _AddStep) else None,
+        )
+        for command, step in zip(commands, checked.steps, strict=True)
+    ]
+    return DryRun(changes=changes, rejected=[])
+
+
 # ---------------------------------------------------------------------------
 # Writing
 # ---------------------------------------------------------------------------
+
+
+def _adds_flight_out(candidate: Candidate) -> bool:
+    return any(
+        change.name == "add_flight" and change.arguments.get("direction") == "outbound"
+        for change in candidate.changes
+    )
 
 
 async def _write(ctx: tools.ToolContext, plan: PlanSnapshot, step: _Step) -> None:
@@ -472,20 +619,38 @@ async def _write(ctx: tools.ToolContext, plan: PlanSnapshot, step: _Step) -> Non
         await plans_service.set_stage(
             ctx.session, ctx.user_id, ctx.plan_id, step.stage, step.flights_skipped
         )
+    elif isinstance(step, _TravelStep):
+        await plans_service.set_no_flights(ctx.session, ctx.user_id, ctx.plan_id, step.no_flights)
+    elif isinstance(step, _AddStep):
+        for change in step.changes:
+            outcome = await tools.apply_change(ctx, change)
+            if not outcome.ok:
+                raise CommandError(outcome.summary)
+        if _adds_flight_out(step.candidate):
+            # As a pick does. Read again: an earlier command may have changed the preferences.
+            row = await plans_service.get_plan(ctx.session, ctx.user_id, ctx.plan_id)
+            await keep_outbound_token(
+                ctx.session,
+                ctx.user_id,
+                ctx.plan_id,
+                PlanPreferences.model_validate(row.preferences),
+                step.candidate.follow_up_token,
+            )
 
 
 async def check_and_apply(
-    ctx: tools.ToolContext, plan: PlanSnapshot, commands: Sequence[Command]
+    ctx: tools.ToolContext,
+    plan: PlanSnapshot,
+    commands: Sequence[AnyCommand],
+    candidates: Mapping[str, Candidate] | None = None,
 ) -> ChangesRecord:
     """Check every command against the plan's rules and, when all fit, write them in order.
     Each write bumps the plan's version, so open offers go stale and searches run again.
-    Expected failures come back as `rejected`; they never raise."""
+    `candidates` are the search results an `add_candidate` may name, by ref. Expected
+    failures come back as `rejected`; they never raise."""
     if not commands:
         return ChangesRecord()
-    if len(commands) > MAX_COMMANDS:
-        reason = f"At most {MAX_COMMANDS} changes at a time"
-        return ChangesRecord(rejected=[RejectedChange(summary="Change the trip", reason=reason)])
-    checked = await _check(ctx, plan, commands)
+    checked = await _check(ctx, plan, commands, candidates or {})
     if checked.rejected:
         logger.info("Plan %s: %d command(s) rejected", plan.id, len(checked.rejected))
         return ChangesRecord(rejected=checked.rejected)

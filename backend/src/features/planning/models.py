@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from pydantic import JsonValue
-from sqlalchemy import JSON, ForeignKey, Index, String
+from sqlalchemy import JSON, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from shared.db import Base, UTCDateTime, utc_now
@@ -29,5 +29,24 @@ class PlanningOffer(Base):
     # What the offer is for, when the slot repeats: a transfer's gap, a stay's nights.
     gap: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
     nights: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, default=None)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, default=None)
+
+
+class PlanningProposal(Base):
+    """Changes the planner suggested, waiting for the user's decision (`schemas.Proposal`).
+    A plan has at most one pending proposal; opening another supersedes it
+    (`proposals.open_proposal`)."""
+
+    __tablename__ = "planning_proposals"
+    __table_args__ = (Index("ix_planning_proposals_plan_status", "plan_id", "status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("travel_plans.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    # `ProposalChange` list, in the order written.
+    changes: Mapped[list[dict[str, JsonValue]]] = mapped_column(JSON, default=list)
+    plan_version: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, default=None)

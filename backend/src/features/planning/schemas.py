@@ -350,6 +350,8 @@ CommandName = Literal[
     "set_activity_preferences",
     "change_stage",
     "redo_search",
+    "set_travel_mode",
+    "add_candidate",
 ]
 
 # An item's number in the itinerary list the model is shown (`commands.numbered_items`),
@@ -548,14 +550,53 @@ class RedoSearch(_Command):
     search: SearchName = Field(description="Which choices to find others for")
 
 
+class SetTravelMode(_Command):
+    """Say whether the trip has flights. Without them (driving, a train) the plan asks for
+    no flight out or home."""
+
+    type: Literal["set_travel_mode"] = "set_travel_mode"
+    no_flights: bool = Field(
+        description="true: getting there another way than flying; false: flights are wanted"
+    )
+
+
+class AddCandidate(_Command):
+    """Add one option a search found. Items are never written any other way, so their
+    places, times and costs are the search's, not the model's."""
+
+    type: Literal["add_candidate"] = "add_candidate"
+    candidate: str = Field(description="The option's ref, as the search result lists it")
+
+
 # The commands under each base class, for code that reads their `type`.
 BasicsChange = SetDates | SetTravelers | SetDestination | SetOrigin | SetBudget
 PreferencesChange = SetFlightPreferences | SetLodgingPreferences | SetActivityPreferences
 
+# What the command reader of the stage flow can say.
 Command = Annotated[
     RemoveItem | UpdateItem | BasicsChange | PreferencesChange | ChangeStage | RedoSearch,
     Field(discriminator="type"),
 ]
+
+# What the agent loop can say: no stages to move between and no search to redo (it runs
+# searches itself), but it can add what a search found and say the trip has no flights.
+# This replaces `Command` once the stage flow is deleted.
+AgentCommand = Annotated[
+    RemoveItem | UpdateItem | BasicsChange | PreferencesChange | SetTravelMode | AddCandidate,
+    Field(discriminator="type"),
+]
+
+# Every command `planning.commands` checks and writes, from either flow.
+AnyCommand = (
+    RemoveItem
+    | UpdateItem
+    | BasicsChange
+    | PreferencesChange
+    | ChangeStage
+    | RedoSearch
+    | SetTravelMode
+    | AddCandidate
+)
 
 CommandStatus = Literal["command", "ambiguous", "question", "unrelated"]
 
@@ -662,13 +703,77 @@ MessagePayload = Annotated[
 ]
 
 
+# ---------------------------------------------------------------------------
+# Proposals: changes the planner suggests on its own, waiting for Approve / Reject
+# (`planning.proposals`). Changes the user asked for in words are written at once instead.
+# ---------------------------------------------------------------------------
+
+# pending: waiting for the user. approved / rejected: their decision. superseded: a newer
+# proposal replaced it, or the plan changed under it. failed: approved, but a change no
+# longer fit the plan, so nothing was written.
+ProposalStatus = Literal["pending", "approved", "rejected", "superseded", "failed"]
+
+
+class ProposalChange(BaseModel):
+    """One change of a proposal, as it passed the dry run: the command, how the card words
+    it, and for an `add_candidate` the candidate itself, so approving needs no search."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    summary: str  # imperative, e.g. 'Remove “Dinner at Ramiro” and “Taxi there”'
+    command: AgentCommand
+    candidate: Candidate | None = None
+
+
+class Proposal(BaseModel):
+    """A proposal as stored (`planning.models.PlanningProposal`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    plan_id: UUID
+    status: ProposalStatus
+    reason: str  # why the planner suggests it, in a sentence
+    changes: list[ProposalChange]  # written in order, all or nothing
+    # The plan's version when suggested. Commands point at items by number, so any later
+    # change to the plan makes the proposal stale.
+    plan_version: int
+    created_at: datetime
+    decided_at: datetime | None
+
+
+class SuggestedChange(BaseModel):
+    """One row of a proposal card."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    name: CommandName
+    summary: str
+    candidate: Candidate | None = None  # add_candidate: what would be added
+
+
+class ReviewProposal(BaseModel):
+    """Show the pending proposal's changes with Approve and Reject."""
+
+    type: Literal["review_proposal"] = "review_proposal"
+    proposal_id: UUID
+    prompt: str  # the proposal's reason
+    changes: list[SuggestedChange]
+
+
+# What the plan is waiting on the user for, if anything: a form, choices to pick from, or
+# a proposal to decide (`planning.pending`). Free text always works too.
+Pending = Annotated[AskInput | OfferChoice | ReviewProposal, Field(discriminator="type")]
+
+
 class TravelPlan(PlanSnapshot):
     """The full plan as the API returns it: details, items, stage checklists, gaps, the
-    validation engine's problems and the planning engine's assessment (built by
-    `planning.service.snapshot`)."""
+    validation engine's problems, what it is waiting on the user for, and the planning
+    engine's assessment (built by `planning.service.snapshot`)."""
 
     assessment: PlanAssessment
     # Everything wrong with the plan, whatever stage it is at: blocking problems, then
     # warnings (`planning.validation.validate`).
     problems: list[Problem]
     complete: bool  # no blocking problem is left
+    pending: Pending | None

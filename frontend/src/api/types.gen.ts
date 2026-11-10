@@ -274,7 +274,7 @@ export type AppliedChange = {
     /**
      * Name
      */
-    name: 'remove_item' | 'update_item' | 'set_dates' | 'set_travelers' | 'set_destination' | 'set_origin' | 'set_budget' | 'set_flight_preferences' | 'set_lodging_preferences' | 'set_activity_preferences' | 'change_stage' | 'redo_search';
+    name: 'remove_item' | 'update_item' | 'set_dates' | 'set_travelers' | 'set_destination' | 'set_origin' | 'set_budget' | 'set_flight_preferences' | 'set_lodging_preferences' | 'set_activity_preferences' | 'change_stage' | 'redo_search' | 'set_travel_mode' | 'add_candidate';
     /**
      * Summary
      */
@@ -1869,6 +1869,30 @@ export type ReturnToStage = {
 };
 
 /**
+ * ReviewProposal
+ *
+ * Show the pending proposal's changes with Approve and Reject.
+ */
+export type ReviewProposal = {
+    /**
+     * Type
+     */
+    type?: 'review_proposal';
+    /**
+     * Proposal Id
+     */
+    proposal_id: string;
+    /**
+     * Prompt
+     */
+    prompt: string;
+    /**
+     * Changes
+     */
+    changes: Array<SuggestedChange>;
+};
+
+/**
  * RunSearch
  *
  * Search for the slot's candidates (the "Find flights" / "Retry" button).
@@ -2038,6 +2062,23 @@ export type StageStatus = {
      * Missing
      */
     readonly missing: Array<string>;
+};
+
+/**
+ * SuggestedChange
+ *
+ * One row of a proposal card.
+ */
+export type SuggestedChange = {
+    /**
+     * Name
+     */
+    name: 'remove_item' | 'update_item' | 'set_dates' | 'set_travelers' | 'set_destination' | 'set_origin' | 'set_budget' | 'set_flight_preferences' | 'set_lodging_preferences' | 'set_activity_preferences' | 'change_stage' | 'redo_search' | 'set_travel_mode' | 'add_candidate';
+    /**
+     * Summary
+     */
+    summary: string;
+    candidate: Candidate | null;
 };
 
 /**
@@ -2380,8 +2421,8 @@ export type TransferItemPatch = {
  * TravelPlan
  *
  * The full plan as the API returns it: details, items, stage checklists, gaps, the
- * validation engine's problems and the planning engine's assessment (built by
- * `planning.service.snapshot`).
+ * validation engine's problems, what it is waiting on the user for, and the planning
+ * engine's assessment (built by `planning.service.snapshot`).
  */
 export type TravelPlan = {
     /**
@@ -2459,6 +2500,16 @@ export type TravelPlan = {
      * Complete
      */
     complete: boolean;
+    /**
+     * Pending
+     */
+    pending: ({
+        type: 'ask_input';
+    } & AskInput) | ({
+        type: 'offer_choice';
+    } & OfferChoice) | ({
+        type: 'review_proposal';
+    } & ReviewProposal) | null;
 };
 
 /**
@@ -2582,8 +2633,8 @@ export type StageStatusWritable = {
  * TravelPlan
  *
  * The full plan as the API returns it: details, items, stage checklists, gaps, the
- * validation engine's problems and the planning engine's assessment (built by
- * `planning.service.snapshot`).
+ * validation engine's problems, what it is waiting on the user for, and the planning
+ * engine's assessment (built by `planning.service.snapshot`).
  */
 export type TravelPlanWritable = {
     /**
@@ -2661,6 +2712,16 @@ export type TravelPlanWritable = {
      * Complete
      */
     complete: boolean;
+    /**
+     * Pending
+     */
+    pending: ({
+        type: 'ask_input';
+    } & AskInput) | ({
+        type: 'offer_choice';
+    } & OfferChoice) | ({
+        type: 'review_proposal';
+    } & ReviewProposal) | null;
 };
 
 export type GetHealthData = {
