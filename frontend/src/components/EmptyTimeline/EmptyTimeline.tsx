@@ -1,4 +1,4 @@
-import { CalendarRange } from 'lucide-react'
+import { IconCalendarWeek } from '@tabler/icons-react'
 
 // Placeholder shown when the trip has no dates and nothing planned, so no day columns exist.
 
@@ -7,7 +7,7 @@ export function EmptyTimeline() {
     return (
         <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
             <div className="bg-secondary flex size-12 items-center justify-center rounded-full">
-                <CalendarRange className="text-primary size-6" aria-hidden />
+                <IconCalendarWeek className="text-primary size-6" aria-hidden />
             </div>
             <p className="font-heading text-foreground text-lg">No itinerary yet</p>
             <p className="max-w-xs text-sm">

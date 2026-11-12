@@ -1,4 +1,4 @@
-import { Check, TriangleAlert, X } from 'lucide-react'
+import { IconAlertTriangle, IconCheck, IconX } from '@tabler/icons-react'
 
 import type { ChangesRecord } from '@/api/types.gen'
 
@@ -33,13 +33,13 @@ export function ChangesCard({ record }: ChangesCardProps) {
             <ul className="flex flex-col gap-1">
                 {record.applied.map((change, index) => (
                     <li key={`applied-${String(index)}`} className="flex items-start gap-2">
-                        <Check className="text-primary mt-0.5 size-4 shrink-0" aria-hidden />
+                        <IconCheck className="text-primary mt-0.5 size-4 shrink-0" aria-hidden />
                         <span>{change.summary}</span>
                     </li>
                 ))}
                 {record.left_open.map((note, index) => (
                     <li key={`left-open-${String(index)}`} className="flex items-start gap-2">
-                        <TriangleAlert
+                        <IconAlertTriangle
                             className="text-warning mt-0.5 size-4 shrink-0"
                             aria-hidden
                         />
@@ -48,7 +48,7 @@ export function ChangesCard({ record }: ChangesCardProps) {
                 ))}
                 {record.rejected.map((change, index) => (
                     <li key={`rejected-${String(index)}`} className="flex items-start gap-2">
-                        <X className="text-destructive mt-0.5 size-4 shrink-0" aria-hidden />
+                        <IconX className="text-destructive mt-0.5 size-4 shrink-0" aria-hidden />
                         <span className="flex flex-col">
                             <span>{change.summary}</span>
                             <span className="text-muted-foreground">{change.reason}</span>

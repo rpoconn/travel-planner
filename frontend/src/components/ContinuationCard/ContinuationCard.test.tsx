@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { TimelineWarning } from '@/api/types.gen'
 import { flightItem, timelineEntry } from '@/test/fixtures'
+import { render, screen } from '@/test/render'
 
 import { ContinuationCard } from './ContinuationCard'
 

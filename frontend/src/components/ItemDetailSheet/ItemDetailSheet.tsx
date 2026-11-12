@@ -1,17 +1,17 @@
+import { Drawer } from '@mantine/core'
 import { useState } from 'react'
 
 import { ItemDetailBody } from '@/components/ItemDetailBody/ItemDetailBody'
 import { RemoveItemButton } from '@/components/RemoveItemButton/RemoveItemButton'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
 import type { ItineraryItem } from '@/lib/itemMeta'
 
-// Side sheet with every field of one itinerary item, and a button to take it off the trip.
+// Side drawer with every field of one itinerary item, and a button to take it off the trip.
 // Other changes go through the chat.
 
 // ----- types -----
 
 interface ItemDetailSheetProps {
-    /** The item to show; null closes the sheet. */
+    /** The item to show; null closes the drawer. */
     item: ItineraryItem | null
     onClose: () => void
     /** Takes the item off the trip (a planning turn); no Remove button without it. */
@@ -27,20 +27,27 @@ export function ItemDetailSheet({
     removeDisabled = false,
 }: ItemDetailSheetProps) {
     // ----- state -----
-    // Keep showing the last item while the sheet animates closed (item is already null then).
+    // Keep showing the last item while the drawer animates closed (item is already null then).
     const [lastItem, setLastItem] = useState(item)
     if (item !== null && item !== lastItem) setLastItem(item)
     const shown = item ?? lastItem
 
-    // ----- markup -----
+    // While the remove confirm is open on top, Escape is for it alone. Every Mantine overlay
+    // listens for Escape on the window, so otherwise one press would close both.
+    const [confirming, setConfirming] = useState(false)
+    if (item === null && confirming) setConfirming(false)
+
+    // ----- render -----
     return (
-        <Sheet
-            open={item !== null}
-            onOpenChange={(open) => {
-                if (!open) onClose()
-            }}
+        <Drawer.Root
+            opened={item !== null}
+            onClose={onClose}
+            position="right"
+            size="md"
+            closeOnEscape={!confirming}
         >
-            <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+            <Drawer.Overlay />
+            <Drawer.Content>
                 {shown && <ItemDetailBody item={shown} />}
                 {shown && onRemove && (
                     <div className="px-4 pb-4">
@@ -48,10 +55,12 @@ export function ItemDetailSheet({
                             item={shown}
                             onRemove={onRemove}
                             disabled={removeDisabled}
+                            onConfirmingChange={setConfirming}
                         />
                     </div>
                 )}
-            </SheetContent>
-        </Sheet>
+                <Drawer.CloseButton />
+            </Drawer.Content>
+        </Drawer.Root>
     )
 }

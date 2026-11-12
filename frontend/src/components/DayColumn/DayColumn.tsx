@@ -1,4 +1,4 @@
-import { Clock, TriangleAlert } from 'lucide-react'
+import { IconAlertTriangle, IconClock } from '@tabler/icons-react'
 import { Fragment, type CSSProperties } from 'react'
 
 import type { Place, TimelineDay, TimelineWarning } from '@/api/types.gen'
@@ -87,7 +87,7 @@ export function DayColumn({
                         className="text-warning ml-auto self-center"
                         title={dayWarnings.map((warning) => warning.message).join('\n')}
                     >
-                        <TriangleAlert className="size-4" aria-hidden />
+                        <IconAlertTriangle className="size-4" aria-hidden />
                         <span className="sr-only">
                             {dayWarnings.length} warning{dayWarnings.length === 1 ? '' : 's'}
                         </span>
@@ -95,7 +95,7 @@ export function DayColumn({
                 )}
                 {zoneChange && (
                     <p className="text-flight inline-flex basis-full items-center gap-1 text-xs font-medium">
-                        <Clock className="size-3.5" aria-hidden />
+                        <IconClock className="size-3.5" aria-hidden />
                         Clocks {zoneChange.shift} · now {zoneChange.label}
                     </p>
                 )}

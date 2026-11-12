@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { PHILADELPHIA } from '@/test/fixtures'
+import { render, screen } from '@/test/render'
 
 import { HomeChip } from './HomeChip'
 

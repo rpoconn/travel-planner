@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { transferItem } from '@/test/fixtures'
+import { render, screen } from '@/test/render'
 
 import { TransferConnector } from './TransferConnector'
 

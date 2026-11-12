@@ -1,12 +1,11 @@
-import { ExternalLink } from 'lucide-react'
+import { Badge, Drawer } from '@mantine/core'
+import { clsx } from 'clsx'
+import { IconExternalLink } from '@tabler/icons-react'
 
 import type { Place } from '@/api/types.gen'
-import { Badge } from '@/components/ui/badge'
-import { SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { formatCost, formatMoney, placeLabel, placeLocality } from '@/lib/format'
 import { humanize, ITEM_TYPE_META, TRANSFER_MODE_META, type ItineraryItem } from '@/lib/itemMeta'
 import { dayOffset, formatDuration, formatWallDate, formatWallTime } from '@/lib/timeline'
-import { cn } from '@/lib/utils'
 
 // The header and field list inside ItemDetailSheet. Read-only.
 
@@ -149,10 +148,12 @@ export function ItemDetailBody({ item }: ItemDetailBodyProps) {
     // ----- markup -----
     return (
         <>
-            <SheetHeader className={cn('border-b pr-12', meta.tint)}>
+            {/* The drawer's title, so it names the dialog; the close button sits in the
+                top-right corner, over the header's right padding. */}
+            <div className={clsx('flex flex-col gap-1.5 border-b p-4 pr-12', meta.tint)}>
                 <div className="flex items-center gap-2">
                     <span
-                        className={cn(
+                        className={clsx(
                             'bg-background inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
                             meta.text,
                         )}
@@ -163,22 +164,23 @@ export function ItemDetailBody({ item }: ItemDetailBodyProps) {
                     <Badge
                         variant={
                             item.status === 'cancelled'
-                                ? 'destructive'
+                                ? 'light'
                                 : item.status === 'confirmed'
-                                  ? 'default'
+                                  ? 'filled'
                                   : 'outline'
                         }
+                        color={item.status === 'cancelled' ? 'red' : undefined}
                     >
                         {humanize(item.status)}
                     </Badge>
                 </div>
-                <SheetTitle className="font-heading text-2xl leading-tight">
+                <Drawer.Title className="font-heading text-2xl leading-tight">
                     {item.title}
-                </SheetTitle>
-                <SheetDescription>{whenValue(item)}</SheetDescription>
-            </SheetHeader>
+                </Drawer.Title>
+                <p className="text-muted-foreground text-sm">{whenValue(item)}</p>
+            </div>
 
-            <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-3 px-4 pb-6">
+            <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-3 px-4 pt-4 pb-6">
                 {fields.map((field) => (
                     <div key={field.label} className="contents">
                         <dt className="text-muted-foreground text-sm">{field.label}</dt>
@@ -207,7 +209,7 @@ export function ItemDetailBody({ item }: ItemDetailBodyProps) {
                                     className="text-primary inline-flex items-center gap-1 break-all underline-offset-4 hover:underline"
                                 >
                                     {sourceLabel(field.value.link)}
-                                    <ExternalLink className="size-3.5 shrink-0" aria-hidden />
+                                    <IconExternalLink className="size-3.5 shrink-0" aria-hidden />
                                 </a>
                             )}
                         </dd>

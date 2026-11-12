@@ -1,4 +1,3 @@
-import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -14,7 +13,7 @@ import {
     tokyoTimeline,
     travelPlan,
 } from '@/test/fixtures'
-import { renderWithRouter } from '@/test/render'
+import { renderWithRouter, screen, waitFor, within } from '@/test/render'
 import { sseResponse } from '@/test/sse'
 
 import { WorkspacePage } from './WorkspacePage'

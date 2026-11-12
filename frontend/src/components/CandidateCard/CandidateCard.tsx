@@ -1,8 +1,8 @@
-import { Check, ExternalLink, Plus, TriangleAlert } from 'lucide-react'
+import { Button } from '@mantine/core'
+import { clsx } from 'clsx'
+import { IconAlertTriangle, IconCheck, IconExternalLink, IconPlus } from '@tabler/icons-react'
 
 import type { Candidate } from '@/api/types.gen'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 
 import { pickLabel, priceLabel } from './CandidateCardService'
 
@@ -36,7 +36,7 @@ export function CandidateCard({
     return (
         <article
             aria-label={candidate.title}
-            className={cn(
+            className={clsx(
                 'bg-card flex flex-col gap-2 rounded-lg border px-3 py-2.5 sm:flex-row sm:items-start',
                 selected && 'border-primary ring-primary/30 ring-2',
             )}
@@ -60,7 +60,7 @@ export function CandidateCard({
                                 key={warning}
                                 className="text-terracotta flex items-center gap-1 text-xs"
                             >
-                                <TriangleAlert className="size-3 shrink-0" aria-hidden />
+                                <IconAlertTriangle className="size-3 shrink-0" aria-hidden />
                                 {warning}
                             </li>
                         ))}
@@ -74,7 +74,7 @@ export function CandidateCard({
                         className="text-primary inline-flex w-fit items-center gap-1 text-xs underline-offset-2 hover:underline"
                     >
                         Details
-                        <ExternalLink className="size-3" aria-hidden />
+                        <IconExternalLink className="size-3" aria-hidden />
                     </a>
                 )}
             </div>
@@ -82,16 +82,16 @@ export function CandidateCard({
             <div className="flex shrink-0 items-center gap-3 sm:flex-col sm:items-end">
                 {price && <p className="text-sm font-semibold tabular-nums">{price}</p>}
                 <Button
-                    type="button"
-                    size="sm"
-                    variant={multi && !selected ? 'outline' : 'default'}
+                    variant={multi && !selected ? 'default' : 'filled'}
                     disabled={disabled}
                     aria-pressed={multi ? selected : undefined}
                     // "Pick" alone is ambiguous in a list of several: name the option.
                     aria-label={`${label} ${candidate.title}`}
+                    leftSection={
+                        multi && (selected ? <IconCheck aria-hidden /> : <IconPlus aria-hidden />)
+                    }
                     onClick={onPick}
                 >
-                    {multi && (selected ? <Check aria-hidden /> : <Plus aria-hidden />)}
                     {label}
                 </Button>
             </div>

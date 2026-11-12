@@ -1,4 +1,3 @@
-import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -6,7 +5,7 @@ import { getTimelineQueryKey } from '@/api/@tanstack/react-query.gen'
 import * as sdk from '@/api/sdk.gen'
 import { gap, PHILADELPHIA, PLAN_ID, sdkOk, timeline, tokyoTimeline } from '@/test/fixtures'
 import type { ItineraryItem } from '@/lib/itemMeta'
-import { renderWithQuery } from '@/test/render'
+import { renderWithQuery, screen, waitFor, within } from '@/test/render'
 
 import { ItineraryTimeline } from './ItineraryTimeline'
 

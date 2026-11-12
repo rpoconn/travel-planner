@@ -1,17 +1,8 @@
-import { Trash2 } from 'lucide-react'
+import { Button } from '@mantine/core'
+import { IconTrash } from '@tabler/icons-react'
 import { useState } from 'react'
 
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ConfirmDialog/ConfirmDialog'
 import type { ItineraryItem } from '@/lib/itemMeta'
 
 import { removalNote } from './RemoveItemButtonService'
@@ -28,15 +19,27 @@ interface RemoveItemButtonProps {
     onRemove: (item: ItineraryItem) => void
     /** While the planner is busy with another turn. */
     disabled?: boolean
+    /** Told when the confirm dialog opens and closes (a drawer around it pauses Escape). */
+    onConfirmingChange?: (confirming: boolean) => void
 }
 
-export function RemoveItemButton({ item, onRemove, disabled = false }: RemoveItemButtonProps) {
+export function RemoveItemButton({
+    item,
+    onRemove,
+    disabled = false,
+    onConfirmingChange,
+}: RemoveItemButtonProps) {
     // ----- state -----
     const [confirming, setConfirming] = useState(false)
 
     // ----- UI callbacks -----
+    function setConfirmingAndTell(next: boolean) {
+        setConfirming(next)
+        onConfirmingChange?.(next)
+    }
+
     function confirm() {
-        setConfirming(false)
+        setConfirmingAndTell(false)
         onRemove(item)
     }
 
@@ -44,30 +47,29 @@ export function RemoveItemButton({ item, onRemove, disabled = false }: RemoveIte
     return (
         <>
             <Button
-                variant="outline"
-                className="text-destructive hover:text-destructive w-full"
+                size="sm"
+                variant="default"
+                fullWidth
+                className="text-destructive"
                 disabled={disabled}
+                leftSection={<IconTrash aria-hidden />}
                 onClick={() => {
-                    setConfirming(true)
+                    setConfirmingAndTell(true)
                 }}
             >
-                <Trash2 aria-hidden />
                 Remove from trip
             </Button>
-            <AlertDialog open={confirming} onOpenChange={setConfirming}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Remove “{item.title}”?</AlertDialogTitle>
-                        <AlertDialogDescription>{removalNote(item)}</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction variant="destructive" onClick={confirm}>
-                            Remove
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+            <ConfirmDialog
+                opened={confirming}
+                title={`Remove “${item.title}”?`}
+                confirmLabel="Remove"
+                onConfirm={confirm}
+                onCancel={() => {
+                    setConfirmingAndTell(false)
+                }}
+            >
+                {removalNote(item)}
+            </ConfirmDialog>
         </>
     )
 }

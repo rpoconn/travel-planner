@@ -1,9 +1,9 @@
-import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ItineraryItem } from '@/lib/itemMeta'
 import { flightItem, lodgingItem, transferItem } from '@/test/fixtures'
+import { render, screen, within } from '@/test/render'
 
 import { ItemDetailSheet } from './ItemDetailSheet'
 
@@ -102,6 +102,30 @@ describe('ItemDetailSheet', () => {
 
         await userEvent.click(screen.getByRole('button', { name: 'Close' }))
 
+        expect(onClose).toHaveBeenCalled()
+    })
+
+    it('asks to close on Escape', async () => {
+        const { onClose } = renderSheet(transferItem())
+
+        await userEvent.keyboard('{Escape}')
+
+        expect(onClose).toHaveBeenCalled()
+    })
+
+    it('closes only the remove confirm on Escape, not the drawer under it', async () => {
+        const onClose = vi.fn()
+        render(<ItemDetailSheet item={transferItem()} onClose={onClose} onRemove={vi.fn()} />)
+
+        await userEvent.click(screen.getByRole('button', { name: 'Remove from trip' }))
+        expect(screen.getByRole('dialog', { name: /^Remove “/ })).toBeInTheDocument()
+        await userEvent.keyboard('{Escape}')
+
+        expect(screen.queryByRole('dialog', { name: /^Remove “/ })).not.toBeInTheDocument()
+        expect(onClose).not.toHaveBeenCalled()
+
+        // With the confirm gone, Escape closes the drawer again.
+        await userEvent.keyboard('{Escape}')
         expect(onClose).toHaveBeenCalled()
     })
 })

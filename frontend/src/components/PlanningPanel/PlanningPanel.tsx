@@ -1,5 +1,6 @@
+import { Button } from '@mantine/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight } from 'lucide-react'
+import { IconArrowRight } from '@tabler/icons-react'
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 
 import { getPlanQueryKey, listPlanningMessagesOptions } from '@/api/@tanstack/react-query.gen'
@@ -9,7 +10,6 @@ import { Composer } from '@/components/Composer/Composer'
 import { ExpectedInputPanel } from '@/components/ExpectedInputPanel/ExpectedInputPanel'
 import { MessageBubble } from '@/components/MessageBubble/MessageBubble'
 import { ProposalCard } from '@/components/ProposalCard/ProposalCard'
-import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/apiError'
 import { applyPlanSnapshot } from '@/lib/planCache'
 import { applyPlanningEvent, startPlanningTurn, type PlanningTurn } from '@/lib/planningTurn'
@@ -296,8 +296,10 @@ export function PlanningPanel({ plan, onBusyChange, ref }: PlanningPanelProps) {
                                 answered a question, or a turn failed. One button carries on. */}
                             {canContinue(plan) && !busy && (
                                 <div className="flex items-center gap-3">
-                                    <Button size="sm" onClick={() => void continuePlanning()}>
-                                        <ArrowRight aria-hidden />
+                                    <Button
+                                        leftSection={<IconArrowRight aria-hidden />}
+                                        onClick={() => void continuePlanning()}
+                                    >
                                         Continue planning
                                     </Button>
                                 </div>

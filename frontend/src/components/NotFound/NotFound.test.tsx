@@ -1,8 +1,7 @@
-import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import { renderWithRouter } from '@/test/render'
+import { renderWithRouter, screen } from '@/test/render'
 
 import { NotFound } from './NotFound'
 

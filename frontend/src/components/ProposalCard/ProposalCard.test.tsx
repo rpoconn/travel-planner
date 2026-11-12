@@ -1,8 +1,8 @@
-import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { SUGGESTION } from '@/test/fixtures'
+import { render, screen, within } from '@/test/render'
 
 import { ProposalCard } from './ProposalCard'
 

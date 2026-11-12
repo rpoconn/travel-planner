@@ -1,21 +1,25 @@
-import { Moon, Sun } from 'lucide-react'
-
-import { Button } from '@/components/ui/button'
-import { toggleTheme, useTheme } from '@/lib/theme'
+import { ActionIcon, useComputedColorScheme, useMantineColorScheme } from '@mantine/core'
+import { IconMoon, IconSun } from '@tabler/icons-react'
 
 export function ThemeToggle() {
-    // ----- state -----
-    const dark = useTheme() === 'dark'
+    // ----- setup -----
+    const { setColorScheme } = useMantineColorScheme()
+    // The scheme actually showing: "auto" resolved against the OS preference.
+    const dark = useComputedColorScheme('light') === 'dark'
+
+    // ----- handlers -----
+    function toggle() {
+        setColorScheme(dark ? 'light' : 'dark')
+    }
 
     // ----- markup -----
     return (
-        <Button
-            size="icon-sm"
-            variant="ghost"
+        <ActionIcon
+            variant="subtle"
             aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
-            onClick={toggleTheme}
+            onClick={toggle}
         >
-            {dark ? <Sun aria-hidden /> : <Moon aria-hidden />}
-        </Button>
+            {dark ? <IconSun aria-hidden /> : <IconMoon aria-hidden />}
+        </ActionIcon>
     )
 }

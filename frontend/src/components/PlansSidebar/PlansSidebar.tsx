@@ -1,5 +1,7 @@
+import { ActionIcon, Button, TextInput } from '@mantine/core'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { clsx } from 'clsx'
+import { IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
 import { useRef, useState } from 'react'
 
 import {
@@ -11,21 +13,9 @@ import {
     updatePlanMutation,
 } from '@/api/@tanstack/react-query.gen'
 import type { PlanSummary } from '@/api/types.gen'
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { ConfirmDialog } from '@/components/ConfirmDialog/ConfirmDialog'
 import { errorMessage } from '@/lib/apiError'
 import { formatTripWhereWhen } from '@/lib/format'
-import { cn } from '@/lib/utils'
 
 // ----- types -----
 
@@ -114,14 +104,13 @@ export function PlansSidebar({ selectedPlanId, onSelectPlan, onPlanDeleted }: Pl
             <div className="flex items-center justify-between px-4 py-3">
                 <h2 className="text-sm font-semibold">Your trips</h2>
                 <Button
-                    size="sm"
-                    variant="outline"
+                    variant="default"
                     disabled={createPlan.isPending}
+                    leftSection={<IconPlus aria-hidden />}
                     onClick={() => {
                         createPlan.mutate({ body: { title: 'Untitled trip' } })
                     }}
                 >
-                    <Plus aria-hidden />
                     New trip
                 </Button>
             </div>
@@ -153,12 +142,11 @@ export function PlansSidebar({ selectedPlanId, onSelectPlan, onPlanDeleted }: Pl
                         return (
                             <li key={plan.id} className="group relative">
                                 {editingId === plan.id ? (
-                                    <Input
+                                    <TextInput
                                         aria-label="Trip name"
                                         autoFocus
                                         maxLength={200}
                                         value={draftTitle}
-                                        className="h-auto py-2"
                                         onChange={(event) => {
                                             setDraftTitle(event.target.value)
                                         }}
@@ -184,7 +172,7 @@ export function PlansSidebar({ selectedPlanId, onSelectPlan, onPlanDeleted }: Pl
                                         <button
                                             type="button"
                                             aria-current={selected ? 'page' : undefined}
-                                            className={cn(
+                                            className={clsx(
                                                 'hover:bg-muted w-full rounded-lg px-3 py-2 pr-16 text-left transition-colors',
                                                 selected && 'bg-muted',
                                             )}
@@ -200,26 +188,26 @@ export function PlansSidebar({ selectedPlanId, onSelectPlan, onPlanDeleted }: Pl
                                             </span>
                                         </button>
                                         <div className="absolute top-1/2 right-1 flex -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                                            <Button
-                                                size="icon-xs"
-                                                variant="ghost"
+                                            <ActionIcon
+                                                size="sm"
+                                                variant="subtle"
                                                 aria-label={`Rename ${plan.title}`}
                                                 onClick={() => {
                                                     startRename(plan.id, plan.title)
                                                 }}
                                             >
-                                                <Pencil aria-hidden />
-                                            </Button>
-                                            <Button
-                                                size="icon-xs"
-                                                variant="ghost"
+                                                <IconPencil aria-hidden />
+                                            </ActionIcon>
+                                            <ActionIcon
+                                                size="sm"
+                                                variant="subtle"
                                                 aria-label={`Delete ${plan.title}`}
                                                 onClick={() => {
                                                     setPendingDelete(plan)
                                                 }}
                                             >
-                                                <Trash2 aria-hidden />
-                                            </Button>
+                                                <IconTrash aria-hidden />
+                                            </ActionIcon>
                                         </div>
                                     </>
                                 )}
@@ -229,41 +217,20 @@ export function PlansSidebar({ selectedPlanId, onSelectPlan, onPlanDeleted }: Pl
                 </ul>
             </div>
 
-            <AlertDialog
-                open={pendingDelete !== null}
-                onOpenChange={(open) => {
-                    if (!open) setPendingDelete(null)
+            {/* Stays open until the delete succeeds; the mutation's onSuccess closes it. */}
+            <ConfirmDialog
+                opened={pendingDelete !== null}
+                title={`Delete “${pendingDelete?.title ?? ''}”?`}
+                confirmLabel="Delete"
+                loading={deletePlan.isPending}
+                error={deletePlan.isError ? errorMessage(deletePlan.error) : undefined}
+                onConfirm={confirmDelete}
+                onCancel={() => {
+                    setPendingDelete(null)
                 }}
             >
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete “{pendingDelete?.title}”?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This removes the trip and everything planned in it. This can’t be
-                            undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    {deletePlan.isError && (
-                        <p role="alert" className="text-destructive text-sm">
-                            {errorMessage(deletePlan.error)}
-                        </p>
-                    )}
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            variant="destructive"
-                            disabled={deletePlan.isPending}
-                            onClick={(event) => {
-                                // Keep the dialog open until the delete succeeds.
-                                event.preventDefault()
-                                confirmDelete()
-                            }}
-                        >
-                            Delete
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+                This removes the trip and everything planned in it. This can’t be undone.
+            </ConfirmDialog>
         </nav>
     )
 }

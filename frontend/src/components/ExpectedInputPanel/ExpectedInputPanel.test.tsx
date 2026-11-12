@@ -1,8 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AskInput } from '@/api/types.gen'
+import { fireEvent, render, screen } from '@/test/render'
 import {
     ASK_BUDGET,
     ASK_DATES,

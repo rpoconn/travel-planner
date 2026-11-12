@@ -1,10 +1,9 @@
-import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import * as sdk from '@/api/sdk.gen'
 import { planSummary, sdkOk, travelPlan } from '@/test/fixtures'
-import { renderWithQuery } from '@/test/render'
+import { renderWithQuery, screen, waitFor, within } from '@/test/render'
 
 import { PlansSidebar } from './PlansSidebar'
 
@@ -128,7 +127,7 @@ describe('PlansSidebar', () => {
         const { onPlanDeleted, user } = renderSidebar(TOKYO.id)
 
         await user.click(await screen.findByRole('button', { name: 'Delete Tokyo in May' }))
-        const dialog = await screen.findByRole('alertdialog')
+        const dialog = await screen.findByRole('dialog')
         expect(dialog).toHaveTextContent('Delete “Tokyo in May”?')
         await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
 
@@ -139,7 +138,7 @@ describe('PlansSidebar', () => {
             expect.objectContaining({ path: { plan_id: TOKYO.id } }),
         )
         await waitFor(() => {
-            expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+            expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
         })
     })
 })

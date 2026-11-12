@@ -29,8 +29,9 @@ export default defineConfig([
         },
     },
     {
-        // shadcn primitives intentionally co-export their `cva` variant helpers.
-        files: ['src/components/ui/**/*.tsx'],
+        // Test helpers re-export Testing Library and define wrapper components; they are never
+        // hot-reloaded, so the fast-refresh export rule doesn't apply.
+        files: ['src/test/**/*.{ts,tsx}'],
         rules: { 'react-refresh/only-export-components': 'off' },
     },
     {

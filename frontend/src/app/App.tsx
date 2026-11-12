@@ -1,9 +1,11 @@
+import { MantineProvider } from '@mantine/core'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
 import { createAppRouter } from '@/app/router'
 import { getSession, subscribe } from '@/lib/auth'
+import { colorSchemeManager, cssVariablesResolver, mantineTheme } from '@/lib/mantineTheme'
 import { createQueryClient } from '@/lib/queryClient'
 
 export function App() {
@@ -24,8 +26,15 @@ export function App() {
 
     // ----- markup -----
     return (
-        <QueryClientProvider client={queryClient}>
-            <RouterProvider router={router} />
-        </QueryClientProvider>
+        <MantineProvider
+            theme={mantineTheme}
+            cssVariablesResolver={cssVariablesResolver}
+            colorSchemeManager={colorSchemeManager}
+            defaultColorScheme="auto"
+        >
+            <QueryClientProvider client={queryClient}>
+                <RouterProvider router={router} />
+            </QueryClientProvider>
+        </MantineProvider>
     )
 }

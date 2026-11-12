@@ -1,11 +1,10 @@
-import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import * as sdk from '@/api/sdk.gen'
 import { getToken } from '@/lib/auth'
 import { sdkOk, tokenResponse } from '@/test/fixtures'
-import { renderWithRouter } from '@/test/render'
+import { renderWithRouter, screen, waitFor } from '@/test/render'
 
 import { LoginPage } from './LoginPage'
 

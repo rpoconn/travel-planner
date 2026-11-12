@@ -1,12 +1,12 @@
-import { PlaneLanding, PlaneTakeoff, TriangleAlert } from 'lucide-react'
+import { Badge } from '@mantine/core'
+import { clsx } from 'clsx'
+import { IconAlertTriangle, IconPlaneArrival, IconPlaneDeparture } from '@tabler/icons-react'
 
 import type { TimelineEntry, TimelineWarning } from '@/api/types.gen'
 import { ContinuationCard } from '@/components/ContinuationCard/ContinuationCard'
-import { Badge } from '@/components/ui/badge'
 import { formatCost } from '@/lib/format'
 import { humanize, ITEM_TYPE_META, type ItineraryItem } from '@/lib/itemMeta'
 import { entryTimeLabel, flightLeg, formatDuration } from '@/lib/timeline'
-import { cn } from '@/lib/utils'
 
 // A flight or activity card in a day column (transfers render as TransferConnector, lodging
 // as LodgingBar). Click opens the detail sheet. A flight that lands on a later local day shows
@@ -61,7 +61,7 @@ export function ItemCard({ entry, warnings = [], onSelect }: ItemCardProps) {
         <button
             type="button"
             data-item-type={item.type}
-            className={cn(
+            className={clsx(
                 'bg-card w-full rounded-xl border border-l-4 p-3 text-left shadow-xs transition-shadow hover:shadow-md',
                 meta.border,
                 // Proposed (not yet confirmed) items get a dashed outline; the accent edge stays solid.
@@ -72,17 +72,17 @@ export function ItemCard({ entry, warnings = [], onSelect }: ItemCardProps) {
             }}
         >
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
-                <Icon className={cn('size-3.5', meta.text)} aria-hidden />
+                <Icon className={clsx('size-3.5', meta.text)} aria-hidden />
                 <span className="text-muted-foreground">{entryTimeLabel(entry)}</span>
                 {direction === 'outbound' && (
                     <span className="text-flight ml-auto inline-flex items-center gap-1 font-medium">
-                        <PlaneTakeoff className="size-3.5" aria-hidden />
+                        <IconPlaneDeparture className="size-3.5" aria-hidden />
                         Outbound
                     </span>
                 )}
                 {direction === 'return' && (
                     <span className="text-flight ml-auto inline-flex items-center gap-1 font-medium">
-                        <PlaneLanding className="size-3.5" aria-hidden />
+                        <IconPlaneArrival className="size-3.5" aria-hidden />
                         Return
                     </span>
                 )}
@@ -95,7 +95,7 @@ export function ItemCard({ entry, warnings = [], onSelect }: ItemCardProps) {
 
             <div className="mt-2 flex flex-wrap items-center gap-1.5 empty:hidden">
                 {item.status !== 'proposed' && (
-                    <Badge variant="secondary">{humanize(item.status)}</Badge>
+                    <Badge variant="light">{humanize(item.status)}</Badge>
                 )}
                 {item.cost && (
                     <span className="text-muted-foreground text-xs">{formatCost(item.cost)}</span>
@@ -105,7 +105,7 @@ export function ItemCard({ entry, warnings = [], onSelect }: ItemCardProps) {
                         className="text-warning ml-auto inline-flex items-center gap-1 text-xs"
                         title={warnings.map((warning) => warning.message).join('\n')}
                     >
-                        <TriangleAlert className="size-3.5" aria-hidden />
+                        <IconAlertTriangle className="size-3.5" aria-hidden />
                         <span className="sr-only">
                             {warnings.map((warning) => warning.message).join('. ')}
                         </span>

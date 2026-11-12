@@ -1,3 +1,4 @@
+import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
     createMemoryHistory,
@@ -7,11 +8,41 @@ import {
     Outlet,
     RouterProvider,
 } from '@tanstack/react-router'
-import { act, render } from '@testing-library/react'
-import type { ReactElement } from 'react'
+import { act, render as rtlRender, type RenderOptions } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
 
-// Test render helpers. Components get a fresh QueryClient (no retries, so errors surface
-// immediately) and, when they use router hooks/links, a throwaway in-memory router.
+import { colorSchemeManager, cssVariablesResolver, mantineTheme } from '@/lib/mantineTheme'
+
+// Test render helpers. Tests import Testing Library from here, not '@testing-library/react',
+// so every render is inside the app's MantineProvider. Components also get a fresh QueryClient
+// (no retries, so errors surface immediately) and, when they use router hooks/links, a
+// throwaway in-memory router.
+
+// The local `render` below takes precedence over the one in this star export.
+export * from '@testing-library/react'
+
+// ----- Mantine -----
+
+function MantineWrapper({ children }: { children: ReactNode }) {
+    // env="test" turns off transitions and portals, so overlays render in place, immediately.
+    return (
+        <MantineProvider
+            theme={mantineTheme}
+            cssVariablesResolver={cssVariablesResolver}
+            colorSchemeManager={colorSchemeManager}
+            env="test"
+        >
+            {children}
+        </MantineProvider>
+    )
+}
+
+/** Testing Library's `render`, wrapped in the app's MantineProvider. */
+export function render(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
+    return rtlRender(ui, { wrapper: MantineWrapper, ...options })
+}
+
+// ----- query & router -----
 
 export function createTestQueryClient(): QueryClient {
     return new QueryClient({

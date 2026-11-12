@@ -1,22 +1,22 @@
-import { render, screen } from '@testing-library/react'
+import { Drawer } from '@mantine/core'
 import { describe, expect, it } from 'vitest'
 
-import { Sheet, SheetContent } from '@/components/ui/sheet'
 import type { ItineraryItem } from '@/lib/itemMeta'
 import { activityItem, lodgingItem } from '@/test/fixtures'
+import { render, screen } from '@/test/render'
 
 import { ItemDetailBody } from './ItemDetailBody'
 
 // ----- setup -----
 
-// The body uses Sheet title/description parts, which need a dialog around them.
+// The body's title is a Drawer part, which needs a drawer around it.
 function renderBody(item: ItineraryItem) {
     render(
-        <Sheet open>
-            <SheetContent>
+        <Drawer.Root opened onClose={() => undefined}>
+            <Drawer.Content>
                 <ItemDetailBody item={item} />
-            </SheetContent>
-        </Sheet>,
+            </Drawer.Content>
+        </Drawer.Root>,
     )
 }
 

@@ -5,6 +5,20 @@
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>frontend</title>
+        <!-- Applies the saved/OS colour scheme before first paint so dark mode doesn't flash
+             light. Mirrors Mantine's ColorSchemeScript; the key matches App.tsx. -->
+        <script>
+            try {
+                var stored = window.localStorage.getItem('travel-planner.theme')
+                var scheme =
+                    stored === 'light' || stored === 'dark'
+                        ? stored
+                        : window.matchMedia('(prefers-color-scheme: dark)').matches
+                          ? 'dark'
+                          : 'light'
+                document.documentElement.setAttribute('data-mantine-color-scheme', scheme)
+            } catch (e) {}
+        </script>
     </head>
     <body>
         <div id="root"></div>

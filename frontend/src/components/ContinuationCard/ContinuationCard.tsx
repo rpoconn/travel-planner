@@ -1,9 +1,9 @@
-import { Plane, PlaneLanding, TriangleAlert } from 'lucide-react'
+import { clsx } from 'clsx'
+import { IconAlertTriangle, IconPlane, IconPlaneArrival } from '@tabler/icons-react'
 
 import type { TimelineEntry, TimelineWarning } from '@/api/types.gen'
 import { ITEM_TYPE_META, type ItineraryItem } from '@/lib/itemMeta'
 import { entryTimeLabel, formatWallDate } from '@/lib/timeline'
-import { cn } from '@/lib/utils'
 
 // A later day of a flight that started on an earlier day. Deliberately quieter than the
 // departure card (no direction badge, status or cost) so one flight doesn't read as two.
@@ -33,7 +33,7 @@ export function ContinuationCard({ entry, arriving, warnings, onSelect }: Contin
     // ----- state -----
     const { item } = entry
     const meta = ITEM_TYPE_META[item.type]
-    const LegIcon = arriving ? PlaneLanding : Plane
+    const LegIcon = arriving ? IconPlaneArrival : IconPlane
 
     // ----- markup -----
     return (
@@ -41,7 +41,7 @@ export function ContinuationCard({ entry, arriving, warnings, onSelect }: Contin
             type="button"
             data-item-type={item.type}
             data-continuation={arriving ? 'arrival' : 'in_flight'}
-            className={cn(
+            className={clsx(
                 'bg-muted/40 w-full rounded-xl border border-l-4 border-dashed [border-left-style:solid] px-3 py-2 text-left transition-shadow hover:shadow-md',
                 meta.border,
             )}
@@ -50,14 +50,14 @@ export function ContinuationCard({ entry, arriving, warnings, onSelect }: Contin
             }}
         >
             <div className="flex items-center gap-1.5 text-xs">
-                <LegIcon className={cn('size-3.5', meta.text)} aria-hidden />
+                <LegIcon className={clsx('size-3.5', meta.text)} aria-hidden />
                 <span className="font-medium">{entryTimeLabel(entry)}</span>
                 {warnings.length > 0 && (
                     <span
                         className="text-warning ml-auto inline-flex items-center gap-1"
                         title={warnings.map((warning) => warning.message).join('\n')}
                     >
-                        <TriangleAlert className="size-3.5" aria-hidden />
+                        <IconAlertTriangle className="size-3.5" aria-hidden />
                         <span className="sr-only">
                             {warnings.map((warning) => warning.message).join('. ')}
                         </span>

@@ -1,9 +1,9 @@
-import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Place, TimelineDay, TimelineWarning } from '@/api/types.gen'
 import { emptyDayGaps, zoneLabel, type DayGaps } from '@/lib/timeline'
+import { render, screen, within } from '@/test/render'
 import {
     activityItem,
     flightItem,

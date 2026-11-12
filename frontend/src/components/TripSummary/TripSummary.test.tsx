@@ -1,10 +1,9 @@
-import { screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as sdk from '@/api/sdk.gen'
 import { formatDateRange } from '@/lib/format'
 import { sdkOk, timeline, tokyoTimeline, travelPlan } from '@/test/fixtures'
-import { renderWithQuery } from '@/test/render'
+import { renderWithQuery, screen, waitFor } from '@/test/render'
 
 import { TripSummary } from './TripSummary'
 

@@ -1,8 +1,6 @@
-import { SendHorizontal } from 'lucide-react'
+import { ActionIcon, Textarea } from '@mantine/core'
+import { IconSend2 } from '@tabler/icons-react'
 import type { KeyboardEvent, SyntheticEvent } from 'react'
-
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
 
 // Message box under the transcript. Controlled, so PlanningPanel can restore the text when
 // sending fails. Enter sends; Shift+Enter adds a newline.
@@ -55,27 +53,33 @@ export function Composer({
     return (
         <form onSubmit={handleSubmit} className="flex flex-col gap-1">
             <div className="bg-card focus-within:border-ring focus-within:ring-ring/50 flex items-end gap-2 rounded-2xl border p-2 shadow-xs transition-[box-shadow] focus-within:ring-3">
+                {/* Unstyled: the surrounding box draws the border and focus ring. */}
                 <Textarea
+                    variant="unstyled"
+                    autosize
+                    minRows={1}
+                    maxRows={6}
                     aria-label="Message"
-                    rows={1}
                     maxLength={MAX_MESSAGE_CHARS}
                     value={value}
                     placeholder={placeholder}
-                    className="max-h-40 min-h-9 resize-none border-0 bg-transparent px-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
+                    className="min-w-0 flex-1"
+                    classNames={{ input: 'px-2' }}
                     onChange={(event) => {
                         onChange(event.target.value)
                     }}
                     onKeyDown={handleKeyDown}
                 />
-                <Button
+                <ActionIcon
                     type="submit"
-                    size="icon"
-                    className="shrink-0 rounded-xl"
+                    size="input-sm"
+                    radius="xl"
+                    className="shrink-0"
                     disabled={!canSend}
                     aria-label="Send message"
                 >
-                    <SendHorizontal aria-hidden />
-                </Button>
+                    <IconSend2 aria-hidden />
+                </ActionIcon>
             </div>
             {value.length > COUNTER_THRESHOLD && (
                 <p className="text-muted-foreground px-2 text-right text-xs">

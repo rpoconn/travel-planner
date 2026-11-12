@@ -415,7 +415,7 @@ stages legitimately through a shared `reach` helper.
   the transfer choices are pending. The test expects the "Trip updated" card, the "Back
   to lodging: …" divider and the "Pick a place to stay." list. The lodging preferences
   are already answered, so the search runs again at once.
-- Styled like the rest of the UI (shadcn and Tailwind), not Mantine.
+- Styled like the rest of the UI (Mantine and Tailwind).
 
 - SDK regen; `MessageBubble` `changes` card (own folder if it grows: `ChangesCard/`);
   `composerPlaceholder`; `PlanningPanelService` tests.

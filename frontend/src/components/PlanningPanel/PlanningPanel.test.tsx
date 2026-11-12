@@ -1,4 +1,3 @@
-import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -19,7 +18,7 @@ import {
     SUGGESTION,
     travelPlan,
 } from '@/test/fixtures'
-import { renderWithQuery } from '@/test/render'
+import { renderWithQuery, screen, waitFor, within } from '@/test/render'
 import { controlledSseResponse, jsonResponse, sseResponse } from '@/test/sse'
 
 import { PlanningPanel, type PlanningPanelHandle } from './PlanningPanel'

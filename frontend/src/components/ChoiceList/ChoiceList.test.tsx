@@ -1,9 +1,9 @@
-import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { OfferChoice } from '@/api/types.gen'
 import { formatDateRange } from '@/lib/format'
+import { render, screen, within } from '@/test/render'
 import {
     OFFER_ACTIVITIES,
     OFFER_FLIGHTS_OUT,

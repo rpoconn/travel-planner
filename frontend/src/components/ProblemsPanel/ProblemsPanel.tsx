@@ -1,8 +1,8 @@
-import { PartyPopper } from 'lucide-react'
+import { Badge } from '@mantine/core'
+import { IconConfetti } from '@tabler/icons-react'
 
 import type { TravelPlan } from '@/api/types.gen'
 import { ProblemRow } from '@/components/ProblemRow/ProblemRow'
-import { Badge } from '@/components/ui/badge'
 
 import { leftCount, sortProblems, summaryLabel } from './ProblemsPanelService'
 
@@ -33,8 +33,7 @@ export function ProblemsPanel({ plan, disabled = false, onFix }: ProblemsPanelPr
             className="flex min-w-0 flex-1 items-center gap-3 px-4 py-1.5"
         >
             {plan.complete ? (
-                <Badge className="shrink-0">
-                    <PartyPopper aria-hidden />
+                <Badge className="shrink-0" leftSection={<IconConfetti aria-hidden />}>
                     Trip complete
                 </Badge>
             ) : (

@@ -3,12 +3,10 @@ import { createRoot } from 'react-dom/client'
 
 import { App } from '@/app/App'
 import { configureApiClient } from '@/lib/apiClient'
-import { initTheme } from '@/lib/theme'
 
 import './index.css'
 
 configureApiClient()
-initTheme()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {

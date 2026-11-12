@@ -1,12 +1,10 @@
+import { Button, TextInput } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { type SubmitEvent, useState } from 'react'
 
 import { registerMutation } from '@/api/@tanstack/react-query.gen'
 import { AuthCard } from '@/components/AuthCard/AuthCard'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { errorMessage } from '@/lib/apiError'
 import { setSessionFromToken } from '@/lib/auth'
 
@@ -49,55 +47,43 @@ export function RegisterPage() {
             }
         >
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                <div className="grid gap-2">
-                    <Label htmlFor="register-name">Name (optional)</Label>
-                    <Input
-                        id="register-name"
-                        autoComplete="name"
-                        maxLength={100}
-                        value={displayName}
-                        onChange={(event) => {
-                            setDisplayName(event.target.value)
-                        }}
-                    />
-                </div>
-                <div className="grid gap-2">
-                    <Label htmlFor="register-email">Email</Label>
-                    <Input
-                        id="register-email"
-                        type="email"
-                        autoComplete="email"
-                        required
-                        value={email}
-                        onChange={(event) => {
-                            setEmail(event.target.value)
-                        }}
-                    />
-                </div>
-                <div className="grid gap-2">
-                    <Label htmlFor="register-password">Password</Label>
-                    <Input
-                        id="register-password"
-                        type="password"
-                        autoComplete="new-password"
-                        required
-                        minLength={MIN_PASSWORD_LENGTH}
-                        aria-describedby="register-password-hint"
-                        value={password}
-                        onChange={(event) => {
-                            setPassword(event.target.value)
-                        }}
-                    />
-                    <p id="register-password-hint" className="text-muted-foreground text-xs">
-                        At least {MIN_PASSWORD_LENGTH} characters.
-                    </p>
-                </div>
+                <TextInput
+                    label="Name (optional)"
+                    autoComplete="name"
+                    maxLength={100}
+                    value={displayName}
+                    onChange={(event) => {
+                        setDisplayName(event.target.value)
+                    }}
+                />
+                <TextInput
+                    label="Email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(event) => {
+                        setEmail(event.target.value)
+                    }}
+                />
+                <TextInput
+                    label="Password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    minLength={MIN_PASSWORD_LENGTH}
+                    description={`At least ${String(MIN_PASSWORD_LENGTH)} characters.`}
+                    value={password}
+                    onChange={(event) => {
+                        setPassword(event.target.value)
+                    }}
+                />
                 {register.isError && (
                     <p role="alert" className="text-destructive text-sm">
                         {errorMessage(register.error)}
                     </p>
                 )}
-                <Button type="submit" disabled={register.isPending}>
+                <Button type="submit" size="sm" disabled={register.isPending}>
                     {register.isPending ? 'Creating account…' : 'Create account'}
                 </Button>
             </form>

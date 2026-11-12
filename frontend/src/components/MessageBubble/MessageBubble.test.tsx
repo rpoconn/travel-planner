@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+
+import { render, screen } from '@/test/render'
 
 import { MessageBubble } from './MessageBubble'
 
@@ -10,13 +11,13 @@ describe('MessageBubble', () => {
         )
 
         expect(screen.getByText('Find flights to Tokyo')).toBeInTheDocument()
-        expect(container.firstChild).toHaveAttribute('data-role', 'user')
+        expect(container.querySelector('[data-role]')).toHaveAttribute('data-role', 'user')
     })
 
     it('renders a form answer or a pick as a user bubble', () => {
         const { container } = render(<MessageBubble role="user" kind="pick" content="TAP 201" />)
 
-        expect(container.firstChild).toHaveAttribute('data-role', 'user')
+        expect(container.querySelector('[data-role]')).toHaveAttribute('data-role', 'user')
     })
 
     it('renders a planner question as an assistant reply', () => {
@@ -100,7 +101,7 @@ describe('MessageBubble', () => {
             <MessageBubble role="system" kind="error" content="The model is unavailable." />,
         )
 
-        expect(container.firstChild).toHaveAttribute('data-role', 'system')
+        expect(container.querySelector('[data-role]')).toHaveAttribute('data-role', 'system')
         expect(screen.getByText('The model is unavailable.')).toBeInTheDocument()
     })
 })

@@ -1,13 +1,15 @@
+import { ActionIcon, Button } from '@mantine/core'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
+import { clsx } from 'clsx'
 import {
-    CalendarRange,
-    LogOut,
-    MessagesSquare,
-    PanelLeftClose,
-    PanelLeftOpen,
-    Plane,
-} from 'lucide-react'
+    IconCalendarWeek,
+    IconLayoutSidebarLeftCollapse,
+    IconLayoutSidebarLeftExpand,
+    IconLogout,
+    IconMessages,
+    IconPlane,
+} from '@tabler/icons-react'
 import { useReducer, useRef, useState } from 'react'
 
 import { getPlanOptions } from '@/api/@tanstack/react-query.gen'
@@ -20,10 +22,8 @@ import { ProblemsPanel } from '@/components/ProblemsPanel/ProblemsPanel'
 import { SplitPane } from '@/components/SplitPane/SplitPane'
 import { ThemeToggle } from '@/components/ThemeToggle/ThemeToggle'
 import { TripSummary } from '@/components/TripSummary/TripSummary'
-import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/apiError'
 import { clearSession, useAuthSession } from '@/lib/auth'
-import { cn } from '@/lib/utils'
 
 import { initialTripsPanel, tripsPanelReducer, tripsToggleLabel } from './WorkspacePageService'
 
@@ -84,9 +84,8 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
         <div className="flex h-screen flex-col">
             <header className="from-primary/10 via-background to-terracotta/12 flex h-12 shrink-0 items-center justify-between gap-4 border-b bg-linear-to-r px-4">
                 <div className="flex min-w-0 items-center gap-2">
-                    <Button
-                        size="icon-sm"
-                        variant="ghost"
+                    <ActionIcon
+                        variant="subtle"
                         aria-label={tripsToggleLabel(tripsPanel.open)}
                         aria-expanded={tripsPanel.open}
                         aria-controls="trips-panel"
@@ -95,17 +94,17 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                         }}
                     >
                         {tripsPanel.open ? (
-                            <PanelLeftClose aria-hidden />
+                            <IconLayoutSidebarLeftCollapse aria-hidden />
                         ) : (
-                            <PanelLeftOpen aria-hidden />
+                            <IconLayoutSidebarLeftExpand aria-hidden />
                         )}
-                    </Button>
+                    </ActionIcon>
                     <span className="font-heading flex shrink-0 items-center gap-2 text-lg">
                         <span className="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-full">
-                            <Plane className="size-3.5" aria-hidden />
+                            <IconPlane className="size-3.5" aria-hidden />
                         </span>
                         {/* On a narrow page the app's name makes way for the trip's. */}
-                        <span className={cn(plan && 'max-md:hidden')}>Travel Planner</span>
+                        <span className={clsx(plan && 'max-md:hidden')}>Travel Planner</span>
                     </span>
                     {plan && (
                         <>
@@ -120,8 +119,11 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                     <span className="text-muted-foreground" data-testid="current-user">
                         {session && (session.user.display_name || session.user.email)}
                     </span>
-                    <Button size="sm" variant="ghost" onClick={handleSignOut}>
-                        <LogOut aria-hidden />
+                    <Button
+                        variant="subtle"
+                        leftSection={<IconLogout aria-hidden />}
+                        onClick={handleSignOut}
+                    >
                         Sign out
                     </Button>
                 </div>
@@ -143,7 +145,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
             )}
 
             <div
-                className={cn(
+                className={clsx(
                     'grid min-h-0 flex-1 transition-[grid-template-columns] duration-200 motion-reduce:transition-none',
                     tripsPanel.open
                         ? 'grid-cols-[17rem_minmax(0,1fr)]'
@@ -156,7 +158,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                 <aside
                     id="trips-panel"
                     inert={!tripsPanel.open}
-                    className={cn(
+                    className={clsx(
                         'bg-sidebar min-h-0 overflow-hidden',
                         tripsPanel.open && 'border-r',
                     )}
@@ -172,7 +174,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
 
                 {/* Right column: itinerary on top, chat below, with a draggable divider. The
                     capture handlers see every click and key press in the trip, including those
-                    in its popovers and sheets (React events bubble through portals). */}
+                    in its drawers and dialogs (React events bubble through portals). */}
                 <div
                     className="h-full min-h-0 min-w-0"
                     onClickCapture={handleTripInteraction}
@@ -185,7 +187,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                             <section aria-label="Itinerary" className="bg-muted/40 h-full min-w-0">
                                 {planId === undefined || !plan ? (
                                     <EmptyPane
-                                        icon={<CalendarRange aria-hidden />}
+                                        icon={<IconCalendarWeek aria-hidden />}
                                         title="Itinerary"
                                     >
                                         Select a trip to see its itinerary.
@@ -207,7 +209,7 @@ export function WorkspacePage({ planId }: WorkspacePageProps) {
                                 <div className="min-h-0 flex-1">
                                     {planId === undefined ? (
                                         <EmptyPane
-                                            icon={<MessagesSquare aria-hidden />}
+                                            icon={<IconMessages aria-hidden />}
                                             title="Pick a trip to start"
                                         >
                                             Choose a trip on the left, or create a new one.

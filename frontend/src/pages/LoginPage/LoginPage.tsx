@@ -1,12 +1,10 @@
+import { Button, TextInput } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { type SubmitEvent, useState } from 'react'
 
 import { loginMutation } from '@/api/@tanstack/react-query.gen'
 import { AuthCard } from '@/components/AuthCard/AuthCard'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { errorMessage } from '@/lib/apiError'
 import { setSessionFromToken } from '@/lib/auth'
 
@@ -48,38 +46,32 @@ export function LoginPage() {
             }
         >
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                <div className="grid gap-2">
-                    <Label htmlFor="login-email">Email</Label>
-                    <Input
-                        id="login-email"
-                        type="email"
-                        autoComplete="email"
-                        required
-                        value={email}
-                        onChange={(event) => {
-                            setEmail(event.target.value)
-                        }}
-                    />
-                </div>
-                <div className="grid gap-2">
-                    <Label htmlFor="login-password">Password</Label>
-                    <Input
-                        id="login-password"
-                        type="password"
-                        autoComplete="current-password"
-                        required
-                        value={password}
-                        onChange={(event) => {
-                            setPassword(event.target.value)
-                        }}
-                    />
-                </div>
+                <TextInput
+                    label="Email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(event) => {
+                        setEmail(event.target.value)
+                    }}
+                />
+                <TextInput
+                    label="Password"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(event) => {
+                        setPassword(event.target.value)
+                    }}
+                />
                 {login.isError && (
                     <p role="alert" className="text-destructive text-sm">
                         {errorMessage(login.error)}
                     </p>
                 )}
-                <Button type="submit" disabled={login.isPending}>
+                <Button type="submit" size="sm" disabled={login.isPending}>
                     {login.isPending ? 'Signing in…' : 'Sign in'}
                 </Button>
             </form>

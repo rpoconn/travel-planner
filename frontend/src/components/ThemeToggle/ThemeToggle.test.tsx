@@ -1,23 +1,31 @@
-import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import { setTheme } from '@/lib/theme'
+import { render, screen } from '@/test/render'
 
 import { ThemeToggle } from './ThemeToggle'
 
-describe('ThemeToggle', () => {
-    afterEach(() => {
-        setTheme('light')
-    })
+const STORAGE_KEY = 'travel-planner.theme'
 
-    it('switches between light and dark', async () => {
+describe('ThemeToggle', () => {
+    it('switches between light and dark and remembers the choice', async () => {
         render(<ThemeToggle />)
+        const html = document.documentElement
 
         await userEvent.click(screen.getByRole('button', { name: 'Switch to dark theme' }))
+        expect(html).toHaveAttribute('data-mantine-color-scheme', 'dark')
+        expect(localStorage.getItem(STORAGE_KEY)).toBe('dark')
 
-        expect(document.documentElement).toHaveClass('dark')
         await userEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
-        expect(document.documentElement).not.toHaveClass('dark')
+        expect(html).toHaveAttribute('data-mantine-color-scheme', 'light')
+        expect(localStorage.getItem(STORAGE_KEY)).toBe('light')
+    })
+
+    it('starts from a stored choice', () => {
+        localStorage.setItem(STORAGE_KEY, 'dark')
+
+        render(<ThemeToggle />)
+
+        expect(screen.getByRole('button', { name: 'Switch to light theme' })).toBeVisible()
     })
 })

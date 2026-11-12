@@ -1,9 +1,9 @@
-import { ArrowRight, RefreshCw } from 'lucide-react'
+import { Button } from '@mantine/core'
+import { IconArrowRight, IconRefresh } from '@tabler/icons-react'
 import { useState } from 'react'
 
 import type { OfferChoice } from '@/api/types.gen'
 import { CandidateCard } from '@/components/CandidateCard/CandidateCard'
-import { Button } from '@/components/ui/button'
 
 import {
     canSubmit,
@@ -85,27 +85,23 @@ export function ChoiceList({ action, disabled = false, onPick, onMore }: ChoiceL
                 <div className="flex justify-end gap-1.5">
                     {canAskForMore && (
                         <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
+                            variant="subtle"
                             disabled={disabled}
+                            leftSection={<IconRefresh aria-hidden />}
                             onClick={onMore}
                         >
-                            <RefreshCw aria-hidden />
                             More options
                         </Button>
                     )}
                     {multi && (
                         <Button
-                            type="button"
-                            size="sm"
                             disabled={disabled || !canSubmit(selected, action)}
+                            rightSection={<IconArrowRight aria-hidden />}
                             onClick={() => {
                                 onPick(selected)
                             }}
                         >
                             {submitLabel(selected, action)}
-                            <ArrowRight aria-hidden />
                         </Button>
                     )}
                 </div>

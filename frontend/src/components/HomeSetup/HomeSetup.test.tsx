@@ -1,11 +1,10 @@
-import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import * as sdk from '@/api/sdk.gen'
 import { getSession, setSessionFromToken } from '@/lib/auth'
 import { ADA, PHILADELPHIA, sdkOk, tokenResponse } from '@/test/fixtures'
-import { renderWithQuery } from '@/test/render'
+import { renderWithQuery, screen, waitFor } from '@/test/render'
 
 import { HomeSetup } from './HomeSetup'
 
@@ -51,6 +50,15 @@ describe('HomeSetup', () => {
         // The session (and so the header button) now has the home.
         expect(getSession()?.user.home).toEqual(PHILADELPHIA)
         expect(screen.getByRole('button', { name: 'Home: Philadelphia' })).toBeInTheDocument()
+    })
+
+    it('stays open when the app behind the first-run drawer is clicked', async () => {
+        const { user } = renderHome(null)
+
+        const sheet = await screen.findByRole('dialog', { name: 'Where is home?' })
+        await user.click(document.body)
+
+        expect(sheet).toBeInTheDocument()
     })
 
     it('stays closed for a user with a home until the button is clicked', async () => {

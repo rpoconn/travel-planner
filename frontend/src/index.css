@@ -1,11 +1,17 @@
-@import 'tailwindcss';
-@import 'tw-animate-css';
-@import 'shadcn/tailwind.css';
+/* Cascade layers, lowest to highest. Mantine sits above Tailwind's preflight (so the reset
+   doesn't strip its components) and below the utilities (so a Tailwind class on a Mantine
+   component wins). Tailwind is imported in parts so each lands in its layer. */
+@layer theme, base, mantine, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@import '@mantine/core/styles.layer.css';
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/manrope';
 
-/* Dark mode follows a `.dark` class on <html>, toggled by lib/theme.ts. */
-@custom-variant dark (&:is(.dark *));
+/* Dark mode follows the `data-mantine-color-scheme` attribute MantineProvider sets on <html>. */
+@custom-variant dark (&:where([data-mantine-color-scheme='dark'], [data-mantine-color-scheme='dark'] *));
 
 /* ----- design tokens exposed to Tailwind (bg-primary, text-flight, font-heading, …) ----- */
 
@@ -120,7 +126,7 @@
 
 /* ----- dark: warm charcoal surfaces, brighter teal/terracotta so they still read ----- */
 
-.dark {
+[data-mantine-color-scheme='dark'] {
     --background: oklch(0.2 0.016 60);
     --foreground: oklch(0.94 0.014 80);
     --card: oklch(0.245 0.018 60);
@@ -167,12 +173,9 @@
     body {
         @apply bg-background text-foreground text-base;
     }
+    /* Mantine sets `color-scheme` on :root from the active scheme. */
     html {
         @apply font-sans;
-        color-scheme: light;
-    }
-    html.dark {
-        color-scheme: dark;
     }
 }
 

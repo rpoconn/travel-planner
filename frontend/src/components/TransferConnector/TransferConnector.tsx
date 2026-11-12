@@ -1,10 +1,10 @@
-import { TriangleAlert } from 'lucide-react'
+import { clsx } from 'clsx'
+import { IconAlertTriangle } from '@tabler/icons-react'
 
 import type { TransferItem } from '@/api/types.gen'
 import { ConnectorRail } from '@/components/ConnectorRail/ConnectorRail'
 import { TRANSFER_MODE_META } from '@/lib/itemMeta'
 import { formatDuration, formatWallTime } from '@/lib/timeline'
-import { cn } from '@/lib/utils'
 
 // The link between two stops in a day column: a transfer item drawn as a small chip on a
 // vertical connector line, or a dashed "no transfer planned" chip where the server flagged a
@@ -25,7 +25,7 @@ export function TransferConnector(props: TransferConnectorProps) {
                     className="border-warning/50 bg-warning/8 text-foreground inline-flex items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-xs"
                     title={props.message}
                 >
-                    <TriangleAlert className="text-warning size-3.5" aria-hidden />
+                    <IconAlertTriangle className="text-warning size-3.5" aria-hidden />
                     No transfer planned
                     <span className="sr-only">: {props.message}</span>
                 </span>
@@ -45,7 +45,7 @@ export function TransferConnector(props: TransferConnectorProps) {
                 data-item-type="transfer"
                 aria-label={`${item.title}: ${mode.label}, ${formatWallTime(item.start)}`}
                 title={`${item.from_place.name} → ${item.to_place.name}`}
-                className={cn(
+                className={clsx(
                     'bg-transfer/12 hover:bg-transfer/20 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors',
                     item.status === 'proposed' && 'border-dashed',
                 )}

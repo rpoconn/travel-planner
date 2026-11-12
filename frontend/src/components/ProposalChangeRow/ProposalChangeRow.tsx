@@ -1,4 +1,4 @@
-import { Minus, Pencil, Plus, TriangleAlert } from 'lucide-react'
+import { IconAlertTriangle, IconMinus, IconPencil, IconPlus } from '@tabler/icons-react'
 
 import type { SuggestedChange } from '@/api/types.gen'
 
@@ -18,7 +18,11 @@ export function ProposalChangeRow({ change }: ProposalChangeRowProps) {
     const facts = candidateFacts(change)
     const warnings = candidateWarnings(change)
     const Icon =
-        change.name === 'add_candidate' ? Plus : change.name === 'remove_item' ? Minus : Pencil
+        change.name === 'add_candidate'
+            ? IconPlus
+            : change.name === 'remove_item'
+              ? IconMinus
+              : IconPencil
 
     // ------------ Render ------------
     return (
@@ -29,7 +33,7 @@ export function ProposalChangeRow({ change }: ProposalChangeRowProps) {
                 {facts && <span className="text-muted-foreground text-xs">{facts}</span>}
                 {warnings.map((warning) => (
                     <span key={warning} className="text-warning flex items-center gap-1 text-xs">
-                        <TriangleAlert className="size-3 shrink-0" aria-hidden />
+                        <IconAlertTriangle className="size-3 shrink-0" aria-hidden />
                         {warning}
                     </span>
                 ))}

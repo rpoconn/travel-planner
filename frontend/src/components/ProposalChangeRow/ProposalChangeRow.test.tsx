@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import type { SuggestedChange } from '@/api/types.gen'
 import { candidate, SUGGESTION } from '@/test/fixtures'
+import { render, screen } from '@/test/render'
 
 import { ProposalChangeRow } from './ProposalChangeRow'
 

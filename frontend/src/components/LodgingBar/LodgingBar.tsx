@@ -1,10 +1,10 @@
-import { TriangleAlert } from 'lucide-react'
+import { clsx } from 'clsx'
+import { IconAlertTriangle } from '@tabler/icons-react'
 import type { CSSProperties } from 'react'
 
 import type { LodgingItem, TimelineWarning } from '@/api/types.gen'
 import { ITEM_TYPE_META } from '@/lib/itemMeta'
 import { dayOffset, formatWallTime } from '@/lib/timeline'
-import { cn } from '@/lib/utils'
 
 // A stay drawn as one continuous bar across the day columns it covers. ItineraryTimeline
 // positions it on the grid (see layoutLodging in lib/timeline.ts) through `style`.
@@ -32,7 +32,7 @@ export function LodgingBar({ item, warnings = [], style, onSelect }: LodgingBarP
             style={style}
             aria-label={`${item.title}, ${nightsLabel}`}
             title={`Check-in ${formatWallTime(item.start)} · Check-out ${formatWallTime(item.end)}`}
-            className={cn(
+            className={clsx(
                 'border-lodging/60 bg-lodging/18 hover:bg-lodging/28 mx-1 my-1 flex min-w-0 items-center gap-1.5 rounded-full border px-3 text-left text-xs transition-colors',
                 item.status === 'proposed' && 'border-dashed',
             )}
@@ -44,7 +44,7 @@ export function LodgingBar({ item, warnings = [], style, onSelect }: LodgingBarP
             <span className="truncate font-medium">{item.title}</span>
             <span className="text-muted-foreground shrink-0">· {nightsLabel}</span>
             {warnings.length > 0 && (
-                <TriangleAlert className="text-warning ml-auto size-3.5 shrink-0" aria-hidden />
+                <IconAlertTriangle className="text-warning ml-auto size-3.5 shrink-0" aria-hidden />
             )}
         </button>
     )

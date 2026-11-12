@@ -260,7 +260,11 @@ test('removes the hotel from the itinerary, says what the trip needs, and finds 
     const itinerary = page.getByRole('region', { name: 'Itinerary' })
     await itinerary.getByRole('button', { name: /, \d+ nights?$/ }).click()
     await page.getByRole('button', { name: 'Remove from trip' }).click()
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click()
+    // The confirm opens over the item's drawer, which is a dialog too.
+    await page
+        .getByRole('dialog', { name: /^Remove “/ })
+        .getByRole('button', { name: 'Remove' })
+        .click()
 
     // The card says what the trip needs now and how to fix it; then the planner, with the
     // preferences already answered, searches for another place at once.

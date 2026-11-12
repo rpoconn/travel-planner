@@ -1,8 +1,8 @@
-import { TriangleAlert, Wrench } from 'lucide-react'
+import { Button } from '@mantine/core'
+import { clsx } from 'clsx'
+import { IconAlertTriangle, IconTool } from '@tabler/icons-react'
 
 import type { Problem } from '@/api/types.gen'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 
 import { canFix, fixLabel, problemText } from './ProblemRowService'
 
@@ -27,28 +27,29 @@ export function ProblemRow({ problem, disabled = false, onFix }: ProblemRowProps
     return (
         <li
             data-severity={problem.severity}
-            className={cn(
-                'flex shrink-0 items-center gap-1.5 rounded-full border py-0.5 pr-1 pl-2.5 text-xs',
-                blocking ? 'bg-card' : 'text-muted-foreground border-dashed pr-2.5',
+            className={clsx(
+                'flex shrink-0 items-center gap-1.5 rounded-full border py-0.5 pl-2.5 text-xs',
+                // A blocking row ends in its button, so it sits closer to the edge.
+                blocking ? 'bg-card pr-1' : 'text-muted-foreground border-dashed pr-2.5',
             )}
         >
-            <TriangleAlert
+            <IconAlertTriangle
                 aria-hidden
-                className={cn('size-3 shrink-0', blocking ? 'text-destructive' : 'text-warning')}
+                className={clsx('size-3 shrink-0', blocking ? 'text-destructive' : 'text-warning')}
             />
             <span className="whitespace-nowrap">{problemText(problem)}</span>
             {canFix(problem) && (
                 <Button
-                    size="xs"
-                    variant="ghost"
-                    className="rounded-full"
+                    size="compact-xs"
+                    variant="subtle"
+                    radius="xl"
                     disabled={disabled}
                     aria-label={fixLabel(problem)}
+                    leftSection={<IconTool aria-hidden />}
                     onClick={() => {
                         onFix(problem.id)
                     }}
                 >
-                    <Wrench aria-hidden />
                     Fix this
                 </Button>
             )}

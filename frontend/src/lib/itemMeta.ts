@@ -1,17 +1,15 @@
 import {
-    BedDouble,
-    Bus,
-    Car,
-    CarTaxiFront,
-    Footprints,
-    MapPin,
-    Plane,
-    Ship,
-    TrainFront,
-    TramFront,
-    Van,
-    type LucideIcon,
-} from 'lucide-react'
+    IconBed,
+    IconBus,
+    IconCar,
+    IconCarSuv,
+    IconMapPin,
+    IconPlane,
+    IconShip,
+    IconTrain,
+    IconWalk,
+    type TablerIcon,
+} from '@tabler/icons-react'
 
 import type { ActivityItem, FlightItem, LodgingItem, TransferItem } from '@/api/types.gen'
 
@@ -27,7 +25,7 @@ export type TransferMode = TransferItem['mode']
 
 interface ItemTypeMeta {
     label: string
-    icon: LucideIcon
+    icon: TablerIcon
     /** Icon / accent text color. */
     text: string
     /** Soft tinted background. */
@@ -41,28 +39,28 @@ interface ItemTypeMeta {
 export const ITEM_TYPE_META: Record<ItemType, ItemTypeMeta> = {
     flight: {
         label: 'Flight',
-        icon: Plane,
+        icon: IconPlane,
         text: 'text-flight',
         tint: 'bg-flight/12',
         border: 'border-l-flight',
     },
     lodging: {
         label: 'Stay',
-        icon: BedDouble,
+        icon: IconBed,
         text: 'text-lodging',
         tint: 'bg-lodging/18',
         border: 'border-l-lodging',
     },
     activity: {
         label: 'Activity',
-        icon: MapPin,
+        icon: IconMapPin,
         text: 'text-activity',
         tint: 'bg-activity/12',
         border: 'border-l-activity',
     },
     transfer: {
         label: 'Transfer',
-        icon: TrainFront,
+        icon: IconTrain,
         text: 'text-transfer',
         tint: 'bg-transfer/12',
         border: 'border-l-transfer',
@@ -71,18 +69,18 @@ export const ITEM_TYPE_META: Record<ItemType, ItemTypeMeta> = {
 
 // ----- transfer modes -----
 
-export const TRANSFER_MODE_META: Record<TransferMode, { label: string; icon: LucideIcon }> = {
-    car_rental: { label: 'Car rental', icon: Car },
-    car_service: { label: 'Car service', icon: Car },
-    own_car: { label: 'Your car', icon: Car },
-    taxi: { label: 'Taxi', icon: CarTaxiFront },
-    rideshare: { label: 'Rideshare', icon: Car },
-    train: { label: 'Train', icon: TrainFront },
-    bus: { label: 'Bus', icon: Bus },
-    ferry: { label: 'Ferry', icon: Ship },
-    shuttle: { label: 'Shuttle', icon: Van },
-    walk: { label: 'Walk', icon: Footprints },
-    metro: { label: 'Metro', icon: TramFront },
+export const TRANSFER_MODE_META: Record<TransferMode, { label: string; icon: TablerIcon }> = {
+    car_rental: { label: 'Car rental', icon: IconCar },
+    car_service: { label: 'Car service', icon: IconCar },
+    own_car: { label: 'Your car', icon: IconCar },
+    taxi: { label: 'Taxi', icon: IconCar },
+    rideshare: { label: 'Rideshare', icon: IconCar },
+    train: { label: 'Train', icon: IconTrain },
+    bus: { label: 'Bus', icon: IconBus },
+    ferry: { label: 'Ferry', icon: IconShip },
+    shuttle: { label: 'Shuttle', icon: IconCarSuv },
+    walk: { label: 'Walk', icon: IconWalk },
+    metro: { label: 'Metro', icon: IconTrain },
 }
 
 // ----- labels -----

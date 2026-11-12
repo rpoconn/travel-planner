@@ -16,7 +16,7 @@
         "noEmit": true,
         "jsx": "react-jsx",
 
-        /* Path alias (shadcn + app imports): "@/lib/utils" -> "src/lib/utils" */
+        /* Path alias for app imports: "@/lib/format" -> "src/lib/format" */
         "paths": {
             "@/*": ["./src/*"]
         },

@@ -1,4 +1,4 @@
-import { CircleAlert, Compass } from 'lucide-react'
+import { IconAlertCircle, IconCompass } from '@tabler/icons-react'
 
 import type { PlanningMessage } from '@/api/types.gen'
 import { ChangesCard } from '@/components/ChangesCard/ChangesCard'
@@ -47,7 +47,7 @@ export function MessageBubble({
                 data-role="system"
                 className="border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-xl border px-3 py-1.5 text-sm leading-snug"
             >
-                <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+                <IconAlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
                 <p className="whitespace-pre-wrap">{content}</p>
             </div>
         )
@@ -66,7 +66,7 @@ export function MessageBubble({
                 data-role="assistant"
                 className="border-terracotta/40 bg-accent/60 text-accent-foreground flex w-fit max-w-[85%] items-start gap-2 rounded-2xl border border-dashed px-3 py-2 text-sm leading-snug"
             >
-                <Compass className="text-terracotta mt-0.5 size-4 shrink-0" aria-hidden />
+                <IconCompass className="text-terracotta mt-0.5 size-4 shrink-0" aria-hidden />
                 <p className="whitespace-pre-wrap">
                     {content || (streaming ? <TypingDots /> : null)}
                 </p>

@@ -1,8 +1,8 @@
-import { Check, X } from 'lucide-react'
+import { Button } from '@mantine/core'
+import { IconCheck, IconX } from '@tabler/icons-react'
 
 import type { ReviewProposal } from '@/api/types.gen'
 import { ProposalChangeRow } from '@/components/ProposalChangeRow/ProposalChangeRow'
-import { Button } from '@/components/ui/button'
 import type { ProposalDecision } from '@/lib/sse'
 
 // Changes the planner suggests on its own: why, what would change, and Approve / Reject.
@@ -37,24 +37,22 @@ export function ProposalCard({ proposal, disabled = false, onDecide }: ProposalC
             </ul>
             <div className="flex items-center gap-2 pt-1">
                 <Button
-                    size="sm"
                     disabled={disabled}
+                    leftSection={<IconCheck aria-hidden />}
                     onClick={() => {
                         onDecide('approve')
                     }}
                 >
-                    <Check aria-hidden />
                     Approve
                 </Button>
                 <Button
-                    size="sm"
-                    variant="outline"
+                    variant="default"
                     disabled={disabled}
+                    leftSection={<IconX aria-hidden />}
                     onClick={() => {
                         onDecide('reject')
                     }}
                 >
-                    <X aria-hidden />
                     Reject
                 </Button>
             </div>

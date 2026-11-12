@@ -1,9 +1,8 @@
-import { ArrowRight, Minus, Plus, SkipForward } from 'lucide-react'
+import { ActionIcon, Button, TextInput } from '@mantine/core'
+import { IconArrowRight, IconMinus, IconPlayerSkipForward, IconPlus } from '@tabler/icons-react'
 import { useState, type SyntheticEvent } from 'react'
 
 import type { AskInput, FieldSpec } from '@/api/types.gen'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 
 import {
     buildValue,
@@ -96,10 +95,9 @@ export function ExpectedInputPanel({
 
                     {field.kind === 'date_range' && (
                         <div className="flex flex-wrap items-center gap-2">
-                            <Input
+                            <TextInput
                                 type="date"
                                 aria-label={`${field.label}: from`}
-                                className="w-auto"
                                 min={today}
                                 value={form.text[partKey(field.name, 'start')] ?? ''}
                                 onChange={(event) => {
@@ -107,10 +105,9 @@ export function ExpectedInputPanel({
                                 }}
                             />
                             <span className="text-muted-foreground text-xs">to</span>
-                            <Input
+                            <TextInput
                                 type="date"
                                 aria-label={`${field.label}: to`}
-                                className="w-auto"
                                 // The end can't come before the start.
                                 min={earliestEnd(form, field.name) ?? today}
                                 value={form.text[partKey(field.name, 'end')] ?? ''}
@@ -128,23 +125,23 @@ export function ExpectedInputPanel({
 
                     {field.kind === 'integer' && (
                         <div className="flex items-center gap-1">
-                            <Button
-                                type="button"
-                                size="icon"
-                                variant="outline"
+                            <ActionIcon
+                                size="input-sm"
+                                variant="default"
                                 aria-label={`Fewer ${field.label.toLowerCase()}`}
                                 disabled={!canStep(form, field, -1)}
                                 onClick={() => {
                                     step(field, -1)
                                 }}
                             >
-                                <Minus aria-hidden />
-                            </Button>
-                            <Input
+                                <IconMinus aria-hidden />
+                            </ActionIcon>
+                            <TextInput
                                 type="number"
                                 inputMode="numeric"
                                 aria-label={field.label}
-                                className="w-16 text-center"
+                                className="w-16"
+                                classNames={{ input: 'text-center' }}
                                 min={field.min ?? undefined}
                                 max={field.max ?? undefined}
                                 value={form.text[field.name] ?? ''}
@@ -152,24 +149,23 @@ export function ExpectedInputPanel({
                                     updateText(field.name, event.target.value)
                                 }}
                             />
-                            <Button
-                                type="button"
-                                size="icon"
-                                variant="outline"
+                            <ActionIcon
+                                size="input-sm"
+                                variant="default"
                                 aria-label={`More ${field.label.toLowerCase()}`}
                                 disabled={!canStep(form, field, 1)}
                                 onClick={() => {
                                     step(field, 1)
                                 }}
                             >
-                                <Plus aria-hidden />
-                            </Button>
+                                <IconPlus aria-hidden />
+                            </ActionIcon>
                         </div>
                     )}
 
                     {field.kind === 'money' && (
                         <div className="flex items-center gap-2">
-                            <Input
+                            <TextInput
                                 type="number"
                                 inputMode="decimal"
                                 aria-label={field.label}
@@ -181,9 +177,10 @@ export function ExpectedInputPanel({
                                     updateText(partKey(field.name, 'amount'), event.target.value)
                                 }}
                             />
-                            <Input
+                            <TextInput
                                 aria-label={`${field.label}: currency`}
-                                className="w-20 uppercase"
+                                className="w-20"
+                                classNames={{ input: 'uppercase' }}
                                 maxLength={3}
                                 value={form.text[partKey(field.name, 'currency')] ?? ''}
                                 onChange={(event) => {
@@ -194,7 +191,7 @@ export function ExpectedInputPanel({
                     )}
 
                     {(field.kind === 'text' || field.kind === 'place') && (
-                        <Input
+                        <TextInput
                             aria-label={field.label}
                             placeholder={field.placeholder}
                             maxLength={200}
@@ -216,9 +213,7 @@ export function ExpectedInputPanel({
                                 return (
                                     <Button
                                         key={String(option.value)}
-                                        type="button"
-                                        size="sm"
-                                        variant={selected ? 'default' : 'outline'}
+                                        variant={selected ? 'filled' : 'default'}
                                         // A choice is a radio group; a multi choice, toggles.
                                         role={field.kind === 'choice' ? 'radio' : undefined}
                                         aria-checked={
@@ -249,19 +244,20 @@ export function ExpectedInputPanel({
             <div className="flex justify-end gap-1.5">
                 {action.optional && (
                     <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
+                        variant="subtle"
                         disabled={disabled}
+                        leftSection={<IconPlayerSkipForward aria-hidden />}
                         onClick={onSkip}
                     >
-                        <SkipForward aria-hidden />
                         Skip
                     </Button>
                 )}
-                <Button type="submit" size="sm" disabled={disabled}>
+                <Button
+                    type="submit"
+                    disabled={disabled}
+                    rightSection={<IconArrowRight aria-hidden />}
+                >
                     Continue
-                    <ArrowRight aria-hidden />
                 </Button>
             </div>
         </form>
